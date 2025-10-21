@@ -5,18 +5,17 @@ import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
 from typing import Optional, Dict, List, Set
-
-st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
-st.title("📝 Enter Gig")
-# --- Page config ---
-st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
-
-# --- Header with logo + title + key fields on the right ---
 from pathlib import Path
-logo_path = Path(__file__).parent.parent / "assets" / "prs_logo.png"  # rename to match your logo filename
+
+# -----------------------------
+# Page config + Header
+# -----------------------------
+st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
+
+# Header with logo + title + key fields on the right
+logo_path = Path(__file__).parent.parent / "assets" / "prs_logo.png"  # ensure this path/file exists
 
 hdr1, hdr2, hdr3 = st.columns([0.14, 0.56, 0.30])
-
 with hdr1:
     if logo_path.exists():
         st.image(str(logo_path), use_container_width=True)
@@ -27,6 +26,7 @@ with hdr2:
         unsafe_allow_html=True
     )
 with hdr3:
+    # Shown in header for quick access; variables reused below when saving
     contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0)
     fee = st.number_input("Fee", min_value=0.0, step=100.0, format="%.2f")
 
@@ -133,7 +133,6 @@ def _format_12h(t: time) -> str:
 
 # ---------------------------------------
 # Mini-creators for "Add New ..."
-# (DEFINED BEFORE UI so NameError cannot occur)
 # ---------------------------------------
 def _create_agent(name: str, company: str) -> Optional[str]:
     payload = _filter_to_schema("agents", {
@@ -250,14 +249,15 @@ st.session_state.setdefault("preselect_role_ids", {})  # role -> musician_id
 st.subheader("Event Basics")
 
 eb1, eb2, eb3 = st.columns([1,1,1])
+
+# Left column: Title + Date + Performance Time row
 with eb1:
     title = st.text_input("Title (optional)", placeholder="e.g., Spring Gala")
     event_date = st.date_input("Date of Performance", value=date.today())
 
-    # --- Performance Time Row (Start/End grouped together) ---
+    # Performance Time: Start/End grouped in one row (12-hr)
     st.markdown("**Performance Time**")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
-
     with col1:
         start_hour = st.selectbox("Start Hour", list(range(1, 13)), index=7, key="start_hour")
     with col2:
@@ -271,11 +271,10 @@ with eb1:
     with col6:
         end_ampm = st.selectbox("AM/PM", ["AM", "PM"], index=1, key="end_ampm")
 
-# Agent + Band
+# Right side of Event Basics: Agent + Band
 ag_col, band_col = st.columns([1,1])
 with band_col:
     band_name = st.text_input("Band (optional)", placeholder="PRS")
-
 with ag_col:
     AGENT_ADD = "__ADD_AGENT__"
     agent_options = [""] + list(agent_labels.keys()) + [AGENT_ADD]
