@@ -59,6 +59,18 @@ if not gigs_data:
 
 gigs = pd.DataFrame(gigs_data)
 
+# --- TEMP DEBUG: see what columns we have ---
+with st.expander("🔎 Debug (temporary)"):
+    st.write("gigs columns:", list(gigs.columns))
+    st.write("sample sound_tech_id:", (gigs.get("sound_tech_id") or [])[:5])
+    try:
+        _preview = sb.table("sound_techs").select("id, display_name, company").limit(3).execute().data
+        import pandas as _p
+        st.write("sound_techs sample rows:", _p.DataFrame(_preview))
+    except Exception as _e:
+        st.write("sound_techs query error:", _e)
+
+
 # --- Normalize types BEFORE filtering ---
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
@@ -89,58 +101,32 @@ if venues_data:
     gigs.rename(columns={"name": "venue_name"}, inplace=True)
     gigs.drop(columns=[c for c in ["id_venue"] if c in gigs.columns], inplace=True, errors="ignore")
 
-# --- Join sound techs (uuid -> friendly display) ---
+# --- Join sound techs (simple + certain) ---
 try:
-    techs_data = sb.table("sound_techs").select(
-        # include all likely name/company fields seen in your table
-        "id, first_name, last_name, display_name, name, full_name, "
-        "company, company_name, business_name, title"
-    ).execute().data or []
+    techs = sb.table("sound_techs").select("id, display_name, company").execute().data or []
 except Exception:
-    techs_data = []
+    techs = []
 
-def _first_nonempty(row, cols):
-    for c in cols:
-        if c in row and pd.notna(row[c]) and str(row[c]).strip() != "":
-            return str(row[c]).strip()
-    return None
+if techs and "sound_tech_id" in gigs.columns:
+    tdf = pd.DataFrame(techs).rename(columns={"id": "sound_tech_id"})
+    gigs = gigs.merge(tdf, how="left", on="sound_tech_id", suffixes=("", "_tech"))
 
-if techs_data and "sound_tech_id" in gigs.columns:
-    tdf = pd.DataFrame(techs_data)
-    gigs = gigs.merge(tdf, how="left", left_on="sound_tech_id", right_on="id", suffixes=("", "_tech"))
-
-    # build a friendly display value
-    name_cols    = [c for c in ["display_name","full_name","name","title"] if c in gigs.columns]
-    company_cols = [c for c in ["company","company_name","business_name"] if c in gigs.columns]
-
-    def build_tech(r):
-        # try combined first + last if present
-        if "first_name" in r and "last_name" in r:
-            fn = (r["first_name"] or "").strip() if pd.notna(r["first_name"]) else ""
-            ln = (r["last_name"] or "").strip() if pd.notna(r["last_name"]) else ""
-            both = f"{fn} {ln}".strip()
-            if both:
-                comp = _first_nonempty(r, company_cols)
-                return f"{both} ({comp})" if comp else both
-        # otherwise use display_name/full_name/name/title fallbacks
-        name = _first_nonempty(r, name_cols)
-        company = _first_nonempty(r, company_cols)
-        if name and company:
-            return f"{name} ({company})"
-        if name:
-            return name
-        if company:
-            return company
-        # final fallback: short UUID
-        stid = r.get("sound_tech_id")
+    # Build a single display column; fallback to short UUID if needed
+    def _mk_sound_tech(row):
+        dn = row.get("display_name")
+        co = row.get("company")
+        if pd.notna(dn) and str(dn).strip():
+            return f"{dn} ({co})" if pd.notna(co) and str(co).strip() else str(dn).strip()
+        if pd.notna(co) and str(co).strip():
+            return str(co).strip()
+        stid = row.get("sound_tech_id")
         return f"{stid[:8]}…" if isinstance(stid, str) else None
 
-    gigs["sound_tech"] = gigs.apply(build_tech, axis=1)
-    gigs.drop(
-        columns=[c for c in ["id_tech","name","full_name","display_name","first_name","last_name",
-                             "company","company_name","business_name","title"] if c in gigs.columns],
-        inplace=True, errors="ignore"
-    )
+    gigs["sound_tech"] = gigs.apply(_mk_sound_tech, axis=1)
+
+    # keep table clean; don't drop 'sound_tech_id' (we hide it later)
+    gigs.drop(columns=[c for c in ["display_name", "company", "id_tech"] if c in gigs.columns],
+              inplace=True, errors="ignore")
 
 # --- Apply filters ---
 if "contract_status" in gigs.columns:
