@@ -18,6 +18,7 @@ def _get_secret(name, default=None, required=False):
     else:
         val = os.environ.get(name, default)
     if required and (val is None or str(val).strip() == ""):
+        st.error(f"Missing required secret: {name}")
         st.stop()
     return val
 
@@ -30,7 +31,7 @@ if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
     st.stop()
 
-# Reattach session for RLS (so auth.uid() is set)
+# Attach session for RLS (auth.uid())
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
         sb.auth.set_session(
@@ -107,6 +108,54 @@ def _format_12h(t: time) -> str:
     s = dt.strftime("%I:%M %p")
     return s.lstrip("0")
 
+# ---------------------------------------
+# Mini-creators for "Add New ..."
+# (DEFINED BEFORE UI so NameError cannot occur)
+# ---------------------------------------
+def _create_agent(name: str, company: str) -> Optional[str]:
+    payload = _filter_to_schema("agents", {
+        "name": name or None,
+        "company": company or None,
+        "first_name": None,
+        "last_name": None,
+    })
+    row = _insert_row("agents", payload)
+    return str(row["id"]) if row and "id" in row else None
+
+def _create_musician(first_name: str, last_name: str, instrument: str, stage_name: str) -> Optional[str]:
+    payload = _filter_to_schema("musicians", {
+        "first_name": first_name or None,
+        "last_name": last_name or None,
+        "stage_name": stage_name or None,
+        "instrument": instrument or None,
+        "active": True if "active" in _table_columns("musicians") else None,
+    })
+    row = _insert_row("musicians", payload)
+    return str(row["id"]) if row and "id" in row else None
+
+def _create_soundtech(display_name: str, company: str, phone: str, email: str) -> Optional[str]:
+    payload = _filter_to_schema("sound_techs", {
+        "display_name": display_name or None,
+        "company": company or None,
+        "phone": phone or None,
+        "email": email or None,
+    })
+    row = _insert_row("sound_techs", payload)
+    return str(row["id"]) if row and "id" in row else None
+
+def _create_venue(name: str, address1: str, address2: str, city: str, state: str, postal_code: str, phone: str) -> Optional[str]:
+    payload = _filter_to_schema("venues", {
+        "name": name or None,
+        "address_line1": address1 or None,
+        "address_line2": address2 or None,
+        "city": city or None,
+        "state": state or None,
+        "postal_code": postal_code or None,
+        "phone": phone or None,
+    })
+    row = _insert_row("venues", payload)
+    return str(row["id"]) if row and "id" in row else None
+
 # -----------------------------
 # Reference data (dropdowns)
 # -----------------------------
@@ -115,7 +164,7 @@ sound_df  = _select_df("sound_techs", "*")
 mus_df    = _select_df("musicians", "*")
 agents_df = _select_df("agents", "*")
 
-# Build id->label maps (stable)
+# Build id->label maps
 agent_labels: Dict[str, str] = {}
 if not agents_df.empty and "id" in agents_df.columns:
     for _, r in agents_df.iterrows():
@@ -211,7 +260,6 @@ with ag_col:
         if x == "": return "(none)"
         if x == AGENT_ADD: return "(+ Add New Agent)"
         return agent_labels.get(x, x)
-    # choose default by preselect
     agent_default = st.session_state.get("preselect_agent_id") or ""
     agent_index = agent_options.index(agent_default) if agent_default in agent_options else 0
     agent_id_sel = st.selectbox("Agent", options=agent_options, index=agent_index, format_func=agent_fmt, key="agent_sel")
@@ -226,28 +274,28 @@ st.subheader("Venue & Sound")
 vs1, vs2 = st.columns([1,1])
 with vs1:
     VENUE_ADD = "__ADD_VENUE__"
-    venue_options = [""] + list(venue_labels.keys()) + [VENUE_ADD]  # "" = (select venue)
+    venue_options_ids = [""] + list(venue_labels.keys()) + [VENUE_ADD]  # "" = (select venue)
     def venue_fmt(x: str) -> str:
         if x == "": return "(select venue)"
         if x == VENUE_ADD: return "(+ Add New Venue)"
         return venue_labels.get(x, x)
     venue_default = st.session_state.get("preselect_venue_id") or ""
-    venue_index = venue_options.index(venue_default) if venue_default in venue_options else 0
-    venue_id_sel = st.selectbox("Venue", options=venue_options, index=venue_index, format_func=venue_fmt, key="venue_sel")
+    venue_index = venue_options_ids.index(venue_default) if venue_default in venue_options_ids else 0
+    venue_id_sel = st.selectbox("Venue", options=venue_options_ids, index=venue_index, format_func=venue_fmt, key="venue_sel")
     is_private = st.checkbox("Private Event?", value=False)
     eligible_1099 = st.checkbox("1099 Eligible", value=False)
 venue_add_box = st.empty()
 
 with vs2:
     SOUND_ADD = "__ADD_SOUND__"
-    sound_options = [""] + list(sound_labels.keys()) + [SOUND_ADD]  # "" = (none)
+    sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]  # "" = (none)
     def sound_fmt(x: str) -> str:
         if x == "": return "(none)"
         if x == SOUND_ADD: return "(+ Add New Sound Tech)"
         return sound_labels.get(x, x)
     sound_default = st.session_state.get("preselect_sound_id") or ""
-    sound_index = sound_options.index(sound_default) if sound_default in sound_options else 0
-    sound_id_sel = st.selectbox("Confirmed Sound Tech", options=sound_options, index=sound_index, format_func=sound_fmt, key="sound_sel")
+    sound_index = sound_options_ids.index(sound_default) if sound_default in sound_options_ids else 0
+    sound_id_sel = st.selectbox("Confirmed Sound Tech", options=sound_options_ids, index=sound_index, format_func=sound_fmt, key="sound_sel")
     sound_by_venue = st.checkbox("Sound provided by venue?", value=False)
 sound_add_box = st.empty()
 
@@ -275,19 +323,14 @@ role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
 for idx, role in enumerate(ROLE_CHOICES):
     with lineup_cols[idx % 3]:
         sentinel = f"__ADD_MUS__:{role}"
-        # Build role-specific options by ID
         mus_options_ids = [""] + list(mus_labels.keys()) + [sentinel]
         def mus_fmt(x: str, _role=role) -> str:
             if x == "": return "(unassigned)"
             if x.startswith("__ADD_MUS__"): return "(+ Add New Musician)"
             return mus_labels.get(x, x)
         pre_id = preselect_roles.get(role) or ""
-        try:
-            idx_default = mus_options_ids.index(pre_id) if pre_id in mus_options_ids else 0
-        except ValueError:
-            idx_default = 0
-        sel_id = st.selectbox(role, options=mus_options_ids, index=idx_default,
-                              format_func=mus_fmt, key=f"mus_sel_{role}")
+        sel_index = mus_options_ids.index(pre_id) if pre_id in mus_options_ids else 0
+        sel_id = st.selectbox(role, options=mus_options_ids, index=sel_index, format_func=mus_fmt, key=f"mus_sel_{role}")
         if sel_id and not sel_id.startswith("__ADD_MUS__"):
             lineup_selections.append({"role": role, "musician_id": sel_id})
         role_add_boxes[role] = st.empty()
@@ -424,7 +467,6 @@ for role in ROLE_CHOICES:
             with m2:
                 new_mus_ln = st.text_input("Last Name", key=f"new_mus_ln_{role}")
             with m3:
-                # Pre-fill instrument with the triggering role
                 default_instr = role
                 new_mus_instr = st.text_input("Instrument", value=default_instr, key=f"new_mus_instr_{role}")
             with m4:
@@ -447,7 +489,6 @@ for role in ROLE_CHOICES:
                         st.rerun()
             with c2:
                 if st.button("Cancel", key=f"cancel_mus_btn_{role}"):
-                    # Reset the select back to unassigned for this role
                     st.session_state[f"mus_sel_{role}"] = ""
                     st.rerun()
 
