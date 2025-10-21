@@ -69,15 +69,6 @@ if gigs_df.empty:
     st.stop()
 gigs = gigs_df.copy()
 
-# --- TEMP DEBUG ---
-with st.expander("🔎 Debug (temporary)"):
-    st.write("gigs columns:", list(gigs.columns))
-    sample_ids = gigs["sound_tech_id"].head(5).astype(str).tolist() if "sound_tech_id" in gigs.columns else []
-    st.write("sample sound_tech_id:", sample_ids)
-    _tech_preview = _select_df("sound_techs", "id, display_name, company", limit=3)
-    if not _tech_preview.empty:
-        st.write("sound_techs sample rows:", _tech_preview)
-
 # --- Normalize types ---
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
