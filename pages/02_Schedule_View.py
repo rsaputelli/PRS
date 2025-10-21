@@ -156,6 +156,23 @@ def _mk_loc(r):
             parts.append(str(v).strip())
     return ", ".join(parts)
 gigs["Location"] = gigs.apply(_mk_loc, axis=1)
+# --- Derived Venue (prefer venue -> venue_name -> location) and ensure fee col exists ---
+def _first_nonempty(row, keys):
+    for k in keys:
+        if k in row.index:
+            v = row.get(k)
+            if pd.notna(v) and str(v).strip():
+                return str(v).strip()
+    return ""
+
+venue_keys = [k for k in ["venue", "venue_name", "location"] if k in gigs.columns]
+gigs["Venue"] = gigs.apply(lambda r: _first_nonempty(r, venue_keys), axis=1)
+
+# Make sure a 'fee' column exists so it appears in the table, even if empty
+if "fee" not in gigs.columns:
+    gigs["fee"] = pd.NA
+else:
+    gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
 
 # --- Apply filters ---
 if "contract_status" in gigs.columns and status_filter:
@@ -177,52 +194,48 @@ if search_txt.strip():
 if "id" in gigs.columns:
     gigs = gigs.drop_duplicates(subset=["id"])
 
-# --- Choose display columns (lock to human-readable set and hide IDs/system) ---
-# 1) Hide raw IDs / system columns from the display
+# --- Choose display columns (locked, human-readable) ---
+# Hide internal IDs/system fields but keep our derived 'Venue' and pretty columns
 hide_cols = set(
     [c for c in gigs.columns if c.endswith("_id")]
     + [c for c in ["id", "created_at", "updated_at", "event_date", "start_time", "end_time",
-                   "_start_dt", "_end_dt", "address", "city", "state", "venue", "venue_name", "location"] if c in gigs.columns]
+                   "_start_dt", "_end_dt", "address", "city", "state", "venue", "venue_name", "location"]
+       if c in gigs.columns]
 )
+
 disp_cols = [c for c in gigs.columns if c not in hide_cols]
 
-# 2) Preferred human-readable columns in the order we want
 preferred = [
     "Date",
     "Time",
     "title" if "title" in gigs.columns else None,
     "band_name" if "band_name" in gigs.columns else None,
+    "Venue",                    # <- new
     "Location",
     "contract_status" if "contract_status" in gigs.columns else None,
-    "fee" if "fee" in gigs.columns else None,
+    "fee",                      # <- always present now
     "sound_tech" if "sound_tech" in gigs.columns else None,
     "notes" if "notes" in gigs.columns else None,
 ]
-preferred = [c for c in preferred if c]  # drop Nones
+preferred = [c for c in preferred if c]
 
-# 3) Only show preferred (do NOT append the rest to avoid UUID clutter)
+# Only show preferred (don’t append the rest to avoid UUID clutter)
 ordered = [c for c in preferred if c in disp_cols]
 
-# Fee numeric for the metric below
-if "fee" in gigs.columns:
-    gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
-
 # --- Final table (robust sorting even if sort cols are hidden) ---
-# Build the display frame first
 df_show = gigs[ordered] if ordered else gigs[disp_cols]
 
-# Prefer to sort by columns that actually exist in the display
 sort_keys = [c for c in ["event_date", "_start_dt"] if c in df_show.columns]
 if sort_keys:
     df_show = df_show.sort_values(by=sort_keys, ascending=True)
 else:
-    # If sort columns are hidden from display, sort the full gigs and then project
     sort_keys_alt = [c for c in ["event_date", "_start_dt"] if c in gigs.columns]
     if sort_keys_alt:
         gigs_sorted = gigs.sort_values(by=sort_keys_alt, ascending=True)
-        df_show = gigs_sorted[df_show.columns]  # same column order as display
+        df_show = gigs_sorted[df_show.columns]
 
 st.dataframe(df_show, use_container_width=True, hide_index=True)
+
 
 
 # --- Optional summary ---
