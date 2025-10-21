@@ -214,154 +214,158 @@ def _create_venue(name: str, address1: str, address2: str, city: str, state: str
     row = _insert_row("venues", payload)
     return str(row["id"]) if row and "id" in row else None
 
-def _find_index_by_id(options: List[Tuple[str,str]], target_id: Optional[str], extra: List[Tuple[str,str]] = None) -> int:
-    pool = (options if extra is None else options + extra)
+def _find_index_by_id(options: List[Tuple[str,str]], target_id: Optional[str]) -> int:
     if not target_id:
         return 0
-    for i, (_, oid) in enumerate(pool):
+    for i, (_, oid) in enumerate(options):
         if oid == target_id:
             return i
     return 0
 
 # -----------------------------
-# Session defaults & placeholders
+# Session defaults
 # -----------------------------
 st.session_state.setdefault("preselect_agent_id", None)
 st.session_state.setdefault("preselect_venue_id", None)
 st.session_state.setdefault("preselect_sound_id", None)
 st.session_state.setdefault("preselect_role_ids", {})  # role -> musician_id
-
-# Per-field placeholders to render sub-forms NEAR the triggering dropdown
-agent_add_ph = st.empty()
-venue_add_ph = st.empty()
-sound_add_ph = st.empty()
-role_add_ph: Dict[str, st.delta_generator.DeltaGenerator] = {r: st.empty() for r in ROLE_CHOICES}
+st.session_state.setdefault("show_add_musician", False)
+st.session_state.setdefault("add_mus_role", None)
 
 # -----------------------------
-# Form UI (gig details only)
+# Event Basics
 # -----------------------------
-with st.form("enter_gig_form", clear_on_submit=False):
-    st.subheader("Event Basics")
+st.subheader("Event Basics")
 
-    # 12-hour time pickers (hour, minute, am/pm)
-    c1, c2, c3 = st.columns([1,1,1])
-    with c1:
-        title = st.text_input("Title (optional)", placeholder="e.g., Spring Gala")
-        event_date = st.date_input("Date of Performance", value=date.today())
-        h1, m1, a1 = st.columns([1,1,1])
-        start_hour = h1.selectbox("Start Hour", list(range(1,13)), index=7)
-        start_min  = m1.selectbox("Start Min", [0, 15, 30, 45], index=0)
-        start_ampm = a1.selectbox("AM/PM", ["PM","AM"], index=0)  # default PM
-    with c2:
-        h2, m2, a2 = st.columns([1,1,1])
-        end_hour = h2.selectbox("End Hour", list(range(1,13)), index=10)
-        end_min  = m2.selectbox("End Min", [0, 15, 30, 45], index=0)
-        end_ampm = a2.selectbox("AM/PM ", ["PM","AM"], index=0)
-        contract_status = st.selectbox("Status", options=["Pending", "Hold", "Confirmed"], index=0)
-        fee = st.number_input("Fee", min_value=0.0, step=100.0, format="%.2f")
-    with c3:
-        band_name = st.text_input("Band (optional)", placeholder="PRS")
+eb1, eb2, eb3 = st.columns([1,1,1])
+with eb1:
+    title = st.text_input("Title (optional)", placeholder="e.g., Spring Gala")
+    event_date = st.date_input("Date of Performance", value=date.today())
 
-        agent_choices = [("(none)", "")] + agent_options + [("(+ Add New Agent)", "__ADD__")]
-        # Preselect agent if we just created one
-        agent_extra_pool = [("(+ Add New Agent)", "__ADD__")]
-        agent_index_base = _find_index_by_id(agent_options, st.session_state["preselect_agent_id"])
-        agent_index = agent_index_base + 1  # because of "(none)" at start
-        agent_raw = st.selectbox("Agent", options=agent_choices, index=agent_index, format_func=lambda x: x[0] if isinstance(x, tuple) else x)
+# Start/End grouped side-by-side for clarity
+with eb2:
+    st.markdown("**Start Time**")
+    srow1, srow2 = st.columns([1,1])
+    start_hour = srow1.selectbox("Hour", list(range(1,13)), index=7, key="start_hour")
+    start_min  = srow2.selectbox("Min", [0, 15, 30, 45], index=0, key="start_min")
+    start_ampm = st.selectbox("AM/PM", ["PM","AM"], index=0, key="start_ampm")  # default PM
 
-        commission_pct = st.number_input("Commission % (optional)", min_value=0.0, max_value=100.0, step=0.5, format="%.1f")
+with eb3:
+    st.markdown("**End Time**")
+    erow1, erow2 = st.columns([1,1])
+    end_hour = erow1.selectbox("Hour ", list(range(1,13)), index=10, key="end_hour")
+    end_min  = erow2.selectbox("Min ", [0, 15, 30, 45], index=0, key="end_min")
+    end_ampm = st.selectbox("AM/PM ", ["PM","AM"], index=0, key="end_ampm")
+    contract_status = st.selectbox("Status", options=["Pending", "Hold", "Confirmed"], index=0)
+    fee = st.number_input("Fee", min_value=0.0, step=100.0, format="%.2f")
 
-    st.markdown("---")
-    st.subheader("Venue & Sound")
-
-    v1, v2 = st.columns([1,1])
-    with v1:
-        venue_choices = [("(select venue)", "")] + venue_options + [("(+ Add New Venue)", "__ADD__")]
-        venue_index_base = _find_index_by_id(venue_options, st.session_state["preselect_venue_id"])
-        venue_index = venue_index_base + 1  # because of "(select venue)" at start
-        venue_sel = st.selectbox("Venue", options=venue_choices, index=venue_index, format_func=lambda x: x[0] if isinstance(x, tuple) else x)
-        is_private = st.checkbox("Private Event?", value=False)
-        eligible_1099 = st.checkbox("1099 Eligible", value=False)
-    with v2:
-        sound_choices = [("(none)", "")] + sound_options + [("(+ Add New Sound Tech)", "__ADD__")]
-        sound_index_base = _find_index_by_id(sound_options, st.session_state["preselect_sound_id"])
-        sound_index = sound_index_base + 1  # because of "(none)" at start
-        sound_tech_sel = st.selectbox("Confirmed Sound Tech", options=sound_choices, index=sound_index,
-                                      format_func=lambda x: x[0] if isinstance(x, tuple) else x)
-        sound_by_venue = st.checkbox("Sound provided by venue?", value=False)
-
-    if sound_by_venue:
-        sv1, sv2 = st.columns([1,1])
-        with sv1:
-            sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)")
-        with sv2:
-            sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)")
-    else:
-        sound_by_venue_name = ""
-        sound_by_venue_phone = ""
-
-    st.markdown("---")
-    st.subheader("Lineup (Role Assignments)")
-    lineup_cols = st.columns(3)
-    lineup_selections: List[Tuple[str, str]] = []
-
-    # Ensure per-role preselect map exists
-    preselect_roles: Dict[str, Optional[str]] = st.session_state.get("preselect_role_ids", {})
-
-    for idx, role in enumerate(ROLE_CHOICES):
-        with lineup_cols[idx % 3]:
-            mus_choices = [("(unassigned)", "")] + mus_options + [("(+ Add New Musician)", "__ADD__")]
-            # Compute index with per-role preselect, if present
-            pre_id = preselect_roles.get(role)
-            if pre_id:
-                base_idx = _find_index_by_id(mus_options, pre_id)
-                sel_index = base_idx + 1  # because "(unassigned)" at start
-            else:
-                sel_index = 0
-            sel = st.selectbox(role, options=mus_choices, index=sel_index, key=f"role_{role}",
-                               format_func=lambda x: x[0] if isinstance(x, tuple) else x)
-            if isinstance(sel, tuple) and sel[1] == "__ADD__":
-                st.session_state["add_mus_role"] = role  # which role triggered add
-                st.session_state["show_add_musician"] = True
-            elif isinstance(sel, tuple) and sel[1]:
-                lineup_selections.append((role, sel[1]))
-
-    st.markdown("---")
-    st.subheader("Notes")
-    notes = st.text_area("Notes / Special Instructions (optional)", height=100, placeholder="Load-in details, parking, dress code, etc.")
-
-    # Private fields
-    private_vals = {}
-    if is_private:
-        st.markdown("#### Private Event Details")
-        p1, p2 = st.columns([1,1])
-        with p1:
-            private_event_type = st.text_input("Type of Event (e.g., Wedding, Corporate, Birthday)")
-            organizer = st.text_input("Organizer / Company")
-            guest_of_honor = st.text_input("Guest(s) of Honor / Bride/Groom")
-        with p2:
-            private_contact = st.text_input("Primary Contact (name)")
-            private_contact_info = st.text_input("Contact Info (email/phone)")
-            additional_services = st.text_input("Additional Musicians/Services (optional)")
-        private_vals = {
-            "private_event_type": private_event_type,
-            "organizer": organizer,
-            "guest_of_honor": guest_of_honor,
-            "private_contact": private_contact,
-            "private_contact_info": private_contact_info,
-            "additional_services": additional_services,
-        }
-
-    submitted = st.form_submit_button("Save Gig", type="primary")
+# Agent field (+ add)
+ag_col, band_col = st.columns([1,1])
+with band_col:
+    band_name = st.text_input("Band (optional)", placeholder="PRS")
+with ag_col:
+    agent_choices = [("(none)", "")] + agent_options + [("(+ Add New Agent)", "__ADD__")]
+    agent_index = 1 + _find_index_by_id(agent_options, st.session_state["preselect_agent_id"])  # +1 for (none)
+    agent_raw = st.selectbox("Agent", options=agent_choices, index=agent_index, format_func=lambda x: x[0] if isinstance(x, tuple) else x, key="agent_sel")
+agent_add_box = st.empty()
 
 # -----------------------------
-# Finance (Admin) OUTSIDE form
+# Venue & Sound
+# -----------------------------
+st.markdown("---")
+st.subheader("Venue & Sound")
+
+vs1, vs2 = st.columns([1,1])
+with vs1:
+    venue_choices = [("(select venue)", "")] + venue_options + [("(+ Add New Venue)", "__ADD__")]
+    venue_index = 1 + _find_index_by_id(venue_options, st.session_state["preselect_venue_id"])  # +1 for (select)
+    venue_sel = st.selectbox("Venue", options=venue_choices, index=venue_index, format_func=lambda x: x[0] if isinstance(x, tuple) else x, key="venue_sel")
+    is_private = st.checkbox("Private Event?", value=False)
+    eligible_1099 = st.checkbox("1099 Eligible", value=False)
+venue_add_box = st.empty()
+
+with vs2:
+    sound_choices = [("(none)", "")] + sound_options + [("(+ Add New Sound Tech)", "__ADD__")]
+    sound_index = 1 + _find_index_by_id(sound_options, st.session_state["preselect_sound_id"])  # +1 for (none)
+    sound_tech_sel = st.selectbox("Confirmed Sound Tech", options=sound_choices, index=sound_index, format_func=lambda x: x[0] if isinstance(x, tuple) else x, key="sound_sel")
+    sound_by_venue = st.checkbox("Sound provided by venue?", value=False)
+sound_add_box = st.empty()
+
+if sound_by_venue:
+    sv1, sv2 = st.columns([1,1])
+    with sv1:
+        sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)")
+    with sv2:
+        sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)")
+else:
+    sound_by_venue_name = ""
+    sound_by_venue_phone = ""
+
+# -----------------------------
+# Lineup (Role Assignments)
+# -----------------------------
+st.markdown("---")
+st.subheader("Lineup (Role Assignments)")
+
+lineup_cols = st.columns(3)
+lineup_selections: List[Tuple[str, str]] = []
+preselect_roles: Dict[str, Optional[str]] = st.session_state.get("preselect_role_ids", {})
+role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
+
+for idx, role in enumerate(ROLE_CHOICES):
+    with lineup_cols[idx % 3]:
+        mus_choices = [("(unassigned)", "")] + mus_options + [("(+ Add New Musician)", "__ADD__")]
+        pre_id = preselect_roles.get(role)
+        if pre_id:
+            base_idx = _find_index_by_id(mus_options, pre_id)
+            sel_index = base_idx + 1  # +1 for (unassigned)
+        else:
+            sel_index = 0
+        sel = st.selectbox(role, options=mus_choices, index=sel_index, key=f"role_{role}",
+                           format_func=lambda x: x[0] if isinstance(x, tuple) else x)
+        if isinstance(sel, tuple) and sel[1] == "__ADD__":
+            st.session_state["show_add_musician"] = True
+            st.session_state["add_mus_role"] = role
+        elif isinstance(sel, tuple) and sel[1]:
+            lineup_selections.append((role, sel[1]))
+        role_add_boxes[role] = st.empty()
+
+# -----------------------------
+# Notes & Private details
+# -----------------------------
+st.markdown("---")
+st.subheader("Notes")
+notes = st.text_area("Notes / Special Instructions (optional)", height=100, placeholder="Load-in details, parking, dress code, etc.")
+
+private_vals = {}
+if is_private:
+    st.markdown("#### Private Event Details")
+    p1, p2 = st.columns([1,1])
+    with p1:
+        private_event_type = st.text_input("Type of Event (e.g., Wedding, Corporate, Birthday)")
+        organizer = st.text_input("Organizer / Company")
+        guest_of_honor = st.text_input("Guest(s) of Honor / Bride/Groom")
+    with p2:
+        private_contact = st.text_input("Primary Contact (name)")
+        private_contact_info = st.text_input("Contact Info (email/phone)")
+        additional_services = st.text_input("Additional Musicians/Services (optional)")
+    private_vals = {
+        "private_event_type": private_event_type,
+        "organizer": organizer,
+        "guest_of_honor": guest_of_honor,
+        "private_contact": private_contact,
+        "private_contact_info": private_contact_info,
+        "additional_services": additional_services,
+    }
+
+# -----------------------------
+# Finance (Admin) OUTSIDE any form
 # -----------------------------
 deposit_rows: List[Dict] = []
 if IS_ADMIN:
     st.markdown("---")
     st.subheader("Finance (Admin Only)")
-    add_deps = st.number_input("Number of deposits (0–4)", min_value=0, max_value=4, step=1, value=0, key="num_deposits")
+    add_deps = st.number_input("Number of deposits (0–4)", min_value=0, max_value=4, step=1, value=int(st.session_state.get("num_deposits", 0)), key="num_deposits")
     for i in range(int(add_deps)):
         cdl, cda, cdm = st.columns([1,1,1])
         with cdl:
@@ -373,11 +377,11 @@ if IS_ADMIN:
         deposit_rows.append({"sequence": i+1, "due_date": due, "amount": amt, "is_percentage": is_pct})
 
 # -----------------------------
-# Sub-forms rendered NEAR triggers (using placeholders)
+# Sub-forms NEAR triggers
 # -----------------------------
-# Agent add (near Agent field)
+# Agent add
 if isinstance(agent_raw, tuple) and agent_raw[1] == "__ADD__":
-    with agent_add_ph.container():
+    with agent_add_box.container():
         st.markdown("**➕ Add New Agent**")
         a1, a2 = st.columns([1,1])
         with a1:
@@ -392,9 +396,9 @@ if isinstance(agent_raw, tuple) and agent_raw[1] == "__ADD__":
                 st.success("Agent created.")
                 st.rerun()
 
-# Venue add (near Venue field)
+# Venue add
 if isinstance(venue_sel, tuple) and venue_sel[1] == "__ADD__":
-    with venue_add_ph.container():
+    with venue_add_box.container():
         st.markdown("**➕ Add New Venue**")
         v1, v2 = st.columns([1,1])
         with v1:
@@ -417,9 +421,9 @@ if isinstance(venue_sel, tuple) and venue_sel[1] == "__ADD__":
                 st.success("Venue created.")
                 st.rerun()
 
-# Sound Tech add (near Sound Tech field)
+# Sound Tech add
 if isinstance(sound_tech_sel, tuple) and sound_tech_sel[1] == "__ADD__":
-    with sound_add_ph.container():
+    with sound_add_box.container():
         st.markdown("**➕ Add New Sound Tech**")
         s1, s2 = st.columns([1,1])
         with s1:
@@ -442,8 +446,8 @@ if isinstance(sound_tech_sel, tuple) and sound_tech_sel[1] == "__ADD__":
 # Musician add (near the role that triggered it)
 if st.session_state.get("show_add_musician"):
     role = st.session_state.get("add_mus_role")
-    if role and role in role_add_ph:
-        with role_add_ph[role].container():
+    if role and role in role_add_boxes:
+        with role_add_boxes[role].container():
             st.markdown(f"**➕ Add New Musician for {role}**")
             m1, m2, m3, m4 = st.columns([1,1,1,1])
             with m1:
@@ -463,26 +467,25 @@ if st.session_state.get("show_add_musician"):
                     )
                     if new_id:
                         st.cache_data.clear()
-                        # Preselect for THIS role on next render
                         pre = st.session_state.get("preselect_role_ids", {})
-                        pre[role] = new_id
+                        pre[role] = new_id  # preselect for this role
                         st.session_state["preselect_role_ids"] = pre
                         st.session_state["show_add_musician"] = False
-                        st.success(f"Musician created and will be preselected for {role}.")
+                        st.success(f"Musician created and preselected for {role}.")
                         st.rerun()
             with colc2:
                 if st.button("Cancel", key="cancel_mus_btn"):
                     st.session_state["show_add_musician"] = False
                     st.session_state["add_mus_role"] = None
-                    st.experimental_rerun()
+                    st.rerun()
 
 # -----------------------------
-# Submit handler
+# SAVE button (since we removed st.form)
 # -----------------------------
-if submitted:
+if st.button("💾 Save Gig", type="primary"):
     # Build start/end (store as HH:MM:SS)
-    start_t = _time_from_parts(start_hour, start_min, start_ampm)
-    end_t   = _time_from_parts(end_hour, end_min, end_ampm)
+    start_t = _time_from_parts(st.session_state["start_hour"], st.session_state["start_min"], st.session_state["start_ampm"])
+    end_t   = _time_from_parts(st.session_state["end_hour"],   st.session_state["end_min"],   st.session_state["end_ampm"])
 
     def _to_time_str(t: time) -> str:
         return f"{t.hour:02d}:{t.minute:02d}:00"
@@ -495,10 +498,6 @@ if submitted:
     venue_id_val = venue_sel[1] if isinstance(venue_sel, tuple) and venue_sel[1] not in ("", "__ADD__") else None
     sound_tech_id_val = (sound_tech_sel[1] if isinstance(sound_tech_sel, tuple) and sound_tech_sel[1] not in ("", "__ADD__") and not sound_by_venue else None)
 
-    # Gather lineup (ignore "add" sentinels)
-    # (Selections were collected during the form; re-validate in case of state flips)
-    # Note: Already in lineup_selections
-
     gig_payload = {
         "title": (title or None),
         "band_name": (band_name or None),
@@ -508,16 +507,18 @@ if submitted:
         "contract_status": contract_status,
         "fee": float(fee) if fee else None,
         "agent_id": agent_id_val,
-        "commission_pct": float(commission_pct) if commission_pct else None,
+        "commission_pct": None if "commission_pct" not in locals() else float(commission_pct) if commission_pct else None,
         "venue_id": venue_id_val,
         "sound_tech_id": sound_tech_id_val,
         "is_private": bool(is_private),
         "notes": (notes or None),
         "sound_by_venue_name": (sound_by_venue_name or None),
         "sound_by_venue_phone": (sound_by_venue_phone or None),
-        "eligible_1099": bool(eligible_1099),
-        **({k: (v or None) for k, v in private_vals.items()} if is_private else {}),
     }
+    # Private fields if shown
+    for k, v in (private_vals or {}).items():
+        gig_payload[k] = v or None
+
     gig_payload = _filter_to_schema("gigs", gig_payload)
 
     new_gig = _insert_row("gigs", gig_payload)
@@ -526,7 +527,7 @@ if submitted:
 
     gig_id = str(new_gig.get("id", ""))
 
-    # Insert lineup -> gig_musicians (if table exists)
+    # Insert lineup -> gig_musicians
     if _table_exists("gig_musicians"):
         gm_rows: List[Dict] = []
         for role, musician_id in lineup_selections:
@@ -539,41 +540,31 @@ if submitted:
             _insert_rows("gig_musicians", gm_rows)
 
     # Insert deposits -> gig_deposits (if table exists)
-    # (Deposits are collected outside the form)
-    deposit_rows: List[Dict] = []
-    if IS_ADMIN:
-        # Rebuild deposit_rows consistently from session (keys set above)
-        # This simple re-read avoids surprises on submit
+    if IS_ADMIN and _table_exists("gig_deposits"):
+        rows: List[Dict] = []
         n = int(st.session_state.get("num_deposits", 0))
         for i in range(n):
             due = st.session_state.get(f"dep_due_{i}", date.today())
             amt = float(st.session_state.get(f"dep_amt_{i}", 0.0) or 0.0)
             is_pct = bool(st.session_state.get(f"dep_pct_{i}", False))
-            deposit_rows.append({"sequence": i+1, "due_date": due, "amount": amt, "is_percentage": is_pct})
-
-    if IS_ADMIN and _table_exists("gig_deposits") and deposit_rows:
-        rows: List[Dict] = []
-        for dep in deposit_rows:
-            due_date_val = dep["due_date"]
             rows.append(_filter_to_schema("gig_deposits", {
                 "gig_id": gig_id,
-                "sequence": dep["sequence"],
-                "due_date": due_date_val.isoformat() if isinstance(due_date_val, (date, datetime)) else due_date_val,
-                "amount": float(dep["amount"]) if dep["amount"] else 0.0,
-                "is_percentage": bool(dep["is_percentage"]),
+                "sequence": i+1,
+                "due_date": due.isoformat() if isinstance(due, (date, datetime)) else due,
+                "amount": amt,
+                "is_percentage": is_pct,
             }))
-        _insert_rows("gig_deposits", rows)
+        if rows:
+            _insert_rows("gig_deposits", rows)
 
-    # Success
     st.success("Gig saved successfully ✅")
     st.write({
         "title": new_gig.get("title"),
-        "band_name": new_gig.get("band_name"),
         "event_date": new_gig.get("event_date"),
         "start_time (12-hr)": _format_12h(start_t),
         "end_time (12-hr)": _format_12h(end_t),
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
-        "notes": new_gig.get("notes"),
     })
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
+
