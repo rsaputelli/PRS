@@ -6,6 +6,7 @@ from supabase import create_client, Client
 
 st.title("📅 Schedule View")
 
+# --- Supabase helper (secrets → env) ---
 def _get_secret(name, default=None, required=False):
     if hasattr(st, "secrets") and name in st.secrets:
         val = st.secrets[name]
@@ -25,7 +26,7 @@ if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
     st.stop()
 
-# --- Reattach Supabase session so RLS treats us as authenticated ---
+# --- Reattach session so RLS = authenticated ---
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
         sb.auth.set_session(
@@ -35,7 +36,7 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
     except Exception as e:
         st.warning(f"Could not attach session; showing public data only. ({e})")
 
-# --- Filters (use your schema: contract_status, event_date) ---
+# --- Filters (use your schema names) ---
 colf1, colf2 = st.columns([1, 1])
 with colf1:
     status_filter = st.multiselect(
@@ -60,6 +61,8 @@ if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
 if "start_time" in gigs.columns:
     gigs["start_time"] = pd.to_datetime(gigs["start_time"], errors="coerce").dt.time
+if "end_time" in gigs.columns:
+    gigs["end_time"] = pd.to_datetime(gigs["end_time"], errors="coerce").dt.time
 if "contract_status" in gigs.columns and gigs["contract_status"].dtype == object:
     gigs["contract_status"] = gigs["contract_status"].astype(str).str.strip().str.title()
 
@@ -69,10 +72,12 @@ if venues_data:
     vdf = pd.DataFrame(venues_data)
     gigs = gigs.merge(
         vdf, how="left", left_on="venue_id", right_on="id", suffixes=("", "_venue")
-    ).drop(columns=[c for c in ["id_venue"] if c in gigs.columns])
+    )
     gigs.rename(columns={"name": "venue_name"}, inplace=True)
+    if "id_venue" in gigs.columns:
+        gigs.drop(columns=["id_venue"], inplace=True, errors="ignore")
 
-# --- Join sound techs (uuid -> display name/company) ---
+# --- Join sound techs (uuid -> display) ---
 try:
     techs_data = sb.table("sound_techs").select("id,name,company").execute().data or []
 except Exception:
@@ -81,13 +86,14 @@ if techs_data and "sound_tech_id" in gigs.columns:
     tdf = pd.DataFrame(techs_data)
     gigs = gigs.merge(
         tdf, how="left", left_on="sound_tech_id", right_on="id", suffixes=("", "_tech")
-    ).drop(columns=[c for c in ["id_tech"] if c in gigs.columns])
-    # Prefer "Name (Company)" when both exist
-    gigs["sound_tech"] = gigs.apply(
-        lambda r: f"{r['name']} ({r['company']})" if pd.notna(r.get("name")) and pd.notna(r.get("company"))
-        else (r.get("name") or r.get("company")), axis=1
     )
-    gigs.drop(columns=[c for c in ["name","company"] if c in gigs.columns], inplace=True, errors="ignore")
+    if {"name", "company"}.issubset(gigs.columns):
+        gigs["sound_tech"] = gigs.apply(
+            lambda r: f"{r['name']} ({r['company']})" if pd.notna(r["name"]) and pd.notna(r["company"])
+            else (r["name"] if pd.notna(r["name"]) else r["company"]),
+            axis=1
+        )
+    gigs.drop(columns=[c for c in ["id_tech", "name", "company"] if c in gigs.columns], inplace=True, errors="ignore")
 
 # --- Apply filters ---
 if "contract_status" in gigs.columns:
@@ -95,63 +101,31 @@ if "contract_status" in gigs.columns:
 if upcoming_only and "event_date" in gigs.columns:
     gigs = gigs[gigs["event_date"] >= pd.Timestamp.today().date()]
 
-# --- De-duplicate by gig id just in case ---
+# --- De-duplicate by gig id (protect against multi-joins) ---
 if "id" in gigs.columns:
     gigs = gigs.drop_duplicates(subset=["id"])
 
-# --- Format & display (no chart) ---
-cols_hide = [c for c in ["id","venue_id","created_at","sound_tech_id"] if c in gigs.columns]
-disp_cols = [c for c in gigs.columns if c not in cols_hide]
+# --- Format & single display (no chart) ---
+hide_cols = ["id", "venue_id", "created_at", "sound_tech_id", "agent_id"]
+disp_cols = [c for c in gigs.columns if c not in hide_cols]
 
-# Nice column order if present
-preferred = ["event_date","start_time","venue_name","sound_tech","contract_status","fee","notes","city"]
+# Preferred order if present
+preferred = ["event_date", "start_time", "end_time", "venue_name", "city", "sound_tech",
+             "contract_status", "fee", "title", "notes"]
 ordered = [c for c in preferred if c in disp_cols] + [c for c in disp_cols if c not in preferred]
 
-# Format fee
+# Fee numeric
 if "fee" in gigs.columns:
     gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
 
-sort_cols = [c for c in ["event_date","start_time"] if c in gigs.columns]
-st.dataframe(
-    gigs[ordered].sort_values(by=sort_cols, ascending=True) if sort_cols else gigs[ordered],
-    use_container_width=True, hide_index=True
-)
+# Sort by date/time
+sort_cols = [c for c in ["event_date", "start_time"] if c in gigs.columns]
+df_show = gigs[ordered].sort_values(by=sort_cols, ascending=True) if sort_cols else gigs[ordered]
 
-# Optional quick total
+st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+# Optional summary (kept)
 if "fee" in gigs.columns and not gigs.empty:
     st.metric("Total Fees (shown)", f"${gigs['fee'].fillna(0).sum():,.0f}")
 
-
-# --- Display ---
-cols_hide = [c for c in ["id","venue_id","created_at","id_venue"] if c in gigs.columns]
-disp_cols = [c for c in gigs.columns if c not in cols_hide]
-if "fee" in disp_cols:
-    gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
-
-sort_cols = [c for c in ["event_date","start_time"] if c in gigs.columns]
-st.dataframe(
-    gigs[disp_cols].sort_values(by=sort_cols, ascending=True) if sort_cols else gigs[disp_cols],
-    use_container_width=True, hide_index=True
-)
-
-
-# --- Display ---
-cols_hide = [c for c in ["id","venue_id","created_at","id_venue"] if c in gigs.columns]
-disp_cols = [c for c in gigs.columns if c not in cols_hide]
-
-if "fee" in disp_cols:
-    gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
-
-sort_cols = [c for c in ["event_date","start_time"] if c in gigs.columns]
-st.dataframe(
-    gigs[disp_cols].sort_values(by=sort_cols, ascending=True) if sort_cols else gigs[disp_cols],
-    use_container_width=True,
-    hide_index=True
-)
-
-# --- Summary ---
-if "fee" in gigs.columns and not gigs.empty:
-    st.metric("Total Fees (shown)", f"${gigs['fee'].fillna(0).sum():,.0f}")
-if "contract_status" in gigs.columns and not gigs.empty:
-    st.bar_chart(gigs["contract_status"].value_counts())
 
