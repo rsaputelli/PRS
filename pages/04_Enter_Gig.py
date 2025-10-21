@@ -1,9 +1,10 @@
-# pages/03_Enter_Gig.py
+# pages/04_Enter_Gig.py
 import os
 from datetime import datetime, date, time, timedelta
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
+from typing import Optional, Dict, List, Set, Tuple
 
 st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
 st.title("📝 Enter Gig")
@@ -43,7 +44,7 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
 # Cacheable fetch utilities
 # -----------------------------
 @st.cache_data(ttl=60)
-def _select_df(table: str, select: str = "*", where_eq: dict | None = None, limit: int | None = None) -> pd.DataFrame:
+def _select_df(table: str, select: str = "*", where_eq: Optional[Dict] = None, limit: Optional[int] = None) -> pd.DataFrame:
     try:
         q = sb.table(table).select(select)
         if where_eq:
@@ -58,12 +59,12 @@ def _select_df(table: str, select: str = "*", where_eq: dict | None = None, limi
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
-def _table_columns(table: str) -> set[str]:
+def _table_columns(table: str) -> Set[str]:
     # Probe by selecting one row; infer columns
     df = _select_df(table, "*", limit=1)
     return set(df.columns) if not df.empty else set()
 
-def _insert_row(table: str, payload: dict) -> dict | None:
+def _insert_row(table: str, payload: Dict) -> Optional[Dict]:
     try:
         res = sb.table(table).insert(payload).execute()
         rows = res.data or []
@@ -72,7 +73,7 @@ def _insert_row(table: str, payload: dict) -> dict | None:
         st.error(f"Inserting into {table} failed: {e}")
         return None
 
-def _insert_rows(table: str, rows: list[dict]) -> bool:
+def _insert_rows(table: str, rows: List[Dict]) -> bool:
     if not rows:
         return True
     try:
@@ -82,7 +83,7 @@ def _insert_rows(table: str, rows: list[dict]) -> bool:
         st.warning(f"Bulk insert into {table} failed: {e}")
         return False
 
-def _filter_to_schema(table: str, data: dict) -> dict:
+def _filter_to_schema(table: str, data: Dict) -> Dict:
     cols = _table_columns(table)
     if not cols:
         # If we couldn't infer columns, try best-effort insert
@@ -100,7 +101,7 @@ agents_df = _select_df("agents", "id, name, company")
 def _opt_label(val, fallback=""):
     return str(val) if pd.notna(val) and str(val).strip() else fallback
 
-venue_options = []
+venue_options: List[Tuple[str, str]] = []
 if not venues_df.empty and "id" in venues_df.columns:
     venues_df["__label"] = venues_df.apply(
         lambda r: ", ".join([x for x in [
@@ -111,7 +112,7 @@ if not venues_df.empty and "id" in venues_df.columns:
     )
     venue_options = [(row["__label"], str(row["id"])) for _, row in venues_df.iterrows()]
 
-sound_options = []
+sound_options: List[Tuple[str, str]] = []
 if not sound_df.empty and "id" in sound_df.columns:
     sound_df["__label"] = sound_df.apply(
         lambda r: " ".join([_opt_label(r.get("display_name"), "Unnamed"), f"({_opt_label(r.get('company'), '').strip()})"]).strip().rstrip("()"),
@@ -119,7 +120,7 @@ if not sound_df.empty and "id" in sound_df.columns:
     )
     sound_options = [(row["__label"], str(row["id"])) for _, row in sound_df.iterrows()]
 
-agent_options = []
+agent_options: List[Tuple[str, str]] = []
 if not agents_df.empty and "id" in agents_df.columns:
     agents_df["__label"] = agents_df.apply(
         lambda r: " ".join([_opt_label(r.get("name"), "Unnamed Agent"), f"({_opt_label(r.get('company'), '').strip()})"]).strip().rstrip("()"),
@@ -127,7 +128,7 @@ if not agents_df.empty and "id" in agents_df.columns:
     )
     agent_options = [(row["__label"], str(row["id"])) for _, row in agents_df.iterrows()]
 
-mus_options = []
+mus_options: List[Tuple[str, str]] = []
 if not mus_df.empty and "id" in mus_df.columns:
     mus_df["__name"] = mus_df.apply(
         lambda r: " ".join([_opt_label(r.get("first_name"), ""), _opt_label(r.get("last_name"), "")]).strip() or "Unnamed Musician",
@@ -138,7 +139,7 @@ if not mus_df.empty and "id" in mus_df.columns:
     mus_df = mus_df.sort_values(by="__is_active", ascending=False)
     mus_options = [(row["__name"], str(row["id"])) for _, row in mus_df.iterrows()]
 
-# Roles per wireframe (you can adjust later without touching DB)
+# Roles per wireframe (adjust later without touching DB)
 ROLE_CHOICES = [
     "Male Vocals", "Female Vocals",
     "Keyboard", "Drums", "Guitar", "Bass",
@@ -151,7 +152,7 @@ IS_ADMIN = bool(st.session_state.get("is_admin", True))  # default True so you c
 # -----------------------------
 # Form UI
 # -----------------------------
-with st.form("enter_gig_form", clear_on_submit=False, border=True):
+with st.form("enter_gig_form", clear_on_submit=False):  # removed border=True for compatibility
     st.subheader("Event Basics")
 
     c1, c2, c3 = st.columns([1,1,1])
@@ -199,7 +200,7 @@ with st.form("enter_gig_form", clear_on_submit=False, border=True):
     st.markdown("---")
     st.subheader("Lineup (Role Assignments)")
     lineup_cols = st.columns(3)
-    lineup_selections: list[tuple[str, str]] = []
+    lineup_selections = []  # type: List[Tuple[str, str]]
     for idx, role in enumerate(ROLE_CHOICES):
         with lineup_cols[idx % 3]:
             sel = st.selectbox(
@@ -239,7 +240,7 @@ with st.form("enter_gig_form", clear_on_submit=False, border=True):
         }
 
     # Admin-only finance widgets (keep lightweight)
-    deposit_rows: list[dict] = []
+    deposit_rows = []  # type: List[Dict]
     if IS_ADMIN:
         st.markdown("---")
         st.subheader("Finance (Admin Only)")
@@ -267,10 +268,6 @@ if submitted:
     start_time_str = _to_time_str(start_t)
     end_time_str = _to_time_str(end_t)
 
-    # If end < start, it's likely past midnight. Many schemas still store only time-of-day.
-    # We'll keep times as-is; your Schedule View already formats 9pm–1am nicely.
-    # If your schema has full datetimes, we could compute end_date = event_date + 1 day here.
-
     # Build main gig payload
     agent_id_val = agent_id[1] if isinstance(agent_id, tuple) else ""
     sound_tech_id_val = sound_tech_sel[1] if (isinstance(sound_tech_sel, tuple) and not sound_by_venue) else ""
@@ -295,7 +292,7 @@ if submitted:
         # 1099 eligibility (optional column)
         "eligible_1099": bool(eligible_1099),
         # Private fields (optional columns)
-        **{k: (v or None) for k, v in private_vals.items()} if is_private else {},
+        **({k: (v or None) for k, v in private_vals.items()} if is_private else {}),
     }
 
     # Filter payload to actual columns in your gigs table
@@ -311,7 +308,7 @@ if submitted:
     # Insert lineup -> gig_musicians (if table exists)
     gm_cols = _table_columns("gig_musicians")
     if gm_cols:
-        gm_rows = []
+        gm_rows: List[Dict] = []
         for role, musician_id in lineup_selections:
             gm_rows.append(_filter_to_schema("gig_musicians", {
                 "gig_id": gig_id,
@@ -324,7 +321,7 @@ if submitted:
     # Insert deposits -> gig_deposits (if table exists)
     gd_cols = _table_columns("gig_deposits")
     if gd_cols and IS_ADMIN and deposit_rows:
-        rows = []
+        rows: List[Dict] = []
         for dep in deposit_rows:
             due_date_val = dep["due_date"]
             rows.append(_filter_to_schema("gig_deposits", {
