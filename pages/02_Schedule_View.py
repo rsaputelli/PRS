@@ -207,13 +207,20 @@ ordered = [c for c in preferred if c in disp_cols]
 if "fee" in gigs.columns:
     gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
 
-# --- Final table (sorted if we have keys) ---
-sort_candidates = [c for c in ["event_date", "_start_dt"] if c in gigs.columns]
+# --- Final table (robust sorting even if sort cols are hidden) ---
+# Build the display frame first
 df_show = gigs[ordered] if ordered else gigs[disp_cols]
-if sort_candidates:
-    keys = [c for c in sort_candidates if c in gigs.columns]
-    if keys:
-        df_show = df_show.sort_values(by=keys, ascending=True)
+
+# Prefer to sort by columns that actually exist in the display
+sort_keys = [c for c in ["event_date", "_start_dt"] if c in df_show.columns]
+if sort_keys:
+    df_show = df_show.sort_values(by=sort_keys, ascending=True)
+else:
+    # If sort columns are hidden from display, sort the full gigs and then project
+    sort_keys_alt = [c for c in ["event_date", "_start_dt"] if c in gigs.columns]
+    if sort_keys_alt:
+        gigs_sorted = gigs.sort_values(by=sort_keys_alt, ascending=True)
+        df_show = gigs_sorted[df_show.columns]  # same column order as display
 
 st.dataframe(df_show, use_container_width=True, hide_index=True)
 
