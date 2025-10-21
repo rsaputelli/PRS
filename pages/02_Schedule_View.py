@@ -92,8 +92,9 @@ if venues_data:
 # --- Join sound techs (uuid -> friendly display) ---
 try:
     techs_data = sb.table("sound_techs").select(
-        "id,name,full_name,display_name,company,company_name,business_name,title"
+        "id,first_name,last_name,name,full_name,display_name,company,company_name,business_name,title"
     ).execute().data or []
+
 except Exception:
     techs_data = []
 
@@ -107,7 +108,7 @@ if techs_data and "sound_tech_id" in gigs.columns:
     tdf = pd.DataFrame(techs_data)
     gigs = gigs.merge(tdf, how="left", left_on="sound_tech_id", right_on="id", suffixes=("", "_tech"))
 
-    name_cols    = [c for c in ["display_name","full_name","name","title"] if c in gigs.columns]
+    name_cols = [c for c in ["display_name","full_name","name","first_name","last_name","title"] if c in gigs.columns]
     company_cols = [c for c in ["company","company_name","business_name"] if c in gigs.columns]
 
     def build_tech(r):
