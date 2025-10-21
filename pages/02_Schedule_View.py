@@ -75,21 +75,34 @@ with st.expander("🔎 Debug (temporary)"):
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
 
-# keep raw dt for formatting later
+# keep raw dt for formatting later (don’t break these lines)
 if "start_time" in gigs.columns:
     gigs["_start_dt"] = pd.to_datetime(gigs["start_time"], errors="coerce")
+else:
+    gigs["_start_dt"] = pd.NaT
+
 if "end_time" in gigs.columns:
     gigs["_end_dt"] = pd.to_datetime(gigs["end_time"], errors="coerce")
+else:
+    gigs["_end_dt"] = pd.NaT
 
+# pretty updated_at (safe even if tz-aware/na)
 if "updated_at" in gigs.columns:
-    gigs["updated_at"] = (
-        pd.to_datetime(gigs["updated_at"], errors="coerce")
-          .dt.tz_convert(None)
-          .dt.strftime("%Y-%m-%d %H:%M")
-    )
+    upd = pd.to_datetime(gigs["updated_at"], errors="coerce")
+    # drop tz for display if present
+    try:
+        upd = upd.dt.tz_convert(None)
+    except Exception:
+        try:
+            upd = upd.dt.tz_localize(None)
+        except Exception:
+            pass
+    gigs["updated_at"] = upd.dt.strftime("%Y-%m-%d %H:%M")
 
+# normalize status capitalization
 if "contract_status" in gigs.columns and gigs["contract_status"].dtype == object:
     gigs["contract_status"] = gigs["contract_status"].astype(str).str.strip().str.title()
+
 
 # --- Join venues (name, city) ---
 venues_data = sb.table("venues").select("id,name,city").execute().data or []
@@ -111,7 +124,6 @@ if techs and "sound_tech_id" in gigs.columns:
     tdf = pd.DataFrame(techs).rename(columns={"id": "sound_tech_id"})
     gigs = gigs.merge(tdf, how="left", on="sound_tech_id", suffixes=("", "_tech"))
 
-    # Build a single display column; fallback to short UUID if needed
     def _mk_sound_tech(row):
         dn = row.get("display_name")
         co = row.get("company")
@@ -123,9 +135,7 @@ if techs and "sound_tech_id" in gigs.columns:
         return f"{stid[:8]}…" if isinstance(stid, str) else None
 
     gigs["sound_tech"] = gigs.apply(_mk_sound_tech, axis=1)
-
-    # keep table clean; don't drop 'sound_tech_id' (we hide it later)
-    gigs.drop(columns=[c for c in ["display_name", "company", "id_tech"] if c in gigs.columns],
+    gigs.drop(columns=[c for c in ["display_name","company","id_tech"] if c in gigs.columns],
               inplace=True, errors="ignore")
 
 # --- Apply filters ---
