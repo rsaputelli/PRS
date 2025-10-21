@@ -5,21 +5,41 @@ from email.message import EmailMessage
 from docx import Document
 from supabase import create_client, Client
 
-# ─────────────── Config ───────────────
+# ─────────────── Config (safe secrets + env) ───────────────
+def _get_secret(name: str, default: str | None = None, required: bool = False) -> str | None:
+    """Prefer st.secrets → env var → default. Stop app if required and missing."""
+    val = None
+    if hasattr(st, "secrets") and name in st.secrets:
+        val = st.secrets.get(name)
+    if val is None:
+        val = os.getenv(name, default)
+    if required and (val is None or str(val).strip() == ""):
+        st.error(
+            f"Missing required setting: `{name}`.\n\n"
+            "Add it under **Settings → Secrets** in Streamlit Cloud or set it as an environment variable locally.\n"
+            "Required: SUPABASE_URL, SUPABASE_ANON_KEY. Optional: SUPABASE_SERVICE_KEY, SMTP_*."
+        )
+        st.stop()
+    return val
+
 TEMPLATE_PATH = "PRS_Contract_Template.docx"
-SENDER_NAME = "Philly Rock and Soul"
-SENDER_EMAIL = os.getenv("PRS_MAIL_FROM", "prsbandinfo@gmail.com")
 
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", SENDER_EMAIL)
-SMTP_PASS = os.getenv("SMTP_PASS")
+# Email (defaults OK)
+SENDER_NAME  = "Philly Rock and Soul"
+SENDER_EMAIL = _get_secret("PRS_MAIL_FROM", default="prsbandinfo@gmail.com")
+SMTP_HOST    = _get_secret("SMTP_HOST", default="smtp.gmail.com")
+SMTP_PORT    = int(_get_secret("SMTP_PORT", default="587"))
+SMTP_USER    = _get_secret("SMTP_USER", default=SENDER_EMAIL)
+SMTP_PASS    = _get_secret("SMTP_PASS")  # optional
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_ANON_KEY = os.environ["SUPABASE_ANON_KEY"]
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # Optional for admin upserts if RLS denies anon
+# Supabase (REQUIRED)
+SUPABASE_URL         = _get_secret("SUPABASE_URL", required=True)
+SUPABASE_ANON_KEY    = _get_secret("SUPABASE_ANON_KEY", required=True)
+SUPABASE_SERVICE_KEY = _get_secret("SUPABASE_SERVICE_KEY")  # optional
+
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 sb_svc: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else sb
+
 
 # ─────────────── Helpers ───────────────
 def merge_docx(template_path: str, variables: dict) -> bytes:
