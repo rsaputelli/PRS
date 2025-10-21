@@ -69,6 +69,15 @@ if gigs_df.empty:
     st.stop()
 gigs = gigs_df.copy()
 
+# --- TEMP DEBUG ---
+with st.expander("🔎 Debug (temporary)"):
+    st.write("gigs columns:", list(gigs.columns))
+    sample_ids = gigs["sound_tech_id"].head(5).astype(str).tolist() if "sound_tech_id" in gigs.columns else []
+    st.write("sample sound_tech_id:", sample_ids)
+    _tech_preview = _select_df("sound_techs", "id, display_name, company", limit=3)
+    if not _tech_preview.empty:
+        st.write("sound_techs sample rows:", _tech_preview)
+
 # --- Normalize types ---
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
@@ -79,7 +88,7 @@ def _series_from(colname: str):
     return pd.Series([pd.NaT] * len(gigs), index=gigs.index, dtype="datetime64[ns]")
 
 gigs["_start_dt"] = _series_from("start_time")
-gigs["_end_dt"] = _series_from("end_time")
+gigs["_end_dt"]   = _series_from("end_time")
 
 # --- Join sound techs ---
 techs = _select_df("sound_techs", "id, display_name, company")
@@ -104,7 +113,7 @@ if not techs.empty and "sound_tech_id" in gigs.columns:
         if c in gigs.columns:
             gigs.drop(columns=[c], inplace=True)
 
-# --- Formatting helpers ---
+# --- Helpers ---
 def _fmt_time(dt):
     if pd.isna(dt):
         return ""
@@ -125,24 +134,7 @@ def _fmt_date(d):
 gigs["Date"] = gigs["event_date"].apply(_fmt_date) if "event_date" in gigs.columns else ""
 gigs["Time"] = gigs.apply(lambda r: f"{_fmt_time(r.get('_start_dt'))} – {_fmt_time(r.get('_end_dt'))}".strip(" –"), axis=1)
 
-# --- Location ---
-loc_candidates = [k for k in ["venue", "venue_name", "location"] if k in gigs.columns]
-addr_bits = [k for k in ["address", "city", "state"] if k in gigs.columns]
-def _mk_loc(r):
-    parts = []
-    for k in loc_candidates:
-        v = r.get(k)
-        if pd.notna(v) and str(v).strip():
-            parts.append(str(v).strip())
-            break
-    for k in addr_bits:
-        v = r.get(k)
-        if pd.notna(v) and str(v).strip():
-            parts.append(str(v).strip())
-    return ", ".join(parts)
-gigs["Location"] = gigs.apply(_mk_loc, axis=1)
-
-# --- Venue (safe, no display_name dependency) ---
+# --- Venue (prefer text on gigs; fallback to venues.name via venue_id) ---
 def _first_nonempty(row, keys):
     for k in keys:
         if k in row.index:
@@ -154,15 +146,69 @@ def _first_nonempty(row, keys):
 text_keys = [k for k in ["venue", "venue_name", "location"] if k in gigs.columns]
 gigs["Venue"] = gigs.apply(lambda r: _first_nonempty(r, text_keys), axis=1)
 
-if ("venue_id" in gigs.columns) and (gigs["Venue"].eq("").any()):
-    vdf = _select_df("venues", "id, name")  # no display_name
+# Pull venue name + address fields; rename to *_venue so they don't collide
+if "venue_id" in gigs.columns:
+    vdf = _select_df("venues", "id, name, address_line1, address_line2, city, state, postal_code")
     if not vdf.empty:
-        vdf = vdf.rename(columns={"id": "venue_id"})
+        vdf = vdf.rename(columns={
+            "id": "venue_id",
+            "name": "venue_name_text",
+            "address_line1": "address_line1_venue",
+            "address_line2": "address_line2_venue",
+            "city": "city_venue",
+            "state": "state_venue",
+            "postal_code": "postal_code_venue",
+        })
+        # normalize ids as strings for join
         gigs["venue_id"] = gigs["venue_id"].astype(str)
         vdf["venue_id"] = vdf["venue_id"].astype(str)
-        gigs = gigs.merge(vdf, how="left", on="venue_id", suffixes=("", "_venue"))
-        if "name" in gigs.columns:
-            gigs["Venue"] = gigs["Venue"].where(gigs["Venue"].str.len().fillna(0) > 0, gigs["name"].astype(str))
+        gigs = gigs.merge(vdf, how="left", on="venue_id")
+
+        # If Venue still blank, fill from venue name
+        if "venue_name_text" in gigs.columns:
+            gigs["Venue"] = gigs["Venue"].where(
+                gigs["Venue"].astype(str).str.strip().ne(""),
+                gigs["venue_name_text"].astype(str)
+            )
+
+# --- Location: prefer gig address fields; then fall back to venue address fields ---
+def _mk_address_block(row, prefix=""):
+    # prefix "" -> gig fields; "_venue" -> venue fields
+    def val(k):
+        key = f"{k}{prefix}"
+        if key in row.index:
+            v = row.get(key)
+            if pd.notna(v) and str(v).strip():
+                return str(v).strip()
+        return ""
+    a1 = val("address_line1")
+    a2 = val("address_line2")
+    c  = val("city")
+    s  = val("state")
+    z  = val("postal_code")
+
+    if not any([a1, a2, c, s, z]):
+        return ""
+
+    parts = []
+    street = ", ".join([p for p in [a1, a2] if p])
+    if street:
+        parts.append(street)
+    city_state_zip = ""
+    if c:
+        city_state_zip = c
+    if s or z:
+        tail = " ".join([p for p in [s, z] if p])
+        city_state_zip = f"{city_state_zip}, {tail}" if city_state_zip else tail
+    if city_state_zip:
+        parts.append(city_state_zip)
+    return ", ".join(parts)
+
+# Build Location now:
+loc_from_gig   = gigs.apply(lambda r: _mk_address_block(r, ""), axis=1)
+loc_from_venue = gigs.apply(lambda r: _mk_address_block(r, "_venue"), axis=1)
+
+gigs["Location"] = loc_from_gig.where(loc_from_gig.astype(str).str.strip().ne(""), loc_from_venue)
 
 # --- Fee ---
 if "fee" not in gigs.columns:
@@ -192,9 +238,17 @@ if "id" in gigs.columns:
 # --- Display columns ---
 hide_cols = set(
     [c for c in gigs.columns if c.endswith("_id")]
-    + [c for c in ["id", "created_at", "updated_at", "event_date", "start_time", "end_time",
-                   "_start_dt", "_end_dt", "address", "city", "state", "venue", "venue_name", "location"]
-       if c in gigs.columns]
+    + [c for c in [
+        "id", "created_at", "updated_at", "event_date", "start_time", "end_time",
+        "_start_dt", "_end_dt",
+        # raw text columns we don't want to show
+        "venue", "venue_name", "location",
+        # hide venue address columns used only for Location
+        "address_line1_venue", "address_line2_venue", "city_venue", "state_venue", "postal_code_venue",
+        # if gig has its own raw address fields, we still prefer the combined Location column
+        "address_line1", "address_line2", "city", "state", "postal_code",
+        "venue_name_text",
+    ] if c in gigs.columns]
 )
 disp_cols = [c for c in gigs.columns if c not in hide_cols]
 preferred = [
@@ -203,7 +257,8 @@ preferred = [
     "band_name" if "band_name" in gigs.columns else None,
     "Venue", "Location",
     "contract_status" if "contract_status" in gigs.columns else None,
-    "fee", "sound_tech" if "sound_tech" in gigs.columns else None,
+    "fee",
+    "sound_tech" if "sound_tech" in gigs.columns else None,
     "notes" if "notes" in gigs.columns else None,
 ]
 preferred = [c for c in preferred if c]
@@ -221,5 +276,5 @@ else:
 
 st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-# (Removed Total Fees metric per request)
+# (No Total Fees metric — removed per your request)
 
