@@ -1,0 +1,7 @@
+# Require Ray's review for app code
+/Master\ Gig\ App.py   @RaySaputelli
+/pages/**              @RaySaputelli
+/requirements.txt      @RaySaputelli
+/.streamlit/**         @RaySaputelli
+/.github/**            @RaySaputelli
+/*.py                  @RaySaputelli
