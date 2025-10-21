@@ -55,20 +55,39 @@ if not gigs_data:
 
 gigs = pd.DataFrame(gigs_data)
 
+# --- Normalize types BEFORE filtering ---
+if "event_date" in gigs.columns:
+    gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
+if "start_time" in gigs.columns:
+    gigs["start_time"] = pd.to_datetime(gigs["start_time"], errors="coerce").dt.time
+if "contract_status" in gigs.columns and gigs["contract_status"].dtype == object:
+    gigs["contract_status"] = gigs["contract_status"].astype(str).str.strip().str.title()
+
 # --- Join venues (optional) ---
 venues_data = sb.table("venues").select("id,name,city").execute().data or []
 if venues_data:
     vdf = pd.DataFrame(venues_data)
-    gigs = gigs.merge(
-        vdf, how="left", left_on="venue_id", right_on="id", suffixes=("", "_venue")
-    )
+    gigs = gigs.merge(vdf, how="left", left_on="venue_id", right_on="id", suffixes=("", "_venue"))
     gigs.rename(columns={"name": "venue_name"}, inplace=True)
 
-# --- Apply filters using your column names ---
+# --- Apply filters ---
 if "contract_status" in gigs.columns:
     gigs = gigs[gigs["contract_status"].isin(status_filter)]
 if upcoming_only and "event_date" in gigs.columns:
     gigs = gigs[gigs["event_date"] >= pd.Timestamp.today().date()]
+
+# --- Display ---
+cols_hide = [c for c in ["id","venue_id","created_at","id_venue"] if c in gigs.columns]
+disp_cols = [c for c in gigs.columns if c not in cols_hide]
+if "fee" in disp_cols:
+    gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
+
+sort_cols = [c for c in ["event_date","start_time"] if c in gigs.columns]
+st.dataframe(
+    gigs[disp_cols].sort_values(by=sort_cols, ascending=True) if sort_cols else gigs[disp_cols],
+    use_container_width=True, hide_index=True
+)
+
 
 # --- Display ---
 cols_hide = [c for c in ["id","venue_id","created_at","id_venue"] if c in gigs.columns]
