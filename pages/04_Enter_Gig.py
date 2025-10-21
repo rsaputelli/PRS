@@ -8,6 +8,29 @@ from typing import Optional, Dict, List, Set
 
 st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
 st.title("📝 Enter Gig")
+# --- Page config ---
+st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
+
+# --- Header with logo + title + key fields on the right ---
+from pathlib import Path
+logo_path = Path(__file__).parent.parent / "assets" / "prs_logo.png"  # rename to match your logo filename
+
+hdr1, hdr2, hdr3 = st.columns([0.14, 0.56, 0.30])
+
+with hdr1:
+    if logo_path.exists():
+        st.image(str(logo_path), use_container_width=True)
+with hdr2:
+    st.markdown(
+        "<h1 style='margin-bottom:0'>Enter Gig</h1>"
+        "<div style='opacity:.7'>Philly Rock &amp; Soul</div>",
+        unsafe_allow_html=True
+    )
+with hdr3:
+    contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0)
+    fee = st.number_input("Fee", min_value=0.0, step=100.0, format="%.2f")
+
+st.markdown("---")
 
 # -----------------------------
 # Supabase helpers
@@ -231,22 +254,22 @@ with eb1:
     title = st.text_input("Title (optional)", placeholder="e.g., Spring Gala")
     event_date = st.date_input("Date of Performance", value=date.today())
 
-# Start/End grouped side-by-side (12-hour)
-with eb2:
-    st.markdown("**Start Time**")
-    srow1, srow2 = st.columns([1,1])
-    start_hour = srow1.selectbox("Hour", list(range(1,13)), index=7, key="start_hour")
-    start_min  = srow2.selectbox("Min", [0, 15, 30, 45], index=0, key="start_min")
-    start_ampm = st.selectbox("AM/PM", ["PM","AM"], index=0, key="start_ampm")
+    # --- Performance Time Row (Start/End grouped together) ---
+    st.markdown("**Performance Time**")
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-with eb3:
-    st.markdown("**End Time**")
-    erow1, erow2 = st.columns([1,1])
-    end_hour = erow1.selectbox("Hour ", list(range(1,13)), index=10, key="end_hour")
-    end_min  = erow2.selectbox("Min ", [0, 15, 30, 45], index=0, key="end_min")
-    end_ampm = st.selectbox("AM/PM ", ["PM","AM"], index=0, key="end_ampm")
-    contract_status = st.selectbox("Status", options=["Pending", "Hold", "Confirmed"], index=0)
-    fee = st.number_input("Fee", min_value=0.0, step=100.0, format="%.2f")
+    with col1:
+        start_hour = st.selectbox("Start Hour", list(range(1, 13)), index=7, key="start_hour")
+    with col2:
+        start_min = st.selectbox("Start Min", [0, 15, 30, 45], index=0, key="start_min")
+    with col3:
+        start_ampm = st.selectbox("AM/PM", ["AM", "PM"], index=1, key="start_ampm")
+    with col4:
+        end_hour = st.selectbox("End Hour", list(range(1, 13)), index=10, key="end_hour")
+    with col5:
+        end_min = st.selectbox("End Min", [0, 15, 30, 45], index=0, key="end_min")
+    with col6:
+        end_ampm = st.selectbox("AM/PM", ["AM", "PM"], index=1, key="end_ampm")
 
 # Agent + Band
 ag_col, band_col = st.columns([1,1])
