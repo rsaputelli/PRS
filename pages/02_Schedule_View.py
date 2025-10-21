@@ -6,7 +6,7 @@ from supabase import create_client, Client
 
 st.title("📅 Schedule View")
 
-# widen the content area to reduce horizontal scrolling
+# widen content area to reduce horizontal scrolling
 st.markdown("<style>.block-container{max-width:1400px;}</style>", unsafe_allow_html=True)
 
 # --- Supabase helper (secrets → env) ---
@@ -92,9 +92,10 @@ if venues_data:
 # --- Join sound techs (uuid -> friendly display) ---
 try:
     techs_data = sb.table("sound_techs").select(
-        "id,first_name,last_name,name,full_name,display_name,company,company_name,business_name,title"
+        # include all likely name/company fields seen in your table
+        "id, first_name, last_name, display_name, name, full_name, "
+        "company, company_name, business_name, title"
     ).execute().data or []
-
 except Exception:
     techs_data = []
 
@@ -108,10 +109,20 @@ if techs_data and "sound_tech_id" in gigs.columns:
     tdf = pd.DataFrame(techs_data)
     gigs = gigs.merge(tdf, how="left", left_on="sound_tech_id", right_on="id", suffixes=("", "_tech"))
 
-    name_cols = [c for c in ["display_name","full_name","name","first_name","last_name","title"] if c in gigs.columns]
+    # build a friendly display value
+    name_cols    = [c for c in ["display_name","full_name","name","title"] if c in gigs.columns]
     company_cols = [c for c in ["company","company_name","business_name"] if c in gigs.columns]
 
     def build_tech(r):
+        # try combined first + last if present
+        if "first_name" in r and "last_name" in r:
+            fn = (r["first_name"] or "").strip() if pd.notna(r["first_name"]) else ""
+            ln = (r["last_name"] or "").strip() if pd.notna(r["last_name"]) else ""
+            both = f"{fn} {ln}".strip()
+            if both:
+                comp = _first_nonempty(r, company_cols)
+                return f"{both} ({comp})" if comp else both
+        # otherwise use display_name/full_name/name/title fallbacks
         name = _first_nonempty(r, name_cols)
         company = _first_nonempty(r, company_cols)
         if name and company:
@@ -120,12 +131,16 @@ if techs_data and "sound_tech_id" in gigs.columns:
             return name
         if company:
             return company
+        # final fallback: short UUID
         stid = r.get("sound_tech_id")
         return f"{stid[:8]}…" if isinstance(stid, str) else None
 
     gigs["sound_tech"] = gigs.apply(build_tech, axis=1)
-    gigs.drop(columns=[c for c in ["id_tech","name","full_name","display_name","company","company_name","business_name","title"] if c in gigs.columns],
-              inplace=True, errors="ignore")
+    gigs.drop(
+        columns=[c for c in ["id_tech","name","full_name","display_name","first_name","last_name",
+                             "company","company_name","business_name","title"] if c in gigs.columns],
+        inplace=True, errors="ignore"
+    )
 
 # --- Apply filters ---
 if "contract_status" in gigs.columns:
@@ -169,3 +184,4 @@ st.dataframe(df_show, use_container_width=True, hide_index=True)
 # Optional summary
 if "fee" in gigs.columns and not gigs.empty:
     st.metric("Total Fees (shown)", f"${gigs['fee'].fillna(0).sum():,.0f}")
+
