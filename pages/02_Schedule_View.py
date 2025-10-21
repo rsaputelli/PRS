@@ -84,11 +84,10 @@ with st.expander("🔎 Debug (temporary)"):
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
 
-# Always create _start_dt / _end_dt as Series (prevents KeyError in sort)
+# Always create _start_dt/_end_dt as Series to prevent KeyErrors later
 def _series_from(colname: str):
     if colname in gigs.columns:
         return pd.to_datetime(gigs[colname], errors="coerce")
-    # same length, all NaT
     return pd.Series([pd.NaT] * len(gigs), index=gigs.index, dtype="datetime64[ns]")
 
 gigs["_start_dt"] = _series_from("start_time")
@@ -114,7 +113,9 @@ if not techs.empty and "sound_tech_id" in gigs.columns:
         return f"{stid[:8]}…" if isinstance(stid, str) and len(stid) >= 8 else (stid or None)
 
     gigs["sound_tech"] = gigs.apply(_mk_sound_tech, axis=1)
-    gigs.drop(columns=[c for c in ["display_name", "company"] if c in gigs.columns], inplace=True, errors="ignore")
+    for c in ["display_name", "company"]:
+        if c in gigs.columns:
+            gigs.drop(columns=[c], inplace=True)
 
 # --- Helpers ---
 def _fmt_time(dt):
@@ -140,7 +141,7 @@ def _fmt_date(d):
 gigs["Date"] = gigs["event_date"].apply(_fmt_date) if "event_date" in gigs.columns else ""
 gigs["Time"] = gigs.apply(lambda r: f"{_fmt_time(r.get('_start_dt'))} – {_fmt_time(r.get('_end_dt'))}".strip(" –"), axis=1)
 
-# Location from whatever exists
+# Build a robust Location string from whatever columns exist
 loc_candidates = [k for k in ["venue", "venue_name", "location"] if k in gigs.columns]
 addr_bits = [k for k in ["address", "city", "state"] if k in gigs.columns]
 def _mk_loc(r):
@@ -156,7 +157,8 @@ def _mk_loc(r):
             parts.append(str(v).strip())
     return ", ".join(parts)
 gigs["Location"] = gigs.apply(_mk_loc, axis=1)
-# --- Derived Venue (prefer venue -> venue_name -> location) and ensure fee col exists ---
+
+# --- Venue: prefer text columns; fallback to venues lookup via venue_id ---
 def _first_nonempty(row, keys):
     for k in keys:
         if k in row.index:
@@ -165,10 +167,24 @@ def _first_nonempty(row, keys):
                 return str(v).strip()
     return ""
 
-venue_keys = [k for k in ["venue", "venue_name", "location"] if k in gigs.columns]
-gigs["Venue"] = gigs.apply(lambda r: _first_nonempty(r, venue_keys), axis=1)
+text_keys = [k for k in ["venue", "venue_name", "location"] if k in gigs.columns]
+gigs["Venue"] = gigs.apply(lambda r: _first_nonempty(r, text_keys), axis=1)
 
-# Make sure a 'fee' column exists so it appears in the table, even if empty
+if ("venue_id" in gigs.columns) and (gigs["Venue"].eq("").any()):
+    vdf = _select_df("venues", "id, name, display_name")
+    if not vdf.empty:
+        vdf = vdf.rename(columns={"id": "venue_id"})
+        gigs["venue_id"] = gigs["venue_id"].astype(str)
+        vdf["venue_id"] = vdf["venue_id"].astype(str)
+        gigs = gigs.merge(vdf, how="left", on="venue_id", suffixes=("", "_venue"))
+        # Fill Venue from display_name then name if still blank
+        if "display_name" in gigs.columns or "name" in gigs.columns:
+            fallback = gigs.get("display_name", pd.Series(index=gigs.index, dtype=object)).fillna(
+                gigs.get("name", pd.Series(index=gigs.index, dtype=object))
+            )
+            gigs["Venue"] = gigs["Venue"].where(gigs["Venue"].str.len().fillna(0) > 0, fallback.astype(str))
+
+# Ensure a 'fee' column exists and is numeric so it can be displayed even if empty
 if "fee" not in gigs.columns:
     gigs["fee"] = pd.NA
 else:
@@ -182,7 +198,7 @@ if upcoming_only and "event_date" in gigs.columns:
 if search_txt.strip():
     s = search_txt.strip().lower()
     def _row_has_text(r):
-        for k in ("title", "notes", "Location", "band_name", "sound_tech", "venue", "venue_name", "location"):
+        for k in ("title", "notes", "Location", "Venue", "band_name", "sound_tech", "venue", "venue_name", "location"):
             if k in r.index:
                 val = r.get(k)
                 if pd.notna(val) and s in str(val).lower():
@@ -195,14 +211,13 @@ if "id" in gigs.columns:
     gigs = gigs.drop_duplicates(subset=["id"])
 
 # --- Choose display columns (locked, human-readable) ---
-# Hide internal IDs/system fields but keep our derived 'Venue' and pretty columns
+# Hide raw IDs/system columns but keep our derived Venue/Location/etc.
 hide_cols = set(
     [c for c in gigs.columns if c.endswith("_id")]
     + [c for c in ["id", "created_at", "updated_at", "event_date", "start_time", "end_time",
                    "_start_dt", "_end_dt", "address", "city", "state", "venue", "venue_name", "location"]
        if c in gigs.columns]
 )
-
 disp_cols = [c for c in gigs.columns if c not in hide_cols]
 
 preferred = [
@@ -210,21 +225,18 @@ preferred = [
     "Time",
     "title" if "title" in gigs.columns else None,
     "band_name" if "band_name" in gigs.columns else None,
-    "Venue",                    # <- new
+    "Venue",
     "Location",
     "contract_status" if "contract_status" in gigs.columns else None,
-    "fee",                      # <- always present now
+    "fee",
     "sound_tech" if "sound_tech" in gigs.columns else None,
     "notes" if "notes" in gigs.columns else None,
 ]
 preferred = [c for c in preferred if c]
-
-# Only show preferred (don’t append the rest to avoid UUID clutter)
 ordered = [c for c in preferred if c in disp_cols]
 
 # --- Final table (robust sorting even if sort cols are hidden) ---
 df_show = gigs[ordered] if ordered else gigs[disp_cols]
-
 sort_keys = [c for c in ["event_date", "_start_dt"] if c in df_show.columns]
 if sort_keys:
     df_show = df_show.sort_values(by=sort_keys, ascending=True)
@@ -236,10 +248,7 @@ else:
 
 st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-
-
-# --- Optional summary ---
-if "fee" in gigs.columns and not gigs.empty:
-    st.metric("Total Fees (shown)", f"${gigs['fee'].fillna(0).sum():,.0f}")
+# --- (Removed) Total fees metric per request ---
+# (intentionally deleted)
 
 
