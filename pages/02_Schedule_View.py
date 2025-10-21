@@ -6,6 +6,12 @@ from supabase import create_client, Client
 
 st.title("📅 Schedule View")
 
+# widen the content area a bit (helps reduce horizontal scrolling)
+st.markdown(
+    "<style>.block-container{max-width: 1400px;}</style>",
+    unsafe_allow_html=True,
+)
+
 # --- Supabase helper (secrets → env) ---
 def _get_secret(name, default=None, required=False):
     if hasattr(st, "secrets") and name in st.secrets:
@@ -63,8 +69,17 @@ if "start_time" in gigs.columns:
     gigs["start_time"] = pd.to_datetime(gigs["start_time"], errors="coerce").dt.time
 if "end_time" in gigs.columns:
     gigs["end_time"] = pd.to_datetime(gigs["end_time"], errors="coerce").dt.time
+# Pretty updated_at (keep as string for nicer display)
+if "updated_at" in gigs.columns:
+    gigs["updated_at"] = (
+        pd.to_datetime(gigs["updated_at"], errors="coerce")
+          .dt.tz_convert(None)  # drop timezone for display, if present
+          .dt.strftime("%Y-%m-%d %H:%M")
+    )
+
 if "contract_status" in gigs.columns and gigs["contract_status"].dtype == object:
     gigs["contract_status"] = gigs["contract_status"].astype(str).str.strip().str.title()
+
 
 # --- Join venues (name, city) ---
 venues_data = sb.table("venues").select("id,name,city").execute().data or []
@@ -79,21 +94,38 @@ if venues_data:
 
 # --- Join sound techs (uuid -> display) ---
 try:
-    techs_data = sb.table("sound_techs").select("id,name,company").execute().data or []
+    techs_data = sb.table("sound_techs").select("id,name,full_name,company,company_name,business_name").execute().data or []
 except Exception:
     techs_data = []
+
+def _first_nonnull(row, cols):
+    for c in cols:
+        val = row.get(c)
+        if pd.notna(val) and str(val).strip() != "":
+            return str(val).strip()
+    return None
+
 if techs_data and "sound_tech_id" in gigs.columns:
     tdf = pd.DataFrame(techs_data)
     gigs = gigs.merge(
         tdf, how="left", left_on="sound_tech_id", right_on="id", suffixes=("", "_tech")
     )
-    if {"name", "company"}.issubset(gigs.columns):
+    # Build a friendly display like "Alex Smith (AudioCo)"
+    name_cols    = [c for c in ["name", "full_name"] if c in gigs.columns]
+    company_cols = [c for c in ["company", "company_name", "business_name"] if c in gigs.columns]
+    if name_cols or company_cols:
         gigs["sound_tech"] = gigs.apply(
-            lambda r: f"{r['name']} ({r['company']})" if pd.notna(r["name"]) and pd.notna(r["company"])
-            else (r["name"] if pd.notna(r["name"]) else r["company"]),
-            axis=1
+            lambda r: (
+                f"{_first_nonnull(r, name_cols)} ({_first_nonnull(r, company_cols)})"
+                if _first_nonnull(r, name_cols) and _first_nonnull(r, company_cols)
+                else (_first_nonnull(r, name_cols) or _first_nonnull(r, company_cols))
+            ),
+            axis=1,
         )
-    gigs.drop(columns=[c for c in ["id_tech", "name", "company"] if c in gigs.columns], inplace=True, errors="ignore")
+    # Drop raw columns we don't want to show
+    gigs.drop(columns=[c for c in ["id_tech","name","full_name","company","company_name","business_name"] if c in gigs.columns],
+              inplace=True, errors="ignore")
+
 
 # --- Apply filters ---
 if "contract_status" in gigs.columns:
