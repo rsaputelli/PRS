@@ -177,9 +177,19 @@ if search_txt.strip():
 if "id" in gigs.columns:
     gigs = gigs.drop_duplicates(subset=["id"])
 
-# --- Choose display columns dynamically ---
+# --- Choose display columns (lock to human-readable set and hide IDs/system) ---
+# 1) Hide raw IDs / system columns from the display
+hide_cols = set(
+    [c for c in gigs.columns if c.endswith("_id")]
+    + [c for c in ["id", "created_at", "updated_at", "event_date", "start_time", "end_time",
+                   "_start_dt", "_end_dt", "address", "city", "state", "venue", "venue_name", "location"] if c in gigs.columns]
+)
+disp_cols = [c for c in gigs.columns if c not in hide_cols]
+
+# 2) Preferred human-readable columns in the order we want
 preferred = [
-    "Date", "Time",
+    "Date",
+    "Time",
     "title" if "title" in gigs.columns else None,
     "band_name" if "band_name" in gigs.columns else None,
     "Location",
@@ -188,24 +198,25 @@ preferred = [
     "sound_tech" if "sound_tech" in gigs.columns else None,
     "notes" if "notes" in gigs.columns else None,
 ]
-preferred = [c for c in preferred if c]
-disp_cols = [c for c in gigs.columns if c not in ("_start_dt", "_end_dt")]
-ordered = [c for c in preferred if c in disp_cols] + [c for c in disp_cols if c not in preferred]
+preferred = [c for c in preferred if c]  # drop Nones
 
-# Fee numeric
+# 3) Only show preferred (do NOT append the rest to avoid UUID clutter)
+ordered = [c for c in preferred if c in disp_cols]
+
+# Fee numeric for the metric below
 if "fee" in gigs.columns:
     gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
 
-# --- Final table ---
+# --- Final table (sorted if we have keys) ---
 sort_candidates = [c for c in ["event_date", "_start_dt"] if c in gigs.columns]
-df_show = gigs[ordered]
+df_show = gigs[ordered] if ordered else gigs[disp_cols]
 if sort_candidates:
-    # Only include keys that truly exist (double guard)
-    keys = [c for c in sort_candidates if c in df_show.columns]
+    keys = [c for c in sort_candidates if c in gigs.columns]
     if keys:
         df_show = df_show.sort_values(by=keys, ascending=True)
 
 st.dataframe(df_show, use_container_width=True, hide_index=True)
+
 
 # --- Optional summary ---
 if "fee" in gigs.columns and not gigs.empty:
