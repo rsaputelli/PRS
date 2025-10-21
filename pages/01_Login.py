@@ -31,7 +31,8 @@ else:
             if res.user:
                 st.session_state["user"] = {"email": res.user.email}
                 st.success("Logged in successfully!")
-                st.experimental_rerun()
+                st.rerun()
+
             else:
                 st.error("Invalid credentials.")
         except Exception as e:
