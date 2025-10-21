@@ -29,6 +29,8 @@ else:
         try:
             res = sb.auth.sign_in_with_password({"email": email, "password": password})
             if res.user:
+                st.session_state["sb_access_token"] = res.session.access_token
+                st.session_state["sb_refresh_token"] = res.session.refresh_token
                 st.session_state["user"] = {"email": res.user.email}
                 st.success("Logged in successfully!")
                 st.rerun()

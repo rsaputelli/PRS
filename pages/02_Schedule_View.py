@@ -6,7 +6,6 @@ from supabase import create_client, Client
 
 st.title("📅 Schedule View")
 
-# --- Supabase helper (secrets → env) ---
 def _get_secret(name, default=None, required=False):
     if hasattr(st, "secrets") and name in st.secrets:
         val = st.secrets[name]
@@ -26,11 +25,21 @@ if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
     st.stop()
 
-# --- Filters ---
+# --- Reattach Supabase session so RLS treats us as authenticated ---
+if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
+    try:
+        sb.auth.set_session(
+            access_token=st.session_state["sb_access_token"],
+            refresh_token=st.session_state["sb_refresh_token"],
+        )
+    except Exception as e:
+        st.warning(f"Could not attach session; showing public data only. ({e})")
+
+# --- Filters (use your schema: contract_status, event_date) ---
 colf1, colf2 = st.columns([1, 1])
 with colf1:
     status_filter = st.multiselect(
-        "Status", ["Pending", "Hold", "Confirmed"],
+        "Contract status", ["Pending", "Hold", "Confirmed"],
         default=["Pending", "Hold", "Confirmed"]
     )
 with colf2:
@@ -46,7 +55,7 @@ if not gigs_data:
 
 gigs = pd.DataFrame(gigs_data)
 
-# --- Join venues (name, city) if available ---
+# --- Join venues (optional) ---
 venues_data = sb.table("venues").select("id,name,city").execute().data or []
 if venues_data:
     vdf = pd.DataFrame(venues_data)
@@ -55,27 +64,29 @@ if venues_data:
     )
     gigs.rename(columns={"name": "venue_name"}, inplace=True)
 
-# --- Apply filters ---
-if "status" in gigs.columns:
-    gigs = gigs[gigs["status"].isin(status_filter)]
-if upcoming_only and "date" in gigs.columns:
-    gigs = gigs[gigs["date"] >= pd.Timestamp.today().date()]
+# --- Apply filters using your column names ---
+if "contract_status" in gigs.columns:
+    gigs = gigs[gigs["contract_status"].isin(status_filter)]
+if upcoming_only and "event_date" in gigs.columns:
+    gigs = gigs[gigs["event_date"] >= pd.Timestamp.today().date()]
 
 # --- Display ---
-cols_hide = [c for c in ["id", "venue_id", "created_at", "id_venue"] if c in gigs.columns]
+cols_hide = [c for c in ["id","venue_id","created_at","id_venue"] if c in gigs.columns]
 disp_cols = [c for c in gigs.columns if c not in cols_hide]
+
 if "fee" in disp_cols:
     gigs["fee"] = pd.to_numeric(gigs["fee"], errors="coerce")
 
-sort_cols = [c for c in ["date", "start_time"] if c in gigs.columns]
+sort_cols = [c for c in ["event_date","start_time"] if c in gigs.columns]
 st.dataframe(
     gigs[disp_cols].sort_values(by=sort_cols, ascending=True) if sort_cols else gigs[disp_cols],
     use_container_width=True,
-    hide_index=True,
+    hide_index=True
 )
 
 # --- Summary ---
 if "fee" in gigs.columns and not gigs.empty:
     st.metric("Total Fees (shown)", f"${gigs['fee'].fillna(0).sum():,.0f}")
-if "status" in gigs.columns and not gigs.empty:
-    st.bar_chart(gigs["status"].value_counts())
+if "contract_status" in gigs.columns and not gigs.empty:
+    st.bar_chart(gigs["contract_status"].value_counts())
+
