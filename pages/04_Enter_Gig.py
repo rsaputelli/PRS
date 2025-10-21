@@ -12,10 +12,11 @@ from pathlib import Path
 # -----------------------------
 st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
 
-# Header with logo + title + key fields on the right
-logo_path = Path(__file__).parent.parent / "assets" / "prs_logo.png"  # ensure this path/file exists
+# Path to logo
+logo_path = Path(__file__).parent.parent / "assets" / "prs_logo.png"
 
-hdr1, hdr2, hdr3 = st.columns([0.14, 0.56, 0.30])
+# --- Header: logo + title only ---
+hdr1, hdr2 = st.columns([0.12, 0.88])
 with hdr1:
     if logo_path.exists():
         st.image(str(logo_path), use_container_width=True)
@@ -25,10 +26,15 @@ with hdr2:
         "<div style='opacity:.7'>Philly Rock &amp; Soul</div>",
         unsafe_allow_html=True
     )
-with hdr3:
-    # Shown in header for quick access; variables reused below when saving
-    contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0)
-    fee = st.number_input("Fee", min_value=0.0, step=100.0, format="%.2f")
+
+# --- Row under header: Status + Fee on the right ---
+_, top_right = st.columns([0.55, 0.45])
+with top_right:
+    colA, colB = st.columns([1, 1])
+    with colA:
+        contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0)
+    with colB:
+        fee = st.number_input("Fee", min_value=0.0, step=100.0, format="%.2f")
 
 st.markdown("---")
 
@@ -186,7 +192,7 @@ sound_df  = _select_df("sound_techs", "*")
 mus_df    = _select_df("musicians", "*")
 agents_df = _select_df("agents", "*")
 
-# Build id->label maps
+# Build id->label maps (general)
 agent_labels: Dict[str, str] = {}
 if not agents_df.empty and "id" in agents_df.columns:
     for _, r in agents_df.iterrows():
@@ -218,6 +224,7 @@ if not sound_df.empty and "id" in sound_df.columns:
         lbl = f"{dn} ({co})".strip().rstrip("()") if co else dn
         sound_labels[str(r["id"])] = lbl
 
+# A base lookup for any fallback needs
 mus_labels: Dict[str, str] = {}
 if not mus_df.empty and "id" in mus_df.columns:
     if "active" in mus_df.columns:
@@ -332,10 +339,38 @@ else:
     sound_by_venue_phone = ""
 
 # -----------------------------
-# Lineup (Role Assignments)
+# Lineup (Role Assignments) — FILTERED
 # -----------------------------
 st.markdown("---")
 st.subheader("Lineup (Role Assignments)")
+
+# Map UI roles → acceptable instrument strings (case-insensitive, substring match)
+ROLE_INSTRUMENT_MAP = {
+    "Male Vocals":    ["male vocals", "vocals", "singer", "lead vocal", "vocal"],
+    "Female Vocals":  ["female vocals", "vocals", "singer", "lead vocal", "vocal"],
+    "Keyboard":       ["keyboard", "keys", "piano", "pianist", "synth"],
+    "Drums":          ["drums", "drummer", "percussion"],
+    "Guitar":         ["guitar", "guitarist"],
+    "Bass":           ["bass", "bassist", "bass guitar"],
+    "Trumpet":        ["trumpet", "trumpeter"],
+    "Saxophone":      ["sax", "saxophone", "saxophonist", "alto sax", "tenor sax", "baritone sax"],
+    "Trombone":       ["trombone", "trombonist"],
+}
+
+def _name_for_mus_row(r: pd.Series) -> str:
+    return (" ".join([
+        _opt_label(r.get("first_name"), ""),
+        _opt_label(r.get("last_name"), "")
+    ]).strip() or _opt_label(r.get("stage_name"), "") or "Unnamed Musician")
+
+def _matches_role(instr: str, role: str) -> bool:
+    if not instr:
+        return False
+    s = str(instr).strip().lower()
+    for token in ROLE_INSTRUMENT_MAP.get(role, []):
+        if token in s:
+            return True
+    return False
 
 lineup_cols = st.columns(3)
 lineup_selections: List[Dict] = []
@@ -345,16 +380,45 @@ role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
 for idx, role in enumerate(ROLE_CHOICES):
     with lineup_cols[idx % 3]:
         sentinel = f"__ADD_MUS__:{role}"
-        mus_options_ids = [""] + list(mus_labels.keys()) + [sentinel]
-        def mus_fmt(x: str, _role=role) -> str:
-            if x == "": return "(unassigned)"
-            if x.startswith("__ADD_MUS__"): return "(+ Add New Musician)"
-            return mus_labels.get(x, x)
+
+        # Build a role-specific filtered list from mus_df
+        role_df = mus_df.copy()
+        if "instrument" in role_df.columns:
+            role_df = role_df[
+                role_df["instrument"].fillna("").apply(lambda x: _matches_role(x, role))
+            ]
+        # Fallback: if filter leaves nothing, fall back to full list
+        if role_df.empty:
+            role_df = mus_df
+
+        # Sort active first if available
+        if "active" in role_df.columns:
+            role_df = role_df.sort_values(by="active", ascending=False)
+
+        # Build labels for this role only
+        role_labels: Dict[str, str] = {}
+        if not role_df.empty and "id" in role_df.columns:
+            for _, r in role_df.iterrows():
+                rid = str(r["id"])
+                role_labels[rid] = _name_for_mus_row(r)
+
+        mus_options_ids = [""] + list(role_labels.keys()) + [sentinel]
+
+        def mus_fmt(x: str, _role=role):
+            if x == "":
+                return "(unassigned)"
+            if x.startswith("__ADD_MUS__"):
+                return "(+ Add New Musician)"
+            return role_labels.get(x, mus_labels.get(x, x))  # graceful fallback
+
         pre_id = preselect_roles.get(role) or ""
         sel_index = mus_options_ids.index(pre_id) if pre_id in mus_options_ids else 0
-        sel_id = st.selectbox(role, options=mus_options_ids, index=sel_index, format_func=mus_fmt, key=f"mus_sel_{role}")
+        sel_id = st.selectbox(role, options=mus_options_ids, index=sel_index,
+                              format_func=mus_fmt, key=f"mus_sel_{role}")
+
         if sel_id and not sel_id.startswith("__ADD_MUS__"):
             lineup_selections.append({"role": role, "musician_id": sel_id})
+
         role_add_boxes[role] = st.empty()
 
 # -----------------------------
@@ -408,6 +472,7 @@ if IS_ADMIN:
 # -----------------------------
 # Agent add
 if agent_id_sel == "__ADD_AGENT__":
+    agent_add_box.empty()
     with agent_add_box.container():
         st.markdown("**➕ Add New Agent**")
         a1, a2 = st.columns([1,1])
@@ -427,6 +492,7 @@ if agent_id_sel == "__ADD_AGENT__":
 
 # Venue add
 if venue_id_sel == "__ADD_VENUE__":
+    venue_add_box.empty()
     with venue_add_box.container():
         st.markdown("**➕ Add New Venue**")
         v1, v2 = st.columns([1,1])
@@ -454,6 +520,7 @@ if venue_id_sel == "__ADD_VENUE__":
 
 # Sound Tech add
 if sound_id_sel == "__ADD_SOUND__":
+    sound_add_box.empty()
     with sound_add_box.container():
         st.markdown("**➕ Add New Sound Tech**")
         s1, s2 = st.columns([1,1])
@@ -481,6 +548,7 @@ for role in ROLE_CHOICES:
     sel_id = st.session_state.get(f"mus_sel_{role}", "")
     sentinel = f"__ADD_MUS__:{role}"
     if sel_id == sentinel:
+        role_add_boxes[role].empty()
         with role_add_boxes[role].container():
             st.markdown(f"**➕ Add New Musician for {role}**")
             m1, m2, m3, m4 = st.columns([1,1,1,1])
@@ -598,3 +666,4 @@ if st.button("💾 Save Gig", type="primary"):
         "fee": new_gig.get("fee"),
     })
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
+
