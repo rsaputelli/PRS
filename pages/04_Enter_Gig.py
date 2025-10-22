@@ -264,7 +264,7 @@ with eb1:
     
 with eb2:
     contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0)
-    fee = st.number_input("Guaranteed Fee ($)", min_value=0.0, step=50.0, format="%.2f")
+    fee = st.number_input("Contracted Fee ($)", min_value=0.0, step=50.0, format="%.2f")
    
 
     # Performance Time: Start/End grouped in one row (12-hr)
