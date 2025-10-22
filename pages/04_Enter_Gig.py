@@ -92,8 +92,7 @@ def _fetch_table(tbl: str, cols: Union[List[str], str] = "*") -> pd.DataFrame:
         # Most common cause: RLS block due to missing authenticated session
         st.error(
             f"Failed to load '{tbl}'. If you're signed in, try refreshing.
-"
-            f"Details: {getattr(e, 'message', e)}"
+" f"Details: {getattr(e, 'message', e)}"
         )
         return pd.DataFrame()
     except Exception as e:
