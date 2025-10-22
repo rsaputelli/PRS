@@ -30,6 +30,7 @@ from typing import Optional, Dict, List
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
+from postgrest import APIError as PostgrestAPIError
 
 # -----------------------------
 # Page config + Auth gate
@@ -55,6 +56,15 @@ def _get_secret(name: str, required: bool = True) -> Optional[str]:
 SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+# Attach the authenticated session so RLS policies for "authenticated" apply
+if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
+    try:
+        sb.auth.set_session(
+            access_token=st.session_state["sb_access_token"],
+            refresh_token=st.session_state["sb_refresh_token"],
+        )
+    except Exception as _e:
+        st.warning(f"Could not attach Supabase session: {_e}")
 
 # -----------------------------
 # Helpers
@@ -70,14 +80,26 @@ STATUS_CHOICES = ["Tentative", "Confirmed", "Contract Sent", "Canceled"]
 @st.cache_data(ttl=300)
 def _fetch_table(tbl: str, cols: List[str] | str = "*") -> pd.DataFrame:
     """Basic fetch helper with small caching for dropdowns."""
-    res = (
-        sb.table(tbl)
-        .select(cols)
-        .order("id")
-        .execute()
-    )
-    rows = res.data or []
-    return pd.DataFrame(rows)
+    try:
+        res = (
+            sb.table(tbl)
+            .select(cols)
+            .order("id")
+            .execute()
+        )
+        rows = res.data or []
+        return pd.DataFrame(rows)
+    except PostgrestAPIError as e:
+        # Most common cause: RLS block due to missing authenticated session
+        st.error(
+            f"Failed to load '{tbl}'. If you're signed in, try refreshing.
+"
+            f"Details: {getattr(e, 'message', e)}"
+        )
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Failed to load '{tbl}': {e}")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def load_dropdowns() -> Dict[str, pd.DataFrame]:
