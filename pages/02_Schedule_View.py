@@ -1,5 +1,6 @@
 # pages/02_Schedule_View.py
 import os
+from datetime import datetime, date, time, timedelta
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
@@ -69,18 +70,47 @@ if gigs_df.empty:
     st.stop()
 gigs = gigs_df.copy()
 
-
-# --- Normalize types ---
+# --- Normalize core types ---
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
 
-def _series_from(colname: str):
-    if colname in gigs.columns:
-        return pd.to_datetime(gigs[colname], errors="coerce")
-    return pd.Series([pd.NaT] * len(gigs), index=gigs.index, dtype="datetime64[ns]")
+def _to_time_obj(x) -> time | None:
+    """Parse 'HH:MM[:SS]' or datetime/time-like into a time, or None."""
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return None
+    try:
+        # handle 'HH:MM:SS'/'HH:MM', pandas Timestamps, or Python time
+        if isinstance(x, time):
+            return x
+        ts = pd.to_datetime(x, errors="coerce")
+        if pd.isna(ts):
+            return None
+        return ts.time()
+    except Exception:
+        return None
 
-gigs["_start_dt"] = _series_from("start_time")
-gigs["_end_dt"]   = _series_from("end_time")
+def _compose_span(row):
+    """Combine event_date + start/end time; roll end to next day if needed."""
+    d = row.get("event_date")
+    st_raw = row.get("start_time")
+    en_raw = row.get("end_time")
+    if pd.isna(d):
+        return (pd.NaT, pd.NaT)
+
+    d: date = d
+    st_t = _to_time_obj(st_raw) or time(0, 0)
+    en_t = _to_time_obj(en_raw) or st_t
+
+    start_dt = datetime.combine(d, st_t)
+    end_dt = datetime.combine(d, en_t)
+    if end_dt <= start_dt:
+        end_dt += timedelta(days=1)
+    return (pd.Timestamp(start_dt), pd.Timestamp(end_dt))
+
+# build computed datetimes
+spans = gigs.apply(_compose_span, axis=1, result_type="expand")
+gigs["_start_dt"] = pd.to_datetime(spans[0], errors="coerce")
+gigs["_end_dt"]   = pd.to_datetime(spans[1], errors="coerce")
 
 # --- Join sound techs ---
 techs = _select_df("sound_techs", "id, display_name, company")
@@ -105,14 +135,17 @@ if not techs.empty and "sound_tech_id" in gigs.columns:
         if c in gigs.columns:
             gigs.drop(columns=[c], inplace=True)
 
-# --- Helpers ---
-def _fmt_time(dt):
+# --- Formatters ---
+def _fmt_time12(dt: pd.Timestamp) -> str:
     if pd.isna(dt):
         return ""
     try:
-        return pd.to_datetime(dt).strftime("%-I:%M %p")
+        return dt.strftime("%-I:%M %p")
     except Exception:
-        return ""
+        try:
+            return pd.to_datetime(dt).strftime("%-I:%M %p")
+        except Exception:
+            return ""
 
 def _fmt_date(d):
     if pd.isna(d):
@@ -124,7 +157,22 @@ def _fmt_date(d):
 
 # --- Pretty columns ---
 gigs["Date"] = gigs["event_date"].apply(_fmt_date) if "event_date" in gigs.columns else ""
-gigs["Time"] = gigs.apply(lambda r: f"{_fmt_time(r.get('_start_dt'))} – {_fmt_time(r.get('_end_dt'))}".strip(" –"), axis=1)
+
+def _time_span_label(row) -> str:
+    s = row.get("_start_dt")
+    e = row.get("_end_dt")
+    if pd.isna(s) and pd.isna(e):
+        return ""
+    s_txt = _fmt_time12(s) if not pd.isna(s) else ""
+    e_txt = _fmt_time12(e) if not pd.isna(e) else ""
+    # next-day hint
+    next_day = (not pd.isna(s)) and (not pd.isna(e)) and (e.date() > s.date())
+    hint = " (next day)" if next_day else ""
+    if s_txt and e_txt:
+        return f"{s_txt} – {e_txt}{hint}"
+    return s_txt or e_txt
+
+gigs["Time"] = gigs.apply(_time_span_label, axis=1)
 
 # --- Venue (prefer text on gigs; fallback to venues.name via venue_id) ---
 def _first_nonempty(row, keys):
@@ -199,7 +247,6 @@ def _mk_address_block(row, prefix=""):
 # Build Location now:
 loc_from_gig   = gigs.apply(lambda r: _mk_address_block(r, ""), axis=1)
 loc_from_venue = gigs.apply(lambda r: _mk_address_block(r, "_venue"), axis=1)
-
 gigs["Location"] = loc_from_gig.where(loc_from_gig.astype(str).str.strip().ne(""), loc_from_venue)
 
 # --- Fee ---
@@ -211,8 +258,12 @@ else:
 # --- Filters ---
 if "contract_status" in gigs.columns and status_filter:
     gigs = gigs[gigs["contract_status"].isin(status_filter)]
-if upcoming_only and "event_date" in gigs.columns:
-    gigs = gigs[gigs["event_date"] >= pd.Timestamp.today().date()]
+if upcoming_only:
+    # use computed start when available; else event_date
+    if "_start_dt" in gigs.columns and gigs["_start_dt"].notna().any():
+        gigs = gigs[gigs["_start_dt"].dt.date >= pd.Timestamp.today().date()]
+    elif "event_date" in gigs.columns:
+        gigs = gigs[gigs["event_date"] >= pd.Timestamp.today().date()]
 if search_txt.strip():
     s = search_txt.strip().lower()
     def _row_has_text(r):
@@ -257,16 +308,23 @@ preferred = [c for c in preferred if c]
 ordered = [c for c in preferred if c in disp_cols]
 
 df_show = gigs[ordered] if ordered else gigs[disp_cols]
-sort_keys = [c for c in ["event_date", "_start_dt"] if c in df_show.columns]
-if sort_keys:
-    df_show = df_show.sort_values(by=sort_keys, ascending=True)
+
+# --- Sort by computed start (then venue for stability) ---
+sort_cols = []
+if "_start_dt" in gigs.columns:
+    sort_cols.append("_start_dt")
+if "venue_id" in gigs.columns:
+    sort_cols.append("venue_id")
+if sort_cols:
+    gigs_sorted = gigs.sort_values(by=sort_cols, ascending=[True] * len(sort_cols))
+    df_show = gigs_sorted[df_show.columns]
 else:
-    sort_keys_alt = [c for c in ["event_date", "_start_dt"] if c in gigs.columns]
-    if sort_keys_alt:
-        gigs_sorted = gigs.sort_values(by=sort_keys_alt, ascending=True)
+    # fallback: event_date
+    sort_keys = [c for c in ["event_date"] if c in gigs.columns]
+    if sort_keys:
+        gigs_sorted = gigs.sort_values(by=sort_keys, ascending=True)
         df_show = gigs_sorted[df_show.columns]
 
 st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-# (No Total Fees metric — removed per your request)
 
