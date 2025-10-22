@@ -126,6 +126,13 @@ def _filter_to_schema(table: str, data: Dict) -> Dict:
 
 def _opt_label(val, fallback=""):
     return str(val) if pd.notna(val) and str(val).strip() else fallback
+    
+def _name_for_mus_row(r: pd.Series) -> str:
+    # Build a friendly display name for a musician row
+    full = " ".join([_opt_label(r.get("first_name"), ""),
+                     _opt_label(r.get("last_name"), "")]).strip()
+    return full or _opt_label(r.get("stage_name"), "") or "Unnamed Musician"
+    
 
 # 12-hour time helpers
 def _time_from_parts(hour12: int, minute: int, ampm: str) -> time:
