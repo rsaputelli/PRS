@@ -28,7 +28,6 @@ with hdr1:
 with hdr2:
     st.markdown(
         "<h1 style='margin-bottom:0'>Enter Gig</h1>"
-        "<div style='opacity:.7'>Philly Rock &amp; Soul</div>",
         unsafe_allow_html=True
     )
 
