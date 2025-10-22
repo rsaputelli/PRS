@@ -3,6 +3,7 @@ import os
 from datetime import date, time, datetime, timedelta
 import pandas as pd
 import streamlit as st
+import datetime as dt
 from supabase import create_client, Client
 from typing import Optional, Dict, List, Set
 from pathlib import Path
@@ -265,11 +266,26 @@ with eb1:
 with eb2:
     contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0)
     fee = st.number_input("Contracted Fee ($)", min_value=0.0, step=50.0, format="%.2f")
-   
 
-    # --- Standard time inputs (5-minute step)
-    start_time_in = st.time_input("Start Time", value=time(21, 0), step=300, key="start_time_in")
-    end_time_in   = st.time_input("End Time",   value=time(1,  0), step=300, key="end_time_in")
+    # --- AM/PM-style time inputs (visual wrapper) ---
+    import datetime as dt
+
+    def _ampm_time_input(label: str, default_hour: int, default_min: int = 0, key: str = "") -> dt.time:
+        """Simple AM/PM visual wrapper that returns a real datetime.time object."""
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col1:
+            hour_12 = st.selectbox(f"{label} Hour", list(range(1, 13)), index=(default_hour % 12) - 1, key=f"{key}_hr")
+        with col2:
+            minute = st.selectbox(f"{label} Min", [0, 15, 30, 45], index=default_min // 15, key=f"{key}_min")
+        with col3:
+            ampm = st.selectbox("AM/PM", ["AM", "PM"], index=0 if default_hour < 12 else 1, key=f"{key}_ampm")
+        # Convert to 24-hour
+        hour_24 = hour_12 % 12 + (12 if ampm == "PM" else 0)
+        return dt.time(hour_24, minute)
+
+    # Replace the standard time_input controls
+    start_time_in = _ampm_time_input("Start", 9, 0, key="start_time_in")
+    end_time_in   = _ampm_time_input("End", 1, 0, key="end_time_in")
 
 # Right side of Event Basics: Agent + Band
 ag_col, band_col = st.columns([1,1])
@@ -285,7 +301,9 @@ with ag_col:
     agent_default = st.session_state.get("preselect_agent_id") or ""
     agent_index = agent_options.index(agent_default) if agent_default in agent_options else 0
     agent_id_sel = st.selectbox("Agent", options=agent_options, index=agent_index, format_func=agent_fmt, key="agent_sel")
+
 agent_add_box = st.empty()
+
 
 # -----------------------------
 # Venue & Sound
