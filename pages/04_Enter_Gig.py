@@ -21,11 +21,10 @@ Assumptions:
 
 If you maintain different table/column names, adjust the payload below accordingly.
 """
-from __future__ import annotations
 
 import re
 from datetime import date, time, datetime, timedelta
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Union
 
 import pandas as pd
 import streamlit as st
@@ -78,7 +77,7 @@ ROLE_CHOICES: List[str] = [
 STATUS_CHOICES = ["Tentative", "Confirmed", "Contract Sent", "Canceled"]
 
 @st.cache_data(ttl=300)
-def _fetch_table(tbl: str, cols: List[str] | str = "*") -> pd.DataFrame:
+def _fetch_table(tbl: str, cols: Union[List[str], str] = "*") -> pd.DataFrame:
     """Basic fetch helper with small caching for dropdowns."""
     try:
         res = (
@@ -171,7 +170,7 @@ agent_lookup = {lbl: str(agents_df.iloc[i].id) for i, lbl in enumerate(agent_opt
 venue_lookup = {lbl: str(venues_df.iloc[i].id) for i, lbl in enumerate(venue_options[1:])}
 sound_lookup = {lbl: str(sounds_df.iloc[i].id) for i, lbl in enumerate(sound_options[1:])}
 
-with st.form("enter_gig_form", clear_on_submit=False, border=True):
+with st.form("enter_gig_form", clear_on_submit=False):
     colA, colB = st.columns([1, 1])
 
     # --------------------- Event Basics ---------------------
