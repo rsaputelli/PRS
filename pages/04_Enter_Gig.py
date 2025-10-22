@@ -355,21 +355,10 @@ else:
 st.markdown("---")
 st.subheader("Lineup (Role Assignments)")
 
-# --- Replace the old ROLE_INSTRUMENT_MAP and _matches_role with this ---
+import re
 
+# Canonical substrings for non-gendered instruments
 ROLE_INSTRUMENT_MAP = {
-    # For Male/Female, we require an explicit gender cue OR an exact normalized instrument string.
-    "Male Vocals": {
-        "any_of": ["male vocals", "male vocal"],
-        "must_contain": ["male"],           # if instrument is a sentence like "lead male vocalist"
-        "generic": ["vocal", "vocals", "singer", "lead vocal"],  # used only with must_contain
-    },
-    "Female Vocals": {
-        "any_of": ["female vocals", "female vocal"],
-        "must_contain": ["female"],         # if instrument is a sentence like "female lead vocals"
-        "generic": ["vocal", "vocals", "singer", "lead vocal"],
-    },
-    # The rest can be substring based
     "Keyboard":  {"substr": ["keyboard", "keys", "piano", "pianist", "synth"]},
     "Drums":     {"substr": ["drums", "drummer", "percussion"]},
     "Guitar":    {"substr": ["guitar", "guitarist"]},
@@ -379,6 +368,11 @@ ROLE_INSTRUMENT_MAP = {
     "Trombone":  {"substr": ["trombone", "trombonist"]},
 }
 
+# Regex tokens for gender and generic vocal words
+MALE_TOKENS   = re.compile(r"\b(male|m(?![a-z])|men|man|guy|dude)\b", re.I)
+FEMALE_TOKENS = re.compile(r"\b(female|f(?![a-z])|women|woman|lady|girl)\b", re.I)
+VOCAL_TOKENS  = re.compile(r"\b(vocal|vocals|singer|lead vocal|lead singer)\b", re.I)
+
 def _norm(s: str) -> str:
     return (str(s or "").strip().lower())
 
@@ -386,19 +380,23 @@ def _matches_role(instr: str, role: str) -> bool:
     s = _norm(instr)
     if not s:
         return False
-    cfg = ROLE_INSTRUMENT_MAP.get(role, {})
-    # Gendered vocals: prefer strict logic
-    if role in ("Male Vocals", "Female Vocals"):
-        # Exact normalized matches (safe path)
-        for exact in cfg.get("any_of", []):
-            if s == exact:
-                return True
-        # Generic vocal terms require explicit gender cue
-        if any(tok in s for tok in cfg.get("generic", [])) and all(tag in s for tag in cfg.get("must_contain", [])):
+
+    if role == "Male Vocals":
+        # Exact canonical values accepted immediately
+        if s in ("male vocal", "male vocals"):
             return True
-        return False
-    # Other instruments: simple substring logic
+        # Must look like vocals AND include a male cue, while not containing a female cue
+        return bool(VOCAL_TOKENS.search(s)) and bool(MALE_TOKENS.search(s)) and not FEMALE_TOKENS.search(s)
+
+    if role == "Female Vocals":
+        if s in ("female vocal", "female vocals"):
+            return True
+        return bool(VOCAL_TOKENS.search(s)) and bool(FEMALE_TOKENS.search(s)) and not MALE_TOKENS.search(s)
+
+    # Other instruments: simple substring test
+    cfg = ROLE_INSTRUMENT_MAP.get(role, {})
     return any(tok in s for tok in cfg.get("substr", []))
+
 
 
 lineup_cols = st.columns(3)
@@ -732,8 +730,8 @@ if st.button("💾 Save Gig", type="primary"):
         "id": gig_id,
         "title": new_gig.get("title"),
         "event_date": new_gig.get("event_date"),
-        "start_time (12-hr)": _format_12h(start_t),
-        "end_time (12-hr)": _format_12h(end_t),
+        "start_time (12-hr)": _format_12h(start_time_in),
+        "end_time (12-hr)": _format_12h(end_time_in),
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
