@@ -1,30 +1,15 @@
 # pages/04_Enter_Gig.py
 """
-Enter Gig — cleaned layout, proper auth gating, overnight time handling,
-and tighter dropdown behavior. Designed as a drop‑in replacement.
-
-Key changes vs prior version:
-- Auth gate happens before ANY form fields render (so Status/Fee/etc. never appear pre‑login)
-- Event Basics now includes Status and Fee (grouped with Title/Date/Times)
-- Start/End time use single inputs each (st.time_input), and we detect cross‑midnight
-- Insert payload uses only known columns; optional fields normalized to None
-- Safer phone/notes cleaning; fee coerced to Decimal-compatible float
-- Role dropdown uses exact labels (no substring bleed) via a fixed options list
-
-Assumptions:
-- Supabase URL and anon key in secrets: SUPABASE_URL, SUPABASE_ANON_KEY
-- st.session_state["user"] holds an authenticated user dict (as in your app shell)
-- RLS policies allow select/insert/update for the "authenticated" role
-- public.gigs has columns created earlier: title, event_date, start_time, end_time,
-  contract_status, fee, agent_id, venue_id, sound_tech_id, is_private, notes,
-  sound_by_venue_name, sound_by_venue_phone
-
-If you maintain different table/column names, adjust the payload below accordingly.
+Enter Gig — safe-syntax build for Streamlit Cloud (Py 3.10+), with:
+- Auth gating before any widgets
+- Status + Fee in Event Basics
+- Single time inputs with cross‑midnight handling
+- Exact dropdown options (no substring bleed)
+- Robust Supabase session attach + guarded dropdown fetch
 """
 
 import re
 from datetime import date, time, datetime, timedelta
-from typing import Optional, Dict, List, Union
 
 import pandas as pd
 import streamlit as st
@@ -36,8 +21,6 @@ from postgrest import APIError as PostgrestAPIError
 # -----------------------------
 st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
 
-# Surface a friendly message and stop if not logged in —
-# this ensures NO form widgets render pre‑login.
 if not st.session_state.get("user"):
     st.error("Please sign in from the Login page.")
     st.stop()
@@ -45,15 +28,12 @@ if not st.session_state.get("user"):
 # -----------------------------
 # Secrets / Supabase client
 # -----------------------------
-def _get_secret(name: str, required: bool = True) -> Optional[str]:
-    val = st.secrets.get(name)
-    if required and not val:
-        st.error(f"Missing required secret: {name}")
-        st.stop()
-    return val
+SUPABASE_URL = st.secrets.get("SUPABASE_URL")
+SUPABASE_ANON_KEY = st.secrets.get("SUPABASE_ANON_KEY")
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    st.error("Missing SUPABASE_URL or SUPABASE_ANON_KEY in secrets.")
+    st.stop()
 
-SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
-SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 # Attach the authenticated session so RLS policies for "authenticated" apply
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
@@ -68,79 +48,59 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
 # -----------------------------
 # Helpers
 # -----------------------------
-ROLE_CHOICES: List[str] = [
-    "Male Vocals", "Female Vocals",
-    "Keyboard", "Drums", "Guitar", "Bass",
-    "Trumpet", "Saxophone", "Trombone",
-]
-
 STATUS_CHOICES = ["Tentative", "Confirmed", "Contract Sent", "Canceled"]
 
 @st.cache_data(ttl=300)
-def _fetch_table(tbl: str, cols: Union[List[str], str] = "*") -> pd.DataFrame:
-    """Basic fetch helper with small caching for dropdowns."""
+def _fetch_table(tbl, cols="*"):
+    """Basic fetch helper with caching for dropdowns."""
     try:
-        res = (
-            sb.table(tbl)
-            .select(cols)
-            .order("id")
-            .execute()
-        )
+        res = sb.table(tbl).select(cols).order("id").execute()
         rows = res.data or []
         return pd.DataFrame(rows)
     except PostgrestAPIError as e:
-        # Most common cause: RLS block due to missing authenticated session
-        st.error(
-            f"Failed to load '{tbl}'. If you're signed in, try refreshing.
-" f"Details: {getattr(e, 'message', e)}"
-        )
+        st.error("Failed to load '" + str(tbl) + "'. If you're signed in, try refreshing.\nDetails: " + str(getattr(e, 'message', e)))
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"Failed to load '{tbl}': {e}")
+        st.error("Failed to load '" + str(tbl) + "': " + str(e))
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
-def load_dropdowns() -> Dict[str, pd.DataFrame]:
+def load_dropdowns():
     agents = _fetch_table("agents", ["id", "name"]).rename(columns={"name": "agent_name"})
     venues = _fetch_table("venues", ["id", "name", "city", "state"]).rename(columns={"name": "venue_name"})
-    sounds = _fetch_table("sound_techs", ["id", "first_name", "last_name", "phone"])
+    sounds = _fetch_table("sound_techs", ["id", "first_name", "last_name", "phone"]) \
+        .assign(display_name=lambda d: (d["first_name"].fillna("").str.strip() + " " + d["last_name"].fillna("").str.strip()).str.strip())
     return {"agents": agents, "venues": venues, "sounds": sounds}
 
+def _fmt_name(first, last):
+    f = (first or "").strip()
+    l = (last or "").strip()
+    s = (f + " " + l).strip()
+    return s if s else "Unnamed"
 
-def _fmt_name(first: Optional[str], last: Optional[str]) -> str:
-    first = (first or "").strip()
-    last = (last or "").strip()
-    if first or last:
-        return f"{first} {last}".strip()
-    return "Unnamed"
-
-
-def _clean_phone(s: Optional[str]) -> Optional[str]:
+def _clean_phone(s):
     if not s:
         return None
     digits = re.sub(r"\D", "", str(s))
-    if not digits:
-        return None
-    return digits
+    return digits if digits else None
 
+def _format_12h(t):
+    try:
+        return datetime.combine(date.today(), t).strftime("%I:%M %p").lstrip("0")
+    except Exception:
+        return ""
 
-def _format_12h(t: time) -> str:
-    return datetime.combine(date.today(), t).strftime("%I:%M %p").lstrip("0")
-
-
-def _compose_datetimes(event_dt: date, start_t: time, end_t: time):
-    """Return (start_dt, end_dt) handling cross‑midnight end."""
+def _compose_datetimes(event_dt, start_t, end_t):
     start_dt = datetime.combine(event_dt, start_t)
     end_dt = datetime.combine(event_dt, end_t)
     if end_dt <= start_dt:
         end_dt += timedelta(days=1)
     return start_dt, end_dt
 
-
-def _insert_row(table: str, payload: Dict) -> Dict:
+def _insert_row(table, payload):
     res = sb.table(table).insert(payload).select("*").single().execute()
     if res.data is None:
-        raise RuntimeError(res.error or {"message": "Insert failed"})
+        raise RuntimeError(str(res.error or {"message": "Insert failed"}))
     return res.data
 
 # -----------------------------
@@ -148,26 +108,38 @@ def _insert_row(table: str, payload: Dict) -> Dict:
 # -----------------------------
 st.title("Enter Gig")
 
-# Load dropdown data
 lists = load_dropdowns()
-agents_df = lists["agents"]
-venues_df = lists["venues"]
-sounds_df = lists["sounds"]
+agents_df = lists.get("agents", pd.DataFrame())
+venues_df = lists.get("venues", pd.DataFrame())
+sounds_df = lists.get("sounds", pd.DataFrame())
 
-# Build labels for dropdowns (exact match options — avoids substring bleed)
-agent_options = ["— None —"] + [f"{r.agent_name}" for _, r in agents_df.iterrows()]
-venue_options = ["— Select a venue —"] + [
-    f"{r.venue_name} ({(r.city or '').strip()}, {(r.state or '').strip()})".strip().rstrip("() ")
+# Build labels for dropdowns (exact options — avoids substring bleed)
+agent_options = ["— None —"] + ([] if agents_df.empty else [str(r.agent_name) for _, r in agents_df.iterrows()])
+venue_options = ["— Select a venue —"] + ([] if venues_df.empty else [
+    (str(r.venue_name) + " (" + (str(r.city or "").strip()) + ", " + (str(r.state or "").strip()) + ")").strip().rstrip("() ")
     for _, r in venues_df.iterrows()
-]
-sound_options = ["— None —"] + [
-    f"{_fmt_name(r.first_name, r.last_name)}" for _, r in sounds_df.iterrows()
-]
+])
+sound_options = ["— None —"] + ([] if sounds_df.empty else [
+    _fmt_name(r.first_name if "first_name" in sounds_df.columns else None,
+              r.last_name if "last_name" in sounds_df.columns else None)
+    for _, r in sounds_df.iterrows()
+])
 
 # Reverse lookup from label -> id
-agent_lookup = {lbl: str(agents_df.iloc[i].id) for i, lbl in enumerate(agent_options[1:])}
-venue_lookup = {lbl: str(venues_df.iloc[i].id) for i, lbl in enumerate(venue_options[1:])}
-sound_lookup = {lbl: str(sounds_df.iloc[i].id) for i, lbl in enumerate(sound_options[1:])}
+agent_lookup = {}
+if len(agent_options) > 1 and not agents_df.empty:
+    for i, lbl in enumerate(agent_options[1:]):
+        agent_lookup[lbl] = str(agents_df.iloc[i].id)
+
+venue_lookup = {}
+if len(venue_options) > 1 and not venues_df.empty:
+    for i, lbl in enumerate(venue_options[1:]):
+        venue_lookup[lbl] = str(venues_df.iloc[i].id)
+
+sound_lookup = {}
+if len(sound_options) > 1 and not sounds_df.empty:
+    for i, lbl in enumerate(sound_options[1:]):
+        sound_lookup[lbl] = str(sounds_df.iloc[i].id)
 
 with st.form("enter_gig_form", clear_on_submit=False):
     colA, colB = st.columns([1, 1])
@@ -202,24 +174,20 @@ with st.form("enter_gig_form", clear_on_submit=False):
 
 # On submit — build, validate, and insert
 if submit:
-    # Basic validation
-    if not title.strip():
+    if not title or not str(title).strip():
         st.error("Please provide a Title.")
         st.stop()
 
     start_dt, end_dt = _compose_datetimes(event_date, start_time_in, end_time_in)
     if end_dt.date() > start_dt.date():
-        st.info(
-            f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). "
-            "We will save Event Date as the start date and keep the end time as entered."
-        )
+        st.info("This gig ends next day (" + end_dt.strftime('%Y-%m-%d %I:%M %p') + "). We will save Event Date as the start date and keep the end time as entered.")
 
     agent_id = agent_lookup.get(agent_label)
     venue_id = venue_lookup.get(venue_label)
     sound_id = sound_lookup.get(sound_label)
 
     payload = {
-        "title": title.strip(),
+        "title": str(title).strip(),
         "event_date": start_dt.date().isoformat(),
         "start_time": start_time_in.strftime("%H:%M:%S"),
         "end_time": end_time_in.strftime("%H:%M:%S"),
@@ -251,5 +219,5 @@ if submit:
 
         st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
     except Exception as e:
-        st.error(f"Insert failed: {e}")
+        st.error("Insert failed: " + str(e))
         st.stop()
