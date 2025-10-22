@@ -344,33 +344,51 @@ else:
 st.markdown("---")
 st.subheader("Lineup (Role Assignments)")
 
-# Map UI roles → acceptable instrument strings (case-insensitive, substring match)
+# --- Replace the old ROLE_INSTRUMENT_MAP and _matches_role with this ---
+
 ROLE_INSTRUMENT_MAP = {
-    "Male Vocals":    ["male vocals", "vocals", "singer", "lead vocal", "vocal"],
-    "Female Vocals":  ["female vocals", "vocals", "singer", "lead vocal", "vocal"],
-    "Keyboard":       ["keyboard", "keys", "piano", "pianist", "synth"],
-    "Drums":          ["drums", "drummer", "percussion"],
-    "Guitar":         ["guitar", "guitarist"],
-    "Bass":           ["bass", "bassist", "bass guitar"],
-    "Trumpet":        ["trumpet", "trumpeter"],
-    "Saxophone":      ["sax", "saxophone", "saxophonist", "alto sax", "tenor sax", "baritone sax"],
-    "Trombone":       ["trombone", "trombonist"],
+    # For Male/Female, we require an explicit gender cue OR an exact normalized instrument string.
+    "Male Vocals": {
+        "any_of": ["male vocals", "male vocal"],
+        "must_contain": ["male"],           # if instrument is a sentence like "lead male vocalist"
+        "generic": ["vocal", "vocals", "singer", "lead vocal"],  # used only with must_contain
+    },
+    "Female Vocals": {
+        "any_of": ["female vocals", "female vocal"],
+        "must_contain": ["female"],         # if instrument is a sentence like "female lead vocals"
+        "generic": ["vocal", "vocals", "singer", "lead vocal"],
+    },
+    # The rest can be substring based
+    "Keyboard":  {"substr": ["keyboard", "keys", "piano", "pianist", "synth"]},
+    "Drums":     {"substr": ["drums", "drummer", "percussion"]},
+    "Guitar":    {"substr": ["guitar", "guitarist"]},
+    "Bass":      {"substr": ["bass guitar", "bass", "bassist"]},
+    "Trumpet":   {"substr": ["trumpet", "trumpeter"]},
+    "Saxophone": {"substr": ["saxophone", "sax", "alto sax", "tenor sax", "baritone sax", "saxophonist"]},
+    "Trombone":  {"substr": ["trombone", "trombonist"]},
 }
 
-def _name_for_mus_row(r: pd.Series) -> str:
-    return (" ".join([
-        _opt_label(r.get("first_name"), ""),
-        _opt_label(r.get("last_name"), "")
-    ]).strip() or _opt_label(r.get("stage_name"), "") or "Unnamed Musician")
+def _norm(s: str) -> str:
+    return (str(s or "").strip().lower())
 
 def _matches_role(instr: str, role: str) -> bool:
-    if not instr:
+    s = _norm(instr)
+    if not s:
         return False
-    s = str(instr).strip().lower()
-    for token in ROLE_INSTRUMENT_MAP.get(role, []):
-        if token in s:
+    cfg = ROLE_INSTRUMENT_MAP.get(role, {})
+    # Gendered vocals: prefer strict logic
+    if role in ("Male Vocals", "Female Vocals"):
+        # Exact normalized matches (safe path)
+        for exact in cfg.get("any_of", []):
+            if s == exact:
+                return True
+        # Generic vocal terms require explicit gender cue
+        if any(tok in s for tok in cfg.get("generic", [])) and all(tag in s for tag in cfg.get("must_contain", [])):
             return True
-    return False
+        return False
+    # Other instruments: simple substring logic
+    return any(tok in s for tok in cfg.get("substr", []))
+
 
 lineup_cols = st.columns(3)
 lineup_selections: List[Dict] = []
