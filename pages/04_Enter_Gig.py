@@ -1,6 +1,6 @@
 # pages/04_Enter_Gig.py
 import os
-from datetime import datetime, date, time
+from datetime import date, time, datetime, timedelta
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
@@ -267,21 +267,9 @@ with eb2:
     fee = st.number_input("Contracted Fee ($)", min_value=0.0, step=50.0, format="%.2f")
    
 
-    # Performance Time: Start/End grouped in one row (12-hr)
-    st.markdown("**Performance Time**")
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    with col1:
-        start_hour = st.selectbox("Start Hour", list(range(1, 13)), index=7, key="start_hour")
-    with col2:
-        start_min = st.selectbox("Start Min", [0, 15, 30, 45], index=0, key="start_min")
-    with col3:
-        start_ampm = st.selectbox("AM/PM", ["AM", "PM"], index=1, key="start_ampm")
-    with col4:
-        end_hour = st.selectbox("End Hour", list(range(1, 13)), index=10, key="end_hour")
-    with col5:
-        end_min = st.selectbox("End Min", [0, 15, 30, 45], index=0, key="end_min")
-    with col6:
-        end_ampm = st.selectbox("AM/PM", ["AM", "PM"], index=1, key="end_ampm")
+    # --- Standard time inputs (5-minute step)
+    start_time_in = st.time_input("Start Time", value=time(21, 0), step=300, key="start_time_in")
+    end_time_in   = st.time_input("End Time",   value=time(1,  0), step=300, key="end_time_in")
 
 # Right side of Event Basics: Agent + Band
 ag_col, band_col = st.columns([1,1])
@@ -636,14 +624,21 @@ for role in ROLE_CHOICES:
 # SAVE button
 # -----------------------------
 if st.button("💾 Save Gig", type="primary"):
-    start_t = _time_from_parts(st.session_state["start_hour"], st.session_state["start_min"], st.session_state["start_ampm"])
-    end_t   = _time_from_parts(st.session_state["end_hour"],   st.session_state["end_min"],   st.session_state["end_ampm"])
+    def _compose_datetimes(event_dt: date, start_t: time, end_t: time):
+        start_dt = datetime.combine(event_dt, start_t)
+        end_dt = datetime.combine(event_dt, end_t)
+        if end_dt <= start_dt:  # ends after midnight
+            end_dt += timedelta(days=1)
+        return start_dt, end_dt
 
-    def _to_time_str(t: time) -> str:
-        return f"{t.hour:02d}:{t.minute:02d}:00"
+    start_dt, end_dt = _compose_datetimes(event_date, start_time_in, end_time_in)
 
-    start_time_str = _to_time_str(start_t)
-    end_time_str   = _to_time_str(end_t)
+    # Optional heads-up for the user
+    if end_dt.date() > start_dt.date():
+        st.info(
+            f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). "
+            "We’ll save event_date as the start date and keep your end time as entered."
+        )
 
     # Resolve IDs (ignore add sentinels)
     agent_id_val = agent_id_sel if agent_id_sel not in ("", "__ADD_AGENT__") else None
@@ -654,8 +649,8 @@ if st.button("💾 Save Gig", type="primary"):
     gig_payload = {
         "title": (title or None),
         "event_date": event_date.isoformat() if isinstance(event_date, (date, datetime)) else event_date,
-        "start_time": start_time_str,
-        "end_time": end_time_str,
+        "start_time": start_time_in.strftime("%H:%M:%S"),
+        "end_time":   end_time_in.strftime("%H:%M:%S"),
         "contract_status": contract_status,
         "fee": float(fee) if fee else None,
         "agent_id": agent_id_val,
