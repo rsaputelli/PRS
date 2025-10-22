@@ -121,11 +121,14 @@ def _opt_label(val, fallback=""):
     return str(val) if pd.notna(val) and str(val).strip() else fallback
     
 def _name_for_mus_row(r: pd.Series) -> str:
-    # Build a friendly display name for a musician row
+    # Prefer stage name, then first+last, then display_name
+    stage = _opt_label(r.get("stage_name"), "")
+    if stage:
+        return stage
     full = " ".join([_opt_label(r.get("first_name"), ""),
                      _opt_label(r.get("last_name"), "")]).strip()
-    return full or _opt_label(r.get("stage_name"), "") or "Unnamed Musician"
-    
+    return full or _opt_label(r.get("display_name"), "") or "Unnamed Musician"
+  
 
 # 12-hour time helpers
 def _time_from_parts(hour12: int, minute: int, ampm: str) -> time:
@@ -230,8 +233,10 @@ if not mus_df.empty and "id" in mus_df.columns:
     if "active" in mus_df.columns:
         mus_df = mus_df.sort_values(by="active", ascending=False)
     for _, r in mus_df.iterrows():
-        name = (" ".join([_opt_label(r.get("first_name"), ""), _opt_label(r.get("last_name"), "")]).strip()
-                or _opt_label(r.get("stage_name"), "") or "Unnamed Musician")
+        name = (_opt_label(r.get("stage_name"), "")
+                or " ".join([_opt_label(r.get("first_name"), ""), _opt_label(r.get("last_name"), "")]).strip()
+                or _opt_label(r.get("display_name"), "")
+                or "Unnamed Musician")
         mus_labels[str(r["id"])] = name
 
 ROLE_CHOICES = [
