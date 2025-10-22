@@ -625,9 +625,9 @@ if st.button("💾 Save Gig", type="primary"):
     venue_id_val = venue_id_sel if venue_id_sel not in ("", "__ADD_VENUE__") else None
     sound_tech_id_val = (sound_id_sel if (sound_id_sel not in ("", "__ADD_SOUND__") and not sound_by_venue) else None)
 
+    # 🚫 NO band_name here
     gig_payload = {
         "title": (title or None),
-        "band_name": (band_name or None),
         "event_date": event_date.isoformat() if isinstance(event_date, (date, datetime)) else event_date,
         "start_time": start_time_str,
         "end_time": end_time_str,
@@ -641,15 +641,21 @@ if st.button("💾 Save Gig", type="primary"):
         "sound_by_venue_name": (sound_by_venue_name or None),
         "sound_by_venue_phone": (sound_by_venue_phone or None),
     }
+    # Merge private fields (if any)
     for k, v in (private_vals or {}).items():
         gig_payload[k] = v or None
 
+    # Trim to actual columns to avoid schema cache issues
     gig_payload = _filter_to_schema("gigs", gig_payload)
+
+    # Insert ONCE
     new_gig = _insert_row("gigs", gig_payload)
     if not new_gig:
         st.stop()
 
     gig_id = str(new_gig.get("id", ""))
+
+    # (rest of your save logic: gig_musicians, gig_deposits, success message, etc.)
 
     # gig_musicians
     if _table_exists("gig_musicians"):
@@ -663,7 +669,7 @@ if st.button("💾 Save Gig", type="primary"):
         if gm_rows:
             _insert_rows("gig_musicians", gm_rows)
 
-    # gig_deposits
+    # gig_deposits (admin only)
     if IS_ADMIN and _table_exists("gig_deposits"):
         rows: List[Dict] = []
         n = int(st.session_state.get("num_deposits", 0))
@@ -673,7 +679,7 @@ if st.button("💾 Save Gig", type="primary"):
             is_pct = bool(st.session_state.get(f"dep_pct_{i}", False))
             rows.append(_filter_to_schema("gig_deposits", {
                 "gig_id": gig_id,
-                "sequence": i+1,
+                "sequence": i + 1,
                 "due_date": due.isoformat() if isinstance(due, (date, datetime)) else due,
                 "amount": amt,
                 "is_percentage": is_pct,
@@ -681,8 +687,10 @@ if st.button("💾 Save Gig", type="primary"):
         if rows:
             _insert_rows("gig_deposits", rows)
 
+    # Success summary (12-hour times)
     st.success("Gig saved successfully ✅")
     st.write({
+        "id": gig_id,
         "title": new_gig.get("title"),
         "event_date": new_gig.get("event_date"),
         "start_time (12-hr)": _format_12h(start_t),
@@ -690,5 +698,6 @@ if st.button("💾 Save Gig", type="primary"):
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
+
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
