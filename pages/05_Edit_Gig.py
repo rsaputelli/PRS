@@ -110,15 +110,15 @@ admin_from_profiles = _profiles_admin_lookup(user_email.lower(), user_id)
 
 IS_ADMIN = admin_from_session or admin_from_secrets or admin_from_profiles
 
-# (Optional) temporary debug – remove after confirming
-with st.expander("Admin check (debug)"):
-    st.write({
-        "email": user_email,
-        "session_state.is_admin": admin_from_session,
-        "secrets ADMIN_EMAILS hit": admin_from_secrets,
-        "profiles says admin": admin_from_profiles,
-        "IS_ADMIN (final)": IS_ADMIN,
-    })
+# Debug expander removed after admin check verification
+# with st.expander("Admin check (debug)"):
+    # st.write({
+        # "email": user_email,
+        # "session_state.is_admin": admin_from_session,
+        # "secrets ADMIN_EMAILS hit": admin_from_secrets,
+        # "profiles says admin": admin_from_profiles,
+        # "IS_ADMIN (final)": IS_ADMIN,
+    # })
 
 if not IS_ADMIN:
     st.error("Only admins may edit gigs.")
