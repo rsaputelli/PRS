@@ -1,0 +1,34 @@
+# --- Local environment scripts ---
+set_env.ps1
+
+# --- Python cache / build files ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+build/
+dist/
+
+# --- Streamlit & temp data ---
+.streamlit/
+.cache/
+logs/
+tmp/
+*.log
+
+# --- Environment / secrets files ---
+.env
+*.env
+.env.*
+secrets.json
+*.json
+*.yaml
+*.yml
+
+# --- OS-generated files ---
+.DS_Store
+Thumbs.db
+desktop.ini
