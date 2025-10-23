@@ -32,3 +32,9 @@ secrets.json
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# --- Always include GitHub workflows ---
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+

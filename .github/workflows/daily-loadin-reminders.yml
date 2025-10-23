@@ -1,0 +1,17 @@
+name: Daily Load-in Reminders
+on:
+  schedule:
+    - cron: "0 13 * * *"  # 9AM ET every day
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Daily Load-in Reminders
+        run: python tools/send_loadin_reminders.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GMAIL_ACCESS_TOKEN: ${{ secrets.GMAIL_ACCESS_TOKEN }}
