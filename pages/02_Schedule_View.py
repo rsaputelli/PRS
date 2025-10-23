@@ -16,7 +16,7 @@ with hdr1:
         st.image(str(logo_path), use_container_width=True)
 with hdr2:
     st.markdown(
-        "<h1 style='margin-bottom:0'>📅 Schedule View</h1>",
+        "<h1 style='margin-bottom:0'>Schedule View</h1>",
         unsafe_allow_html=True
     )
 st.markdown("<style>.block-container{max-width:1400px;}</style>", unsafe_allow_html=True)
