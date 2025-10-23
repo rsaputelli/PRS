@@ -10,7 +10,7 @@ from pathlib import Path
 from lib.ui_header import render_header
 
 # Header with logo + title
-render_header(title="Schedule View", emoji="📅")
+render_header(title="Schedule View"")
 
 
 # --- Supabase helper ---
