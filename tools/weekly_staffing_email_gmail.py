@@ -84,23 +84,72 @@ def get_recipients():
 
 def build_html(df: pd.DataFrame) -> str:
     today = dt.date.today().strftime("%b %d, %Y")
+
+    # --- Load venue names from Supabase for lookup ---
+    try:
+        venues_df = _sel("venues", "id,name,city,state")
+    except Exception:
+        venues_df = pd.DataFrame()
+
+    venue_lookup = {}
+    if not venues_df.empty:
+        for _, v in venues_df.iterrows():
+            vid = str(v.get("id"))
+            name = str(v.get("name") or "").strip()
+            city = str(v.get("city") or "").strip()
+            state = str(v.get("state") or "").strip()
+            label = name
+            if city or state:
+                label += f" ({city}, {state})".strip()
+            venue_lookup[vid] = label or "(unnamed venue)"
+
     if df.empty:
         return f"<p>All upcoming gigs are fully staffed as of {today}. ✅</p>"
+
+    total_gigs = len(df)
+    summary_line = f"<p><b>{total_gigs} gig{'s' if total_gigs != 1 else ''} need attention this week.</b></p>"
+
+    # --- Build HTML table ---
     rows = []
     for _, r in df.iterrows():
         date = r.get("event_date") or ""
-        title = r.get("title") or ""
-        venue = r.get("venue_id") or ""  # can join to venues for nice names if desired
+        title = (r.get("title") or "").strip() or "(untitled)"
+        venue_id = str(r.get("venue_id") or "")
+        venue = venue_lookup.get(venue_id, "(venue not assigned)")
         fee = currency(r.get("fee"))
-        miss_bits = []
-        if str(r.get("missing_roles") or "").strip(): miss_bits.append("roles")
-        if not bool(r.get("sound_ok")): miss_bits.append("sound")
-        if not bool(r.get("details_ok")): miss_bits.append("details")
-        missing = ", ".join(miss_bits)
-        rows.append(f"<tr><td>{date}</td><td>{title}</td><td>{venue}</td><td>{fee}</td><td>{missing}</td></tr>")
+        missing_roles = str(r.get("missing_roles") or "").strip()
+        sound_ok = bool(r.get("sound_ok"))
+        details_ok = bool(r.get("details_ok"))
+
+        # Build human-readable "Missing" column
+        missing_parts = []
+        if missing_roles:
+            missing_parts.append(f"Roles: {missing_roles}")
+        if not sound_ok:
+            missing_parts.append("Sound")
+        if not details_ok:
+            missing_parts.append("Details")
+        missing_txt = ", ".join(missing_parts) if missing_parts else ""
+
+        rows.append(
+            f"<tr>"
+            f"<td>{date}</td>"
+            f"<td>{title}</td>"
+            f"<td>{venue}</td>"
+            f"<td>{fee}</td>"
+            f"<td>{missing_txt}</td>"
+            f"</tr>"
+        )
+
     head = "<thead><tr><th>Date</th><th>Title</th><th>Venue</th><th>Fee</th><th>Missing</th></tr></thead>"
     body = "<tbody>" + "".join(rows) + "</tbody>"
-    return f"<p>Gigs not fully staffed as of {today}:</p><table border='1' cellpadding='6' cellspacing='0'>{head}{body}</table>"
+
+    return (
+        f"<p>Gigs not fully staffed as of {today}:</p>"
+        f"{summary_line}"
+        f"<table border='1' cellpadding='6' cellspacing='0'>{head}{body}</table>"
+    )
+
 
 # --- Gmail send via OAuth refresh token ---
 def gmail_access_token() -> str:
