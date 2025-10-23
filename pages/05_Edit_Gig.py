@@ -18,21 +18,15 @@ st.set_page_config(page_title="Edit Gig", page_icon="✏️", layout="wide")
 render_header(title="Edit Gig", emoji="✏️")
 
 # -----------------------------
-# Auth gate & Admin-only access
+# Auth gate (logged-in check only)
 # -----------------------------
 if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
     st.stop()
 
-IS_ADMIN = bool(st.session_state.get("is_admin", False))
-if not IS_ADMIN:
-    st.error("Only admins may edit gigs.")
-    st.stop()
-
 # -----------------------------
 # Supabase helpers (aligned with other pages)
 # -----------------------------
-
 def _get_secret(name, default=None, required=False):
     if hasattr(st, "secrets") and name in st.secrets:
         val = st.secrets[name]
@@ -56,6 +50,83 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
     except Exception as e:
         st.warning(f"Could not attach session; proceeding with limited access. ({e})")
 
+# -----------------------------
+# Admin gate (robust)
+# -----------------------------
+def _norm_admin_emails(raw):
+    if raw is None:
+        return set()
+    if isinstance(raw, (list, tuple, set)):
+        return {str(x).strip().lower() for x in raw}
+    # comma/semicolon/space separated accepted
+    return {p.strip().lower() for p in str(raw).replace(";", ",").split(",") if p.strip()}
+
+def _get_authed_user():
+    # Prefer your login flow's session user
+    u = st.session_state.get("user")
+    if u:
+        return u
+    # Fallback to Supabase auth if available
+    try:
+        gu = sb.auth.get_user()
+        return gu.user if getattr(gu, "user", None) else None
+    except Exception:
+        return None
+
+def _profiles_admin_lookup(user_email: str, user_id: str) -> bool:
+    """True if profiles table marks this user as admin."""
+    try:
+        # Try by user id-ish fields
+        for col in ["id", "user_id", "auth_user_id"]:
+            try:
+                res = sb.table("profiles").select("*").eq(col, user_id).limit(1).execute()
+                rows = res.data or []
+                if rows:
+                    r = rows[0]
+                    if r.get("is_admin") is True or r.get("admin") is True or str(r.get("role", "")).lower() == "admin":
+                        return True
+            except Exception:
+                pass
+
+        # Fallback by email
+        if user_email:
+            res = sb.table("profiles").select("*").eq("email", user_email).limit(1).execute()
+            rows = res.data or []
+            if rows:
+                r = rows[0]
+                if r.get("is_admin") is True or r.get("admin") is True or str(r.get("role", "")).lower() == "admin":
+                    return True
+    except Exception:
+        pass
+    return False
+
+user_obj   = _get_authed_user()
+user_email = (user_obj.get("email") if isinstance(user_obj, dict) else getattr(user_obj, "email", None)) or ""
+user_id    = (user_obj.get("id")    if isinstance(user_obj, dict) else getattr(user_obj, "id", None)) or ""
+
+admin_from_session  = bool(st.session_state.get("is_admin", False))
+admin_from_secrets  = user_email.lower() in _norm_admin_emails(getattr(st, "secrets", {}).get("ADMIN_EMAILS"))
+admin_from_profiles = _profiles_admin_lookup(user_email.lower(), user_id)
+
+IS_ADMIN = admin_from_session or admin_from_secrets or admin_from_profiles
+
+# (Optional) temporary debug – remove after confirming
+with st.expander("Admin check (debug)"):
+    st.write({
+        "email": user_email,
+        "session_state.is_admin": admin_from_session,
+        "secrets ADMIN_EMAILS hit": admin_from_secrets,
+        "profiles says admin": admin_from_profiles,
+        "IS_ADMIN (final)": IS_ADMIN,
+    })
+
+if not IS_ADMIN:
+    st.error("Only admins may edit gigs.")
+    st.stop()
+
+# -----------------------------
+# Data helpers
+# -----------------------------
 @st.cache_data(ttl=60)
 def _select_df(table: str, select: str = "*", where_eq: Optional[Dict] = None, limit: Optional[int] = None) -> pd.DataFrame:
     try:
@@ -75,7 +146,6 @@ def _table_columns(table: str) -> Set[str]:
     df = _select_df(table, "*", limit=1)
     return set(df.columns) if not df.empty else set()
 
-
 def _table_exists(table: str) -> bool:
     try:
         sb.table(table).select("*").limit(1).execute()
@@ -83,13 +153,11 @@ def _table_exists(table: str) -> bool:
     except Exception:
         return False
 
-
 def _filter_to_schema(table: str, data: Dict) -> Dict:
     cols = _table_columns(table)
     if not cols:
         return data
     return {k: v for k, v in data.items() if k in cols}
-
 
 def _robust_update(table: str, match: Dict, patch: Dict, max_attempts: int = 8) -> bool:
     data = dict(patch)
@@ -114,7 +182,6 @@ def _robust_update(table: str, match: Dict, patch: Dict, max_attempts: int = 8) 
             return False
     st.error(f"Update {table} failed after removing unknown columns: {list(data.keys())}")
     return False
-
 
 def _robust_insert(table: str, payload: Dict, max_attempts: int = 8) -> Optional[Dict]:
     data = dict(payload)
@@ -146,7 +213,6 @@ sound_df  = _select_df("sound_techs", "*")
 mus_df    = _select_df("musicians", "*")
 
 # Label helpers
-
 def _opt_label(val, fallback=""):
     return str(val) if pd.notna(val) and str(val).strip() else fallback
 
@@ -210,7 +276,6 @@ def _to_time_obj(x) -> Optional[time]:
     except Exception:
         return None
 
-
 def _compose_span(row):
     d = row.get("event_date")
     st_raw = row.get("start_time")
@@ -230,7 +295,6 @@ spans = gigs.apply(_compose_span, axis=1, result_type="expand")
 gigs["_start_dt"] = pd.to_datetime(spans[0], errors="coerce")
 
 # Render selector list label
-
 def _label_row(r: pd.Series) -> str:
     dt_str = r.get("event_date")
     if pd.notna(dt_str):
@@ -261,7 +325,6 @@ st.markdown("---")
 st.subheader("Edit Details")
 
 # AM/PM-style time selectors — reuse visual pattern
-
 def _ampm_time_input(label: str, default_time: Optional[time], key: str) -> time:
     def _hour_min_ampm(t: Optional[time]):
         if not t:
@@ -274,7 +337,7 @@ def _ampm_time_input(label: str, default_time: Optional[time], key: str) -> time
     h12, m15, ap = _hour_min_ampm(_to_time_obj(default_time))
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
-        hour_12 = st.selectbox(f"{label} Hour", list(range(1, 13)), index=(hour_12_idx := (h12 - 1)), key=f"{key}_hr")
+        hour_12 = st.selectbox(f"{label} Hour", list(range(1, 13)), index=(h12 - 1), key=f"{key}_hr")
     with c2:
         minute = st.selectbox(f"{label} Min", [0, 15, 30, 45], index=[0, 15, 30, 45].index(m15), key=f"{key}_min")
     with c3:
@@ -433,7 +496,8 @@ if st.button("💾 Save Changes", type="primary"):
     start_dt, end_dt = _compose_datetimes(event_date, start_time_in, end_time_in)
     if end_dt.date() > start_dt.date():
         st.info(
-            f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). We'll keep event_date as the start date.")
+            f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). We'll keep event_date as the start date."
+        )
 
     payload = {
         "title": (title or None),
@@ -473,7 +537,8 @@ if st.button("💾 Save Changes", type="primary"):
                     "musician_id": r["musician_id"],
                 }))
             if rows:
-                _robust_insert("gig_musicians", rows) if isinstance(rows, dict) else sb.table("gig_musicians").insert(rows).execute()
+                # Use bulk insert directly
+                sb.table("gig_musicians").insert(rows).execute()
 
     # Replace deposits
     if dep_rows and _table_exists("gig_deposits"):
@@ -501,5 +566,3 @@ if st.button("💾 Save Changes", type="primary"):
         "status": contract_status,
         "fee": format_currency(fee),
     })
-
-
