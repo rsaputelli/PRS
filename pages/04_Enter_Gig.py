@@ -7,6 +7,7 @@ import datetime as dt
 from supabase import create_client, Client
 from typing import Optional, Dict, List, Set
 from pathlib import Path
+from lib.ui_header import render_header
 
 # -----------------------------
 # Page config + Header
@@ -21,16 +22,8 @@ if "user" not in st.session_state or not st.session_state["user"]:
 # Path to logo
 logo_path = Path(__file__).parent.parent / "assets" / "prs_logo.png"
 
-# --- Header: logo + title only ---
-hdr1, hdr2 = st.columns([0.12, 0.88])
-with hdr1:
-    if logo_path.exists():
-        st.image(str(logo_path), use_container_width=True)
-with hdr2:
-    st.markdown(
-        "<h1 style='margin-bottom:0'>Enter Gig</h1>",        
-        unsafe_allow_html=True
-    )
+# Header
+render_header(title="Enter Gig", emoji="")
 
 # --- Divider below header ---
 st.markdown("---")
