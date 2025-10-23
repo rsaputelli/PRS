@@ -1,14 +1,17 @@
-# pages/02_Schedule_View.py
+# pages/02_Schedule_View.py — fixed header & imports
 import os
 from datetime import datetime, date, time, timedelta
+from typing import Optional, Dict, List, Union
+
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
 from pathlib import Path
-import streamlit as st
 from lib.ui_header import render_header
 
-render_header(title="Schedule View"")
+# Header with logo + title
+render_header(title="Schedule View", emoji="📅")
+
 
 # --- Supabase helper ---
 def _get_secret(name, default=None, required=False):
@@ -51,7 +54,7 @@ with colf3:
     search_txt = st.text_input("Search (title/venue/notes)", "")
 
 # --- Helper: safe select to DataFrame ---
-def _select_df(table: str, select: str = "*", where_eq: dict | None = None, limit: int | None = None) -> pd.DataFrame:
+def _select_df(table: str, select: str = "*", where_eq: Optional[dict] = None, limit: Optional[int] = None) -> pd.DataFrame:
     try:
         q = sb.table(table).select(select)
         if where_eq:
@@ -76,7 +79,7 @@ gigs = gigs_df.copy()
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
 
-def _to_time_obj(x) -> time | None:
+def _to_time_obj(x) -> Optional[time]:
     """Parse 'HH:MM[:SS]' or datetime/time-like into a time, or None."""
     if x is None or (isinstance(x, float) and pd.isna(x)):
         return None
