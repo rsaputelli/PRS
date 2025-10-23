@@ -4,8 +4,21 @@ from datetime import datetime, date, time, timedelta
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
+from pathlib import Path
+import streamlit as st
 
-st.title("📅 Schedule View")
+# --- Header with logo + title ---
+logo_path = Path(__file__).parent.parent / "assets" / "prs_logo.png"
+
+hdr1, hdr2 = st.columns([0.12, 0.88])
+with hdr1:
+    if logo_path.exists():
+        st.image(str(logo_path), use_container_width=True)
+with hdr2:
+    st.markdown(
+        "<h1 style='margin-bottom:0'>📅 Schedule View</h1>",
+        unsafe_allow_html=True
+    )
 st.markdown("<style>.block-container{max-width:1400px;}</style>", unsafe_allow_html=True)
 
 # --- Supabase helper ---
