@@ -364,24 +364,52 @@ with b3:
 st.markdown("---")
 st.subheader("Venue & Sound")
 vs1, vs2 = st.columns([1, 1])
+
 with vs1:
+    # Venue
     venue_options = ["(none)"] + list(venue_labels.keys())
     def venue_fmt(x: str) -> str:
         if x == "(none)":
             return "(select venue)"
         return venue_labels.get(x, x)
     cur_vid = str(row.get("venue_id")) if pd.notna(row.get("venue_id")) else "(none)"
-    venue_id_sel = st.selectbox("Venue", options=venue_options, index=(venue_options.index(cur_vid) if cur_vid in venue_options else 0), format_func=venue_fmt)
+    venue_id_sel = st.selectbox("Venue", options=venue_options,
+                                index=(venue_options.index(cur_vid) if cur_vid in venue_options else 0),
+                                format_func=venue_fmt)
+
+    # Private flag
     is_private = st.checkbox("Private Event?", value=bool(row.get("is_private")))
 
+    # NEW: Sound provided toggle (venue-provided vs PRS-provided)
+    sound_provided = st.checkbox("Venue provides sound?", value=bool(row.get("sound_provided")))
+
 with vs2:
+    # Confirmed sound tech (directory)
     sound_options = ["(none)"] + list(sound_labels.keys())
     def sound_fmt(x: str) -> str:
         if x == "(none)":
             return "(none)"
         return sound_labels.get(x, x)
     cur_sid = str(row.get("sound_tech_id")) if pd.notna(row.get("sound_tech_id")) else "(none)"
-    sound_id_sel = st.selectbox("Confirmed Sound Tech", options=sound_options, index=(sound_options.index(cur_sid) if cur_sid in sound_options else 0), format_func=sound_fmt)
+    sound_id_sel = st.selectbox("Confirmed Sound Tech", options=sound_options,
+                                index=(sound_options.index(cur_sid) if cur_sid in sound_options else 0),
+                                format_func=sound_fmt)
+
+    # NEW: Sound fee only when PRS provides sound (i.e., venue does NOT provide)
+    cur_fee = float(row.get("sound_fee") or 0.0)
+    sound_fee = None
+    if not sound_provided:
+        sound_fee = st.number_input("Sound Fee ($)", min_value=0.0, step=25.0, format="%.2f", value=cur_fee)
+
+# Optional free-text vendor (unchanged)
+sv1, sv2 = st.columns([1, 1])
+with sv1:
+    sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)",
+                                        value=_opt_label(row.get("sound_by_venue_name"), ""))
+with sv2:
+    sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)",
+                                         value=_opt_label(row.get("sound_by_venue_phone"), ""))
+
 
 # Sound by venue (stored as text fields in gigs schema)
 sv1, sv2 = st.columns([1, 1])
@@ -513,6 +541,8 @@ if st.button("💾 Save Changes", type="primary"):
         "notes": (notes or None),
         "sound_by_venue_name": (sound_by_venue_name or None),
         "sound_by_venue_phone": (sound_by_venue_phone or None),
+        "sound_provided": bool(sound_provided),
+        "sound_fee": (float(sound_fee) if (sound_fee is not None) else None),
     }
     for k, v in (private_vals or {}).items():
         payload[k] = v or None
