@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 import datetime as dt
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 import pytz
 from supabase import create_client, Client
@@ -26,11 +26,10 @@ def _sb() -> Client:
 
 
 def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
-    # Pull from public.gigs (UUID primary key)
     ev = (
         sb.table("gigs")
         .select(
-            "id, title, gig_name, date, start_time, end_time, venue, address, city, state, "
+            "id, title, gig_name, event_date, start_time, end_time, "
             "sound_provided, sound_fee, sound_tech_id"
         )
         .eq("id", gig_id)
@@ -51,15 +50,14 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
         ).data
 
     if not tech or not tech.get("email"):
-        # Optional future fallback could use contact fields if you add them
         raise ValueError("Assigned sound tech has no email")
 
     return {"event": ev, "tech": tech}
 
 
-def _localize(date_str: str, time_str: str) -> tuple[dt.datetime, dt.datetime]:
+def _localize(event_date_str: str, time_str: str) -> tuple[dt.datetime, dt.datetime]:
     tz = pytz.timezone(TZ)
-    day = dt.datetime.strptime(date_str, "%Y-%m-%d")
+    day = dt.datetime.strptime(event_date_str, "%Y-%m-%d")
     st = dt.datetime.combine(day.date(), dt.datetime.strptime(time_str or "17:00", "%H:%M").time())
     et = st + dt.timedelta(hours=4)
     return tz.localize(st), tz.localize(et)
@@ -71,8 +69,8 @@ def _insert_email_audit(
     sb.table("email_audit").insert(
         {
             "token": token,
-            "gig_id": gig_id,         # write UUID
-            "event_id": None,         # legacy column unused going forward
+            "gig_id": gig_id,
+            "event_id": None,
             "recipient_email": recipient_email,
             "kind": kind,
             "status": status,
@@ -86,7 +84,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
     payload = _fetch_event_and_tech(sb, gig_id)
     ev, tech = payload["event"], payload["tech"]
 
-    starts_at, ends_at = _localize(ev["date"], ev.get("start_time") or "17:00")
+    starts_at, ends_at = _localize(ev["event_date"], ev.get("start_time") or "17:00")
     fee_str = None
     if not ev.get("sound_provided") and ev.get("sound_fee") is not None:
         fee_str = f"${float(ev['sound_fee']):,.2f}"
@@ -106,12 +104,8 @@ def send_soundtech_confirm(gig_id: str) -> None:
     rows = [
         {
             "Gig": title,
-            "Date": ev["date"],
+            "Date": ev["event_date"],
             "Call Time": ev.get("start_time", ""),
-            "Venue": ev.get("venue", ""),
-            "Address": ev.get("address", ""),
-            "City": ev.get("city", ""),
-            "State": ev.get("state", ""),
             "Fee (if applicable)": fee_str or "—",
         }
     ]
@@ -119,7 +113,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
     mailto = (
         f"mailto:{tech['email']}?subject="
-        f"Confirm%20received%20-%20{title}%20({ev['date']})%20[{token}]&body=Reply%20to%20confirm.%20Token%3A%20{token}"
+        f"Confirm%20received%20-%20{title}%20({ev['event_date']})%20[{token}]&body=Reply%20to%20confirm.%20Token%3A%20{token}"
     )
 
     html = f"""
@@ -133,7 +127,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
     <p>— {FROM_NAME}</p>
     """
 
-    subject = f"[Sound Tech] {title} — {ev['date']}"
+    subject = f"[Sound Tech] {title} — {ev['event_date']}"
 
     atts = []
     if INCLUDE_ICS:
@@ -142,12 +136,12 @@ def send_soundtech_confirm(gig_id: str) -> None:
             title=f"{title} — Sound Tech",
             starts_at=starts_at,
             ends_at=ends_at,
-            location=f"{ev.get('venue','')} {ev.get('address','')} {ev.get('city','')}, {ev.get('state','')}",
+            location="",  # optional: look up venue name/address if/when needed
             description="Sound tech call. Brought to you by PRS Scheduling.",
         )
         atts.append(
             {
-                "filename": f"{title}-{ev['date']}.ics",
+                "filename": f"{title}-{ev['event_date']}.ics",
                 "mime": "text/calendar",
                 "content": ics_bytes,
             }

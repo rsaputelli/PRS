@@ -365,6 +365,8 @@ st.markdown("---")
 st.subheader("Venue & Sound")
 vs1, vs2 = st.columns([1, 1])
 
+gid = str(row.get("id") or "edit")
+
 with vs1:
     # Venue
     venue_options = ["(none)"] + list(venue_labels.keys())
@@ -373,15 +375,27 @@ with vs1:
             return "(select venue)"
         return venue_labels.get(x, x)
     cur_vid = str(row.get("venue_id")) if pd.notna(row.get("venue_id")) else "(none)"
-    venue_id_sel = st.selectbox("Venue", options=venue_options,
-                                index=(venue_options.index(cur_vid) if cur_vid in venue_options else 0),
-                                format_func=venue_fmt)
+    venue_id_sel = st.selectbox(
+        "Venue",
+        options=venue_options,
+        index=(venue_options.index(cur_vid) if cur_vid in venue_options else 0),
+        format_func=venue_fmt,
+        key=f"edit_venue_{gid}",
+    )
 
     # Private flag
-    is_private = st.checkbox("Private Event?", value=bool(row.get("is_private")))
+    is_private = st.checkbox(
+        "Private Event?",
+        value=bool(row.get("is_private")),
+        key=f"edit_is_private_{gid}",
+    )
 
-    # NEW: Sound provided toggle (venue-provided vs PRS-provided)
-    sound_provided = st.checkbox("Venue provides sound?", value=bool(row.get("sound_provided")))
+    # Sound provided toggle (venue-provided vs PRS-provided)
+    sound_provided = st.checkbox(
+        "Venue provides sound?",
+        value=bool(row.get("sound_provided")),
+        key=f"edit_sound_provided_{gid}",
+    )
 
 with vs2:
     # Confirmed sound tech (directory)
@@ -391,32 +405,41 @@ with vs2:
             return "(none)"
         return sound_labels.get(x, x)
     cur_sid = str(row.get("sound_tech_id")) if pd.notna(row.get("sound_tech_id")) else "(none)"
-    sound_id_sel = st.selectbox("Confirmed Sound Tech", options=sound_options,
-                                index=(sound_options.index(cur_sid) if cur_sid in sound_options else 0),
-                                format_func=sound_fmt)
+    sound_id_sel = st.selectbox(
+        "Confirmed Sound Tech",
+        options=sound_options,
+        index=(sound_options.index(cur_sid) if cur_sid in sound_options else 0),
+        format_func=sound_fmt,
+        key=f"edit_sound_tech_{gid}",
+    )
 
-    # NEW: Sound fee only when PRS provides sound (i.e., venue does NOT provide)
+    # Sound fee only when PRS provides sound
     cur_fee = float(row.get("sound_fee") or 0.0)
     sound_fee = None
     if not sound_provided:
-        sound_fee = st.number_input("Sound Fee ($)", min_value=0.0, step=25.0, format="%.2f", value=cur_fee)
+        sound_fee = st.number_input(
+            "Sound Fee ($)",
+            min_value=0.0,
+            step=25.0,
+            format="%.2f",
+            value=cur_fee,
+            key=f"edit_sound_fee_{gid}",
+        )
 
-# Optional free-text vendor (unchanged)
+# Single (non-duplicated) free-text vendor fields with unique keys
 sv1, sv2 = st.columns([1, 1])
 with sv1:
-    sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)",
-                                        value=_opt_label(row.get("sound_by_venue_name"), ""))
+    sound_by_venue_name = st.text_input(
+        "Venue Sound Company/Contact (optional)",
+        value=_opt_label(row.get("sound_by_venue_name"), ""),
+        key=f"edit_sound_vendor_name_{gid}",
+    )
 with sv2:
-    sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)",
-                                         value=_opt_label(row.get("sound_by_venue_phone"), ""))
-
-
-# Sound by venue (stored as text fields in gigs schema)
-sv1, sv2 = st.columns([1, 1])
-with sv1:
-    sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)", value=_opt_label(row.get("sound_by_venue_name"), ""))
-with sv2:
-    sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)", value=_opt_label(row.get("sound_by_venue_phone"), ""))
+    sound_by_venue_phone = st.text_input(
+        "Venue Sound Phone/Email (optional)",
+        value=_opt_label(row.get("sound_by_venue_phone"), ""),
+        key=f"edit_sound_vendor_phone_{gid}",
+    )
 
 # Lineup (assignments)
 st.markdown("---")

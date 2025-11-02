@@ -4,7 +4,7 @@ import os
 import uuid
 import datetime as dt
 from collections import defaultdict
-from typing import Optional, Dict, Any, List
+from typing import Optional, List, Dict, Any
 
 import pytz
 from supabase import create_client
@@ -32,39 +32,38 @@ def _week_window(now: dt.datetime) -> tuple[dt.datetime, dt.datetime]:
     return start, end
 
 
-def _fetch_soundtechs(sb) -> list[dict]:
-    # Using sound_techs table
+def _fetch_soundtechs(sb) -> List[dict]:
     resp = sb.table("sound_techs").select("id, full_name, email").execute()
     return [r for r in (resp.data or []) if r.get("email")]
 
 
-def _fetch_events_for_range(sb, start: dt.datetime, end: dt.datetime) -> list[dict]:
+def _fetch_events_for_range(sb, start: dt.datetime, end: dt.datetime) -> List[dict]:
     start_s = start.strftime("%Y-%m-%d")
     end_s = end.strftime("%Y-%m-%d")
 
-    # PUBLIC gigs
+    # PUBLIC gigs (safe column list)
     pub = (
         sb.table("gigs")
         .select(
-            "id, title, gig_name, date, start_time, end_time, venue, city, state, address, "
+            "id, title, gig_name, event_date, start_time, end_time, "
             "sound_provided, sound_fee, sound_tech_id"
         )
-        .gte("date", start_s)
-        .lt("date", end_s)
+        .gte("event_date", start_s)
+        .lt("event_date", end_s)
         .execute()
     ).data or []
 
-    # OPTIONAL: include PRIVATE gigs in digest (enable when ready)
+    # OPTIONAL: include PRIVATE gigs in digest (kept safe; enable when ready)
     priv = []
     try:
         priv = (
             sb.table("gigs_private")
             .select(
-                "id, title, gig_name, date, start_time, end_time, venue, city, state, address, "
+                "id, title, gig_name, event_date, start_time, end_time, "
                 "sound_provided, sound_fee, sound_tech_id"
             )
-            .gte("date", start_s)
-            .lt("date", end_s)
+            .gte("event_date", start_s)
+            .lt("event_date", end_s)
             .execute()
         ).data or []
     except Exception:
@@ -92,11 +91,12 @@ def run_weekly_digest(now: Optional[dt.datetime] = None):
         now = dt.datetime.now()
     sb = _sb()
     start, end = _week_window(now)
+    tz = pytz.timezone(TZ)
 
     techs = _fetch_soundtechs(sb)
     events = _fetch_events_for_range(sb, start, end)
 
-    by_tech: dict[str, list[dict]] = defaultdict(list)  # sound_tech_id is UUID
+    by_tech: Dict[str, List[dict]] = defaultdict(list)  # sound_tech_id is UUID
     for ev in events:
         tid = ev.get("sound_tech_id")
         if tid:
@@ -107,29 +107,32 @@ def run_weekly_digest(now: Optional[dt.datetime] = None):
         if not gigs:
             continue
 
-        rows = []
-        attachments = []
-        for ev in sorted(gigs, key=lambda r: (r["date"], r.get("start_time") or "")):
+        rows: List[Dict[str, Any]] = []
+        attachments: List[Dict[str, Any]] = []
+
+        for ev in sorted(gigs, key=lambda r: (r["event_date"], r.get("start_time") or "")):
             fee_str = None
             if not ev.get("sound_provided") and ev.get("sound_fee") is not None:
-                fee_str = f"${float(ev['sound_fee']):,.2f}"
+                try:
+                    fee_str = f"${float(ev['sound_fee']):,.2f}"
+                except Exception:
+                    fee_str = str(ev["sound_fee"])
 
             title = ev.get("title") or ev.get("gig_name") or "Gig"
 
             rows.append(
                 {
                     "Gig": title,
-                    "Date": ev["date"],
+                    "Date": ev["event_date"],
                     "Call Time": ev.get("start_time", ""),
-                    "Venue": ev.get("venue", ""),
+                    "Venue": "",  # intentionally blank (schema-safe for now)
                     "Fee": fee_str or "—",
                 }
             )
 
             if INCLUDE_ICS:
                 uid = uuid.uuid4().hex + "@prs"
-                tz = pytz.timezone(TZ)
-                day = dt.datetime.strptime(ev["date"], "%Y-%m-%d").date()
+                day = dt.datetime.strptime(ev["event_date"], "%Y-%m-%d").date()
                 st = dt.datetime.combine(
                     day, dt.datetime.strptime(ev.get("start_time") or "17:00", "%H:%M").time()
                 )
@@ -141,12 +144,12 @@ def run_weekly_digest(now: Optional[dt.datetime] = None):
                     title=f"{title} — Sound Tech",
                     starts_at=stz,
                     ends_at=etz,
-                    location=f"{ev.get('venue','')} {ev.get('address','')} {ev.get('city','')}, {ev.get('state','')}",
+                    location="",  # keep empty until we wire venue lookup
                     description="Sound tech call. PRS Scheduling.",
                 )
                 attachments.append(
                     {
-                        "filename": f"{title}-{ev['date']}.ics",
+                        "filename": f"{title}-{ev['event_date']}.ics",
                         "mime": "text/calendar",
                         "content": ics,
                     }
