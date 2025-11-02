@@ -768,25 +768,29 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     # - If venue provides sound => clear sound_tech_id and ignore sound_fee
     # - Else, use selected sound tech
     # - SAFETY NET: if no selection but user typed venue-sound text, auto-create a sound tech and attach.
-    if sound_provided:
-        sound_tech_id_val = None
-        sound_fee_val = None
-    else:
-        sel = sound_id_sel if sound_id_sel not in ("", SOUND_ADD) else None
-        sound_tech_id_val = sel
-        sound_fee_val = float(sound_fee) if (sound_fee is not None) else None
+    if sound_tech_id_val is None:
+        typed_name  = (sound_by_venue_name or "").strip()
+        typed_phone = (sound_by_venue_phone or "").strip()
+        if typed_name:
+            # Create a tech from the free-text fields and attach
+            created_id = _create_soundtech(
+                display_name=typed_name,
+                company="",
+                phone=typed_phone,
+                email=typed_phone
+            )
+            if created_id:
+                # Use the new ID for saving, but DO NOT set the selectbox session key
+                # in this same run (its options don't include the new id yet).
+                sound_tech_id_val = created_id
 
-        if sound_tech_id_val is None:
-            typed_name  = (sound_by_venue_name or "").strip()
-            typed_phone = (sound_by_venue_phone or "").strip()
-            if typed_name:
-                # Create a tech from the free-text fields and attach
-                created_id = _create_soundtech(display_name=typed_name, company="", phone=typed_phone, email=typed_phone)
-                if created_id:
-                    st.cache_data.clear()
-                    sound_tech_id_val = created_id
-                    st.session_state[f"sound_sel_{gid}"] = created_id
-                    st.info(f'No sound tech selected; created "{typed_name}" and attached.')
+                # Refresh caches so the next render includes the new tech
+                st.cache_data.clear()
+
+                # Drop the stale widget value so selectbox rebinds cleanly on next render
+                st.session_state.pop(f"sound_sel_{gid}", None)
+
+                st.info(f'No sound tech selected; created "{typed_name}" and attached.')
 
     payload = {
         "title": (title or None),
