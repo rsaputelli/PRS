@@ -767,39 +767,16 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     agent_id_val = agent_id_sel if agent_id_sel not in ("", AGENT_ADD) else None
     venue_id_val = venue_id_sel if venue_id_sel not in ("", VENUE_ADD) else None
 
-    # --- Sound tech logic (INIT FIRST) ---
+    # --- Sound tech logic (selection-only) ---
     if sound_provided:
         # Venue provides sound -> clear app-provided tech and ignore fee
         sound_tech_id_val = None
         sound_fee_val = None
     else:
-        # PRS provides sound -> use selected tech if any
+        # PRS provides sound -> use selected tech if any; do NOT create from text fields
         sel = sound_id_sel if sound_id_sel not in ("", SOUND_ADD) else None
         sound_tech_id_val = sel
         sound_fee_val = float(sound_fee) if (sound_fee is not None) else None
-
-    # --- SAFETY NET: auto-create from free-text if no selection ---
-    if (not sound_provided) and (sound_tech_id_val is None):
-        typed_name  = (sound_by_venue_name or "").strip()
-        typed_phone = (sound_by_venue_phone or "").strip()
-        if typed_name:
-            created_id = _create_soundtech(
-                display_name=typed_name,
-                company="",
-                phone=typed_phone,
-                email=typed_phone,
-            )
-            if created_id:
-                # Attach new tech, but don't set the selectbox state this run
-                sound_tech_id_val = created_id
-
-                # Refresh caches so the next render includes the new tech
-                st.cache_data.clear()
-
-                # Drop the stale widget value so selectbox rebinds cleanly on next render
-                st.session_state.pop(f"sound_sel_{gid}", None)
-
-                st.info(f'No sound tech selected; created "{typed_name}" and attached.')
 
     # Build payload
     payload = {
@@ -812,11 +789,11 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "band_name": (band_name or None),
         "agent_id": agent_id_val,
         "venue_id": venue_id_val,
-        "sound_tech_id": sound_tech_id_val,
+        "sound_tech_id": sound_tech_id_val,            # selection-only
         "is_private": bool(is_private),
         "notes": (notes or None),
-        "sound_by_venue_name": (sound_by_venue_name or None),
-        "sound_by_venue_phone": (sound_by_venue_phone or None),
+        "sound_by_venue_name": (sound_by_venue_name or None),   # pure text
+        "sound_by_venue_phone": (sound_by_venue_phone or None), # pure text (may contain email or phone)
         "sound_provided": bool(sound_provided),
         "sound_fee": sound_fee_val,
         "eligible_1099": bool(eligible_1099) if "eligible_1099" in _table_columns("gigs") else None,
@@ -874,4 +851,5 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "sound_tech_id": sound_tech_id_val or "(none)",
         "sound_fee": (None if sound_fee_val is None else format_currency(sound_fee_val)),
     })
+
 
