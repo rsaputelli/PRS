@@ -1,5 +1,5 @@
 # =============================
-# File: pages/05_Edit_Gig.py (PARITY PATCH)
+# File: pages/05_Edit_Gig.py (PARITY PATCH — auth/header order fixed)
 # =============================
 import os
 from datetime import datetime, date, time, timedelta
@@ -12,20 +12,12 @@ from lib.ui_header import render_header
 from lib.ui_format import format_currency
 
 # -----------------------------
-# Page config + Header
+# Page config (safe to do first)
 # -----------------------------
 st.set_page_config(page_title="Edit Gig", page_icon="✏️", layout="wide")
-render_header(title="Edit Gig", emoji="✏️")
 
 # -----------------------------
-# Auth gate (logged-in check only)
-# -----------------------------
-if "user" not in st.session_state or not st.session_state["user"]:
-    st.error("Please sign in from the Login page.")
-    st.stop()
-
-# -----------------------------
-# Supabase helpers (aligned with other pages)
+# Secrets / Supabase init FIRST
 # -----------------------------
 def _get_secret(name, default=None, required=False):
     if hasattr(st, "secrets") and name in st.secrets:
@@ -41,7 +33,7 @@ SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# Attach Supabase session for RLS if present
+# Attach Supabase session for RLS if present (must happen before any header that might enforce auth)
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
         sb.auth.set_session(
@@ -52,14 +44,17 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
         st.warning(f"Could not attach session; proceeding with limited access. ({e})")
 
 # -----------------------------
-# Admin gate (robust)
+# Auth gate BEFORE header
 # -----------------------------
+if "user" not in st.session_state or not st.session_state["user"]:
+    st.error("Please sign in from the Login page.")
+    st.stop()
+
 def _norm_admin_emails(raw):
     if raw is None:
         return set()
     if isinstance(raw, (list, tuple, set)):
         return {str(x).strip().lower() for x in raw}
-    # comma/semicolon/space separated accepted
     return {p.strip().lower() for p in str(raw).replace(";", ",").split(",") if p.strip()}
 
 def _get_authed_user():
@@ -73,7 +68,6 @@ def _get_authed_user():
         return None
 
 def _profiles_admin_lookup(user_email: str, user_id: str) -> bool:
-    """True if profiles table marks this user as admin."""
     try:
         for col in ["id", "user_id", "auth_user_id"]:
             try:
@@ -108,6 +102,11 @@ IS_ADMIN = admin_from_session or admin_from_secrets or admin_from_profiles
 if not IS_ADMIN:
     st.error("Only admins may edit gigs.")
     st.stop()
+
+# -----------------------------
+# Header AFTER auth/admin gate
+# -----------------------------
+render_header(title="Edit Gig", emoji="✏️")
 
 # -----------------------------
 # Data helpers (cached)
@@ -191,7 +190,7 @@ def _robust_insert(table: str, payload: Dict, max_attempts: int = 8) -> Optional
     return None
 
 # -----------------------------
-# Mini-creators for "Add New ..." (parity with Enter)
+# Mini-creators for "Add New ..."
 # -----------------------------
 def _opt_label(val, fallback=""):
     return str(val) if pd.notna(val) and str(val).strip() else fallback
@@ -255,7 +254,7 @@ sound_df  = _select_df("sound_techs", "*")
 mus_df    = _select_df("musicians", "*")
 agents_df = _select_df("agents", "*")
 
-# Labels (agents/venues/sound/musicians)
+# Labels
 agent_labels: Dict[str, str] = {}
 if not agents_df.empty and "id" in agents_df.columns:
     for _, r in agents_df.iterrows():
@@ -423,11 +422,11 @@ with b2:
 with b3:
     band_name = st.text_input("Band (optional)", value=_opt_label(row.get("band_name"), ""), key=f"band_{gid}")
 
-# Agent (PARITY) + Venue & Sound
+# Agent + Venue & Sound
 st.markdown("---")
 st.subheader("Contacts & Venue / Sound")
 
-# ----- Agent select with “Add New”
+# Agent select with “Add New”
 AGENT_ADD = "__ADD_AGENT__"
 agent_options = [""] + list(agent_labels.keys()) + [AGENT_ADD]
 def agent_fmt(x: str) -> str:
@@ -444,7 +443,7 @@ agent_id_sel = st.selectbox(
 )
 agent_add_box = st.empty()
 
-# ----- Venue select with “Add New”
+# Venue select with “Add New”
 VENUE_ADD = "__ADD_VENUE__"
 venue_options_ids = [""] + list(venue_labels.keys()) + [VENUE_ADD]
 def venue_fmt(x: str) -> str:
@@ -461,14 +460,14 @@ venue_id_sel = st.selectbox(
 )
 venue_add_box = st.empty()
 
-# Private flag, eligibility toggles (parity with Enter where applicable)
+# Private flag, eligibility toggles
 c1, c2 = st.columns([1, 1])
 with c1:
     is_private = st.checkbox("Private Event?", value=bool(row.get("is_private")), key=f"priv_{gid}")
 with c2:
     eligible_1099 = st.checkbox("1099 Eligible", value=bool(row.get("eligible_1099", False)), key=f"elig1099_{gid}")
 
-# ----- Sound tech with “Add New” + venue-provided toggle + conditional fee
+# Sound tech with “Add New” + venue-provided toggle + conditional fee
 SOUND_ADD = "__ADD_SOUND__"
 sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]
 def sound_fmt(x: str) -> str:
@@ -482,7 +481,7 @@ sound_provided = st.checkbox(
     key=f"edit_sound_provided_{gid}",
 )
 
-# If venue provides sound, we suppress the confirmed sound tech picker (parity with Enter’s intent)
+# If venue provides sound, suppress confirmed sound tech picker
 if not sound_provided:
     sound_id_sel = st.selectbox(
         "Confirmed Sound Tech",
@@ -509,7 +508,7 @@ if not sound_provided:
         key=f"edit_sound_fee_{gid}",
     )
 
-# Venue-provided sound details (free text) — always visible to allow edits
+# Venue-provided sound details (free text)
 sv1, sv2 = st.columns([1, 1])
 with sv1:
     sound_by_venue_name = st.text_input(
@@ -525,19 +524,17 @@ with sv2:
     )
 
 # -----------------------------
-# Lineup (Role Assignments) — FILTERED + “Add New”
+# Lineup (Role Assignments)
 # -----------------------------
 st.markdown("---")
 st.subheader("Lineup (Role Assignments)")
 
-# Load current assignments
 assigned_df = _select_df("gig_musicians", "*", where_eq={"gig_id": row.get("id")}) if _table_exists("gig_musicians") else pd.DataFrame()
 cur_map: Dict[str, Optional[str]] = {}
 if not assigned_df.empty:
     for _, r in assigned_df.iterrows():
         cur_map[str(r.get("role"))] = str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
 
-# Role filters (same logic as Enter)
 import re
 ROLE_INSTRUMENT_MAP = {
     "Keyboard":  {"substr": ["keyboard", "keys", "piano", "pianist", "synth"]},
@@ -578,7 +575,6 @@ for idx, role in enumerate(ROLE_CHOICES):
     with line_cols[idx % 3]:
         sentinel = f"__ADD_MUS__:{role}"
 
-        # Filtered list by role; fallback to full list if empty
         role_df = mus_df.copy()
         if "instrument" in role_df.columns:
             role_df = role_df[role_df["instrument"].fillna("").apply(lambda x: _matches_role(x, role))]
@@ -612,7 +608,7 @@ for idx, role in enumerate(ROLE_CHOICES):
 
         role_add_boxes[role] = st.empty()
 
-# --- Inline “Add New …” sub-forms (Agents/Venues/Sound/Musicians)
+# Inline “Add New …” sub-forms (Agents/Venues/Sound/Musicians)
 
 # Agent add
 if agent_id_sel == "__ADD_AGENT__":
@@ -789,11 +785,9 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 
     start_dt, end_dt = _compose_datetimes(event_date, start_time_in, end_time_in)
     if end_dt.date() > start_dt.date():
-        st.info(
-            f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). We'll keep event_date as the start date."
-        )
+        st.info(f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). We'll keep event_date as the start date.")
 
-    # If venue provides sound, force sound tech to None (parity with Enter’s effect)
+    # If venue provides sound, force sound tech to None
     sound_tech_id_val = (None if sound_provided else (sound_id_sel if sound_id_sel not in ("", "__ADD_SOUND__") else None))
     agent_id_val = agent_id_sel if agent_id_sel not in ("", "__ADD_AGENT__") else None
     venue_id_val = venue_id_sel if venue_id_sel not in ("", "__ADD_VENUE__") else None
@@ -823,7 +817,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     if not ok:
         st.stop()
 
-    # Replace lineup rows (simple + reliable)
+    # Replace lineup rows
     if _table_exists("gig_musicians"):
         try:
             sb.table("gig_musicians").delete().eq("gig_id", row.get("id")).execute()
