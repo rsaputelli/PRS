@@ -767,6 +767,11 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     agent_id_val = agent_id_sel if agent_id_sel not in ("", AGENT_ADD) else None
     venue_id_val = venue_id_sel if venue_id_sel not in ("", VENUE_ADD) else None
 
+    # Prevent saving while (+ Add New Sound Tech) is selected
+    if (not sound_provided) and (sound_id_sel == SOUND_ADD):
+        st.error("Finish creating the new sound tech (click “Create Sound Tech”) or choose an existing one before saving.")
+        st.stop()
+
     # --- Sound tech logic (selection-only) ---
     if sound_provided:
         # Venue provides sound -> clear app-provided tech and ignore fee
@@ -805,40 +810,50 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     if not ok:
         st.stop()
 
-    # Replace lineup rows
-    if _table_exists("gig_musicians"):
-        try:
-            sb.table("gig_musicians").delete().eq("gig_id", row.get("id")).execute()
-        except Exception as e:
-            st.warning(f"Could not clear existing lineup: {e}")
+    # --- Persist lineup (no table-exists gate) ---
+    try:
+        sb.table("gig_musicians").delete().eq("gig_id", row.get("id")).execute()
+    except Exception as e:
+        st.error(f"Could not clear existing lineup: {e}")
+    else:
         if lineup:
-            rows = []
-            for r in lineup:
-                rows.append(_filter_to_schema("gig_musicians", {
-                    "gig_id": row.get("id"),
-                    "role": r["role"],
-                    "musician_id": r["musician_id"],
-                }))
-            if rows:
-                sb.table("gig_musicians").insert(rows).execute()
+            try:
+                rows = []
+                for r in lineup:
+                    rows.append(_filter_to_schema("gig_musicians", {
+                        "gig_id": row.get("id"),
+                        "role": r["role"],
+                        "musician_id": r["musician_id"],
+                    }))
+                if rows:
+                    sb.table("gig_musicians").insert(rows).execute()
+            except Exception as e:
+                st.error(f"Could not insert lineup: {e}")
 
-    # Replace deposits
-    if dep_rows and _table_exists("gig_deposits"):
+    # --- Persist deposits (no table-exists gate) ---
+    if dep_rows:
         try:
             sb.table("gig_deposits").delete().eq("gig_id", row.get("id")).execute()
         except Exception as e:
-            st.warning(f"Could not clear existing deposits: {e}")
-        rows = []
-        for d in dep_rows:
-            rows.append(_filter_to_schema("gig_deposits", {
-                "gig_id": row.get("id"),
-                "sequence": d["sequence"],
-                "due_date": d["due_date"].isoformat() if isinstance(d["due_date"], (date, datetime)) else d["due_date"],
-                "amount": float(d["amount"] or 0.0),
-                "is_percentage": bool(d["is_percentage"]),
-            }))
-        if rows:
-            sb.table("gig_deposits").insert(rows).execute()
+            st.error(f"Could not clear existing deposits: {e}")
+        else:
+            try:
+                rows = []
+                for d in dep_rows:
+                    rows.append(_filter_to_schema("gig_deposits", {
+                        "gig_id": row.get("id"),
+                        "sequence": d["sequence"],
+                        "due_date": d["due_date"].isoformat() if isinstance(d["due_date"], (date, datetime)) else d["due_date"],
+                        "amount": float(d["amount"] or 0.0),
+                        "is_percentage": bool(d["is_percentage"]),
+                    }))
+                if rows:
+                    sb.table("gig_deposits").insert(rows).execute()
+            except Exception as e:
+                st.error(f"Could not insert deposits: {e}")
+
+    # Bust caches so the next render reflects changes immediately
+    st.cache_data.clear()
 
     st.success("Gig updated successfully ✅")
     st.write({
