@@ -8,6 +8,7 @@ import streamlit as st
 from supabase import create_client, Client
 from pathlib import Path
 from lib.ui_header import render_header
+from lib.ui_format import format_currency
 
 # Header with logo + title
 render_header(title="Schedule View", emoji="📅")
@@ -329,6 +330,9 @@ else:
     if sort_keys:
         gigs_sorted = gigs.sort_values(by=sort_keys, ascending=True)
         df_show = gigs_sorted[df_show.columns]
+        
+if "fee" in df_show.columns:
+    df_show["fee"] = df_show["fee"].apply(format_currency)
 
 st.dataframe(df_show, use_container_width=True, hide_index=True)
 

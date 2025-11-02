@@ -1,20 +1,26 @@
-"""
-Utility: calendar_utils.py
-Purpose: Generate ICS calendar attachments for gig confirmations/reminders.
-"""
+# lib/calendar_utils.py
+from __future__ import annotations
+import datetime as dt
 
-from datetime import datetime, timedelta
+def make_ics_bytes(
+    *, uid: str, title: str, starts_at: dt.datetime, ends_at: dt.datetime,
+    location: str = "", description: str = ""
+) -> bytes:
+    def fmt(zdt: dt.datetime) -> str:
+        return zdt.strftime("%Y%m%dT%H%M%SZ")
 
-def create_ics(event_title, start_time, end_time, location, description=""):
-    """Return a basic ICS file string."""
-    return f"""BEGIN:VCALENDAR
+    ics = f"""BEGIN:VCALENDAR
 VERSION:2.0
+PRODID:-//PRS//Gig Calendar//EN
 BEGIN:VEVENT
-SUMMARY:{event_title}
-DTSTART:{start_time.strftime("%Y%m%dT%H%M%S")}
-DTEND:{end_time.strftime("%Y%m%dT%H%M%S")}
+UID:{uid}
+DTSTAMP:{fmt(dt.datetime.utcnow())}
+DTSTART:{fmt(starts_at.astimezone(dt.timezone.utc))}
+DTEND:{fmt(ends_at.astimezone(dt.timezone.utc))}
+SUMMARY:{title}
 LOCATION:{location}
 DESCRIPTION:{description}
 END:VEVENT
 END:VCALENDAR
 """
+    return ics.encode("utf-8")

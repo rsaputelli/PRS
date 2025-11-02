@@ -8,6 +8,7 @@ from supabase import create_client, Client
 from typing import Optional, Dict, List, Set
 from pathlib import Path
 from lib.ui_header import render_header
+from lib.ui_format import format_currency
 
 # -----------------------------
 # Page config + Header

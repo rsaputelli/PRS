@@ -1,17 +1,42 @@
-name: Weekly Soundtech Digest
+# .github/workflows/weekly-soundtech-digest.yml
+name: Weekly Sound Tech Digest
+
 on:
   schedule:
-    - cron: "0 13 * * MON"  # Monday 9AM ET
-  workflow_dispatch:
+    # NOTE: GitHub Actions uses UTC. This runs at 12:00 UTC,
+    # which is 07:00 during EST and 08:00 during EDT.
+    - cron: "0 12 * * 1"
+  workflow_dispatch: {}
 
 jobs:
-  send:
+  weekly-digest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Run Soundtech Weekly Digest
-        run: python tools/weekly_soundtech_digest.py
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install supabase pytz google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      - name: Run weekly digest
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          GMAIL_ACCESS_TOKEN: ${{ secrets.GMAIL_ACCESS_TOKEN }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE }}   # ok: our code falls back to SERVICE_ROLE or KEY
+          # Gmail creds — match your existing Weekly Gmail Reminder setup
+          GMAIL_CLIENT_SECRET_JSON: ${{ secrets.GMAIL_CLIENT_SECRET_JSON }}
+          GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
+          # Branding / options
+          BAND_FROM_NAME: "PRS Scheduling"
+          BAND_FROM_EMAIL: "no-reply@prs.local"
+          CC_RAY: "ray@lutinemanagement.com"
+          INCLUDE_ICS: "true"
+          APP_TZ: "America/New_York"
+        run: |
+          python tools/weekly_soundtech_digest.py
