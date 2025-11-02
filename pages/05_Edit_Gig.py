@@ -758,30 +758,39 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 
     start_dt, end_dt = _compose_datetimes(event_date, start_time_in, end_time_in)
     if end_dt.date() > start_dt.date():
-        st.info(f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). We'll keep event_date as the start date.")
+        st.info(
+            f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). "
+            "We'll keep event_date as the start date."
+        )
 
     # Determine IDs (respect session_state selection)
     agent_id_val = agent_id_sel if agent_id_sel not in ("", AGENT_ADD) else None
     venue_id_val = venue_id_sel if venue_id_sel not in ("", VENUE_ADD) else None
 
-    # Sound tech logic:
-    # - If venue provides sound => clear sound_tech_id and ignore sound_fee
-    # - Else, use selected sound tech
-    # - SAFETY NET: if no selection but user typed venue-sound text, auto-create a sound tech and attach.
-    if sound_tech_id_val is None:
+    # --- Sound tech logic (INIT FIRST) ---
+    if sound_provided:
+        # Venue provides sound -> clear app-provided tech and ignore fee
+        sound_tech_id_val = None
+        sound_fee_val = None
+    else:
+        # PRS provides sound -> use selected tech if any
+        sel = sound_id_sel if sound_id_sel not in ("", SOUND_ADD) else None
+        sound_tech_id_val = sel
+        sound_fee_val = float(sound_fee) if (sound_fee is not None) else None
+
+    # --- SAFETY NET: auto-create from free-text if no selection ---
+    if (not sound_provided) and (sound_tech_id_val is None):
         typed_name  = (sound_by_venue_name or "").strip()
         typed_phone = (sound_by_venue_phone or "").strip()
         if typed_name:
-            # Create a tech from the free-text fields and attach
             created_id = _create_soundtech(
                 display_name=typed_name,
                 company="",
                 phone=typed_phone,
-                email=typed_phone
+                email=typed_phone,
             )
             if created_id:
-                # Use the new ID for saving, but DO NOT set the selectbox session key
-                # in this same run (its options don't include the new id yet).
+                # Attach new tech, but don't set the selectbox state this run
                 sound_tech_id_val = created_id
 
                 # Refresh caches so the next render includes the new tech
@@ -792,6 +801,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 
                 st.info(f'No sound tech selected; created "{typed_name}" and attached.')
 
+    # Build payload
     payload = {
         "title": (title or None),
         "event_date": event_date.isoformat() if isinstance(event_date, (date, datetime)) else event_date,
@@ -813,6 +823,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     }
     payload = _filter_to_schema("gigs", payload)
 
+    # Update gig
     ok = _robust_update("gigs", {"id": row.get("id")}, payload)
     if not ok:
         st.stop()
@@ -824,7 +835,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         except Exception as e:
             st.warning(f"Could not clear existing lineup: {e}")
         if lineup:
-            rows: List[Dict] = []
+            rows = []
             for r in lineup:
                 rows.append(_filter_to_schema("gig_musicians", {
                     "gig_id": row.get("id"),
@@ -840,7 +851,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             sb.table("gig_deposits").delete().eq("gig_id", row.get("id")).execute()
         except Exception as e:
             st.warning(f"Could not clear existing deposits: {e}")
-        rows: List[Dict] = []
+        rows = []
         for d in dep_rows:
             rows.append(_filter_to_schema("gig_deposits", {
                 "gig_id": row.get("id"),
@@ -863,3 +874,4 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "sound_tech_id": sound_tech_id_val or "(none)",
         "sound_fee": (None if sound_fee_val is None else format_currency(sound_fee_val)),
     })
+
