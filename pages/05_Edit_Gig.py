@@ -1,5 +1,5 @@
 # =============================
-# File: pages/05_Edit_Gig.py (PARITY PATCH — auth/header order fixed)
+# File: pages/05_Edit_Gig.py (PARITY + auth/header order + sound tech attach safety)
 # =============================
 import os
 from datetime import datetime, date, time, timedelta
@@ -12,7 +12,7 @@ from lib.ui_header import render_header
 from lib.ui_format import format_currency
 
 # -----------------------------
-# Page config (safe to do first)
+# Page config
 # -----------------------------
 st.set_page_config(page_title="Edit Gig", page_icon="✏️", layout="wide")
 
@@ -33,7 +33,7 @@ SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# Attach Supabase session for RLS if present (must happen before any header that might enforce auth)
+# Attach Supabase session for RLS (must happen before any header that could enforce auth)
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
         sb.auth.set_session(
@@ -41,10 +41,10 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
             refresh_token=st.session_state["sb_refresh_token"],
         )
     except Exception as e:
-        st.warning(f"Could not attach session; proceeding with limited access. ({e})")
+        st.warning(f"Could not attach Supabase session. ({e})")
 
 # -----------------------------
-# Auth gate BEFORE header
+# Auth/admin gate BEFORE header
 # -----------------------------
 if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
@@ -104,7 +104,7 @@ if not IS_ADMIN:
     st.stop()
 
 # -----------------------------
-# Header AFTER auth/admin gate
+# Header AFTER gate
 # -----------------------------
 render_header(title="Edit Gig", emoji="✏️")
 
@@ -377,7 +377,7 @@ row = gigs.loc[sel_idx]
 gid = str(row.get("id") or f"edit-{sel_idx}")
 
 # -----------------------------
-# Edit form (parity with Enter)
+# Edit form
 # -----------------------------
 st.markdown("---")
 st.subheader("Edit Details")
@@ -422,106 +422,85 @@ with b2:
 with b3:
     band_name = st.text_input("Band (optional)", value=_opt_label(row.get("band_name"), ""), key=f"band_{gid}")
 
-# Agent + Venue & Sound
+# -----------------------------
+# Contacts & Venue / Sound
+# -----------------------------
 st.markdown("---")
 st.subheader("Contacts & Venue / Sound")
 
-# Agent select with “Add New”
+# ----- Agent (with Add New) + session_state override
 AGENT_ADD = "__ADD_AGENT__"
 agent_options = [""] + list(agent_labels.keys()) + [AGENT_ADD]
-def agent_fmt(x: str) -> str:
+def _fmt_agent(x: str) -> str:
     if x == "": return "(none)"
     if x == AGENT_ADD: return "(+ Add New Agent)"
     return agent_labels.get(x, x)
 cur_agent = str(row.get("agent_id")) if pd.notna(row.get("agent_id")) else ""
-agent_id_sel = st.selectbox(
-    "Agent",
-    options=agent_options,
-    index=(agent_options.index(cur_agent) if cur_agent in agent_options else 0),
-    format_func=agent_fmt,
-    key=f"agent_sel_{gid}",
-)
+cur_agent = st.session_state.get(f"agent_sel_{gid}", cur_agent)
+agent_id_sel = st.selectbox("Agent", options=agent_options,
+                             index=(agent_options.index(cur_agent) if cur_agent in agent_options else 0),
+                             format_func=_fmt_agent, key=f"agent_sel_{gid}")
 agent_add_box = st.empty()
 
-# Venue select with “Add New”
+# ----- Venue (with Add New) + session_state override
 VENUE_ADD = "__ADD_VENUE__"
 venue_options_ids = [""] + list(venue_labels.keys()) + [VENUE_ADD]
-def venue_fmt(x: str) -> str:
+def _fmt_venue(x: str) -> str:
     if x == "": return "(select venue)"
     if x == VENUE_ADD: return "(+ Add New Venue)"
     return venue_labels.get(x, x)
 cur_vid = str(row.get("venue_id")) if pd.notna(row.get("venue_id")) else ""
-venue_id_sel = st.selectbox(
-    "Venue",
-    options=venue_options_ids,
-    index=(venue_options_ids.index(cur_vid) if cur_vid in venue_options_ids else 0),
-    format_func=venue_fmt,
-    key=f"venue_sel_{gid}",
-)
+cur_vid = st.session_state.get(f"venue_sel_{gid}", cur_vid)
+venue_id_sel = st.selectbox("Venue", options=venue_options_ids,
+                            index=(venue_options_ids.index(cur_vid) if cur_vid in venue_options_ids else 0),
+                            format_func=_fmt_venue, key=f"venue_sel_{gid}")
 venue_add_box = st.empty()
 
-# Private flag, eligibility toggles
+# Private flag, eligibility
 c1, c2 = st.columns([1, 1])
 with c1:
     is_private = st.checkbox("Private Event?", value=bool(row.get("is_private")), key=f"priv_{gid}")
 with c2:
     eligible_1099 = st.checkbox("1099 Eligible", value=bool(row.get("eligible_1099", False)), key=f"elig1099_{gid}")
 
-# Sound tech with “Add New” + venue-provided toggle + conditional fee
+# ----- Sound tech (with Add New) + session_state override
 SOUND_ADD = "__ADD_SOUND__"
 sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]
-def sound_fmt(x: str) -> str:
+def _fmt_sound(x: str) -> str:
     if x == "": return "(none)"
     if x == SOUND_ADD: return "(+ Add New Sound Tech)"
     return sound_labels.get(x, x)
-cur_sid = str(row.get("sound_tech_id")) if pd.notna(row.get("sound_tech_id")) else ""
-sound_provided = st.checkbox(
-    "Venue provides sound?",
-    value=bool(row.get("sound_provided")),
-    key=f"edit_sound_provided_{gid}",
-)
+sound_provided = st.checkbox("Venue provides sound?", value=bool(row.get("sound_provided")), key=f"edit_sound_provided_{gid}")
 
-# If venue provides sound, suppress confirmed sound tech picker
+cur_sid = str(row.get("sound_tech_id")) if pd.notna(row.get("sound_tech_id")) else ""
+cur_sid = st.session_state.get(f"sound_sel_{gid}", cur_sid)
+
 if not sound_provided:
-    sound_id_sel = st.selectbox(
-        "Confirmed Sound Tech",
-        options=sound_options_ids,
-        index=(sound_options_ids.index(cur_sid) if cur_sid in sound_options_ids else 0),
-        format_func=sound_fmt,
-        key=f"sound_sel_{gid}",
-    )
+    sound_id_sel = st.selectbox("Confirmed Sound Tech",
+                                options=sound_options_ids,
+                                index=(sound_options_ids.index(cur_sid) if cur_sid in sound_options_ids else 0),
+                                format_func=_fmt_sound, key=f"sound_sel_{gid}")
 else:
     sound_id_sel = ""
-
 sound_add_box = st.empty()
 
 # Conditional Sound Fee when PRS provides sound
 cur_sound_fee = float(row.get("sound_fee") or 0.0)
 sound_fee = None
 if not sound_provided:
-    sound_fee = st.number_input(
-        "Sound Fee ($)",
-        min_value=0.0,
-        step=25.0,
-        format="%.2f",
-        value=cur_sound_fee,
-        key=f"edit_sound_fee_{gid}",
-    )
+    sound_fee = st.number_input("Sound Fee ($)", min_value=0.0, step=25.0, format="%.2f",
+                                value=cur_sound_fee, key=f"edit_sound_fee_{gid}")
 
-# Venue-provided sound details (free text)
+# Venue-provided (free text) — always visible
 sv1, sv2 = st.columns([1, 1])
 with sv1:
-    sound_by_venue_name = st.text_input(
-        "Venue Sound Company/Contact (optional)",
-        value=_opt_label(row.get("sound_by_venue_name"), ""),
-        key=f"edit_sound_vendor_name_{gid}",
-    )
+    sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)",
+                                        value=_opt_label(row.get("sound_by_venue_name"), ""),
+                                        key=f"edit_sound_vendor_name_{gid}")
 with sv2:
-    sound_by_venue_phone = st.text_input(
-        "Venue Sound Phone/Email (optional)",
-        value=_opt_label(row.get("sound_by_venue_phone"), ""),
-        key=f"edit_sound_vendor_phone_{gid}",
-    )
+    sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)",
+                                         value=_opt_label(row.get("sound_by_venue_phone"), ""),
+                                         key=f"edit_sound_vendor_phone_{gid}")
 
 # -----------------------------
 # Lineup (Role Assignments)
@@ -529,7 +508,8 @@ with sv2:
 st.markdown("---")
 st.subheader("Lineup (Role Assignments)")
 
-assigned_df = _select_df("gig_musicians", "*", where_eq={"gig_id": row.get("id")}) if _table_exists("gig_musicians") else pd.DataFrame()
+assigned_df = _table_exists("gig_musicians") and _select_df("gig_musicians", "*", where_eq={"gig_id": row.get("id")})
+assigned_df = assigned_df if isinstance(assigned_df, pd.DataFrame) else pd.DataFrame()
 cur_map: Dict[str, Optional[str]] = {}
 if not assigned_df.empty:
     for _, r in assigned_df.iterrows():
@@ -608,7 +588,9 @@ for idx, role in enumerate(ROLE_CHOICES):
 
         role_add_boxes[role] = st.empty()
 
-# Inline “Add New …” sub-forms (Agents/Venues/Sound/Musicians)
+# -----------------------------
+# Inline “Add New …” sub-forms
+# -----------------------------
 
 # Agent add
 if agent_id_sel == "__ADD_AGENT__":
@@ -727,7 +709,6 @@ st.markdown("---")
 st.subheader("Notes")
 notes = st.text_area("Notes / Special Instructions (optional)", height=100, value=_opt_label(row.get("notes"), ""), key=f"notes_{gid}")
 
-private_vals = {}
 if is_private:
     st.markdown("#### Private Event Details")
     p1, p2 = st.columns([1, 1])
@@ -739,14 +720,6 @@ if is_private:
         private_contact = st.text_input("Primary Contact (name)", value=_opt_label(row.get("private_contact"), ""), key=f"pc_{gid}")
         private_contact_info = st.text_input("Contact Info (email/phone)", value=_opt_label(row.get("private_contact_info"), ""), key=f"pci_{gid}")
         additional_services = st.text_input("Additional Musicians/Services (optional)", value=_opt_label(row.get("additional_services"), ""), key=f"adds_{gid}")
-    private_vals = {
-        "private_event_type": private_event_type,
-        "organizer": organizer,
-        "guest_of_honor": guest_of_honor,
-        "private_contact": private_contact,
-        "private_contact_info": private_contact_info,
-        "additional_services": additional_services,
-    }
 
 # -----------------------------
 # Deposits (Admin)
@@ -787,10 +760,33 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     if end_dt.date() > start_dt.date():
         st.info(f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). We'll keep event_date as the start date.")
 
-    # If venue provides sound, force sound tech to None
-    sound_tech_id_val = (None if sound_provided else (sound_id_sel if sound_id_sel not in ("", "__ADD_SOUND__") else None))
-    agent_id_val = agent_id_sel if agent_id_sel not in ("", "__ADD_AGENT__") else None
-    venue_id_val = venue_id_sel if venue_id_sel not in ("", "__ADD_VENUE__") else None
+    # Determine IDs (respect session_state selection)
+    agent_id_val = agent_id_sel if agent_id_sel not in ("", AGENT_ADD) else None
+    venue_id_val = venue_id_sel if venue_id_sel not in ("", VENUE_ADD) else None
+
+    # Sound tech logic:
+    # - If venue provides sound => clear sound_tech_id and ignore sound_fee
+    # - Else, use selected sound tech
+    # - SAFETY NET: if no selection but user typed venue-sound text, auto-create a sound tech and attach.
+    if sound_provided:
+        sound_tech_id_val = None
+        sound_fee_val = None
+    else:
+        sel = sound_id_sel if sound_id_sel not in ("", SOUND_ADD) else None
+        sound_tech_id_val = sel
+        sound_fee_val = float(sound_fee) if (sound_fee is not None) else None
+
+        if sound_tech_id_val is None:
+            typed_name  = (sound_by_venue_name or "").strip()
+            typed_phone = (sound_by_venue_phone or "").strip()
+            if typed_name:
+                # Create a tech from the free-text fields and attach
+                created_id = _create_soundtech(display_name=typed_name, company="", phone=typed_phone, email=typed_phone)
+                if created_id:
+                    st.cache_data.clear()
+                    sound_tech_id_val = created_id
+                    st.session_state[f"sound_sel_{gid}"] = created_id
+                    st.info(f'No sound tech selected; created "{typed_name}" and attached.')
 
     payload = {
         "title": (title or None),
@@ -808,7 +804,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "sound_by_venue_name": (sound_by_venue_name or None),
         "sound_by_venue_phone": (sound_by_venue_phone or None),
         "sound_provided": bool(sound_provided),
-        "sound_fee": (float(sound_fee) if (sound_fee is not None) else None),
+        "sound_fee": sound_fee_val,
         "eligible_1099": bool(eligible_1099) if "eligible_1099" in _table_columns("gigs") else None,
     }
     payload = _filter_to_schema("gigs", payload)
@@ -861,5 +857,5 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "fee": format_currency(fee),
         "sound_provided": bool(sound_provided),
         "sound_tech_id": sound_tech_id_val or "(none)",
-        "sound_fee": (None if sound_fee is None else format_currency(sound_fee)),
+        "sound_fee": (None if sound_fee_val is None else format_currency(sound_fee_val)),
     })
