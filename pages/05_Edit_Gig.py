@@ -463,6 +463,12 @@ with c1:
 with c2:
     eligible_1099 = st.checkbox("1099 Eligible", value=bool(row.get("eligible_1099", False)), key=f"elig1099_{gid}")
 
+# Preselect newly created tech (set in previous run)
+_pre_key = f"preselect_sound_{gid}"
+_pre_id = st.session_state.pop(_pre_key, None)
+if _pre_id:
+    st.session_state[f"sound_sel_{gid}"] = _pre_id
+
 # ----- Sound tech (with Add New) + session_state override
 SOUND_ADD = "__ADD_SOUND__"
 sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]
@@ -647,23 +653,38 @@ if (not sound_provided) and (sound_id_sel == "__ADD_SOUND__"):
         st.markdown("**➕ Add New Sound Tech**")
         s1, s2 = st.columns([1, 1])
         with s1:
-            new_st_name   = st.text_input("Display Name", key=f"new_st_name_{gid}")
-            new_st_phone  = st.text_input("Phone (optional)", key=f"new_st_phone_{gid}")
+            new_st_name  = st.text_input("Display Name", key=f"new_st_name_{gid}")
+            new_st_phone = st.text_input("Phone (optional)", key=f"new_st_phone_{gid}")
         with s2:
             new_st_company = st.text_input("Company (optional)", key=f"new_st_company_{gid}")
             new_st_email   = st.text_input("Email (optional)", key=f"new_st_email_{gid}")
+
         if st.button("Create Sound Tech", key=f"create_sound_btn_{gid}"):
-            new_id = None
-            if (new_st_name or "").strip():
-                new_id = _create_soundtech(
-                    (new_st_name or "").strip(), (new_st_company or "").strip(),
-                    (new_st_phone or "").strip(), (new_st_email or "").strip()
-                )
+            # Require a display name (avoid blank records)
+            name = (new_st_name or "").strip()
+            if not name:
+                st.error("Please enter a Display Name before creating the sound tech.")
+                st.stop()
+
+            # Optional fields (normalize empty -> None)
+            company = (new_st_company or "").strip()
+            phone   = (new_st_phone or "").strip() or None
+            email   = (new_st_email or "").strip() or None
+
+            new_id = _create_soundtech(
+                display_name=name,
+                company=company,
+                phone=phone,
+                email=email,
+            )
+
             if new_id:
+                # Don’t set the selectbox state this run — stash and rerun
                 st.cache_data.clear()
-                st.session_state[f"sound_sel_{gid}"] = new_id
+                st.session_state[f"preselect_sound_{gid}"] = new_id
                 st.success("Sound Tech created.")
                 st.rerun()
+
 
 # Musician add (role-specific)
 for role in ROLE_CHOICES:
