@@ -895,22 +895,31 @@ if IS_ADMIN:
     st.markdown("---")
     st.subheader("Email — Sound Tech")
 
-    has_tech = bool(sound_tech_id_val)  # from your save block
-    can_send = (not sound_provided) and has_tech
+    # Derive current selection for sending (independent of Save block)
+    if sound_provided:
+        selected_soundtech_id_for_send = None
+    else:
+        # Prefer the live selectbox state; fall back to current widgets
+        sel = st.session_state.get(f"sound_sel_{gid}", "")
+        if not sel:
+            # sound_id_sel is the current widget value from above
+            sel = sound_id_sel if (sound_id_sel not in ("", SOUND_ADD)) else ""
+        selected_soundtech_id_for_send = sel if sel and sel != SOUND_ADD else None
+
+    can_send = bool(selected_soundtech_id_for_send)
 
     if not can_send:
-        st.caption(
-            "Assign a sound tech and uncheck “Venue provides sound?” to enable the send button."
-        )
+        st.caption("Assign a sound tech and uncheck “Venue provides sound?” to enable the send button.")
     else:
-        st.caption("Assigned sound tech will receive a confirmation with an .ics attachment.")
+        # Optional: show who will be emailed
+        tech_label = sound_labels.get(selected_soundtech_id_for_send, "(selected tech)")
+        st.caption(f"Will email: {tech_label} (includes .ics attachment).")
 
     if st.button("📧 Send Sound Tech Confirm", key=f"send_soundtech_{gid}", disabled=not can_send):
         try:
-            # Lazy import to avoid import cost unless clicked
+            # Lazy import to avoid cost unless clicked
             from tools.send_soundtech_confirm import send_soundtech_confirm
             send_soundtech_confirm(gid)
             st.success("Sound tech confirmation email sent and logged ✅")
         except Exception as e:
             st.error(f"Unable to send the email: {e}")
-
