@@ -505,6 +505,10 @@ sound_provided = st.checkbox("Venue provides sound?", value=bool(row.get("sound_
 cur_sid = str(row.get("sound_tech_id")) if pd.notna(row.get("sound_tech_id")) else ""
 cur_sid = st.session_state.get(f"sound_sel_{gid}", cur_sid)
 
+# Remember the original sound tech selection for change detection
+orig_sound_tech_id = str(row.get("sound_tech_id") or "")
+
+
 if not sound_provided:
     sound_id_sel = st.selectbox("Confirmed Sound Tech",
                                 options=sound_options_ids,
@@ -887,6 +891,18 @@ for i, d in enumerate(dep_rows):
 # -----------------------------
 # SAVE CHANGES
 # -----------------------------
+
+# Offer auto-send only when the sound tech assignment changed AND PRS provides sound
+autoc_send_now = False
+if not sound_provided:
+    changed_assignment = (str(cur_sid or "") != str(orig_sound_tech_id or ""))
+    if changed_assignment:
+        autoc_send_now = st.checkbox(
+            "Send confirmation to sound tech on save",
+            value=True,
+            key=f"send_on_save_{gid}"
+        )
+
 if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     def _compose_datetimes(event_dt: date, start_t: time, end_t: time):
         start_dt = datetime.combine(event_dt, start_t)
@@ -1017,8 +1033,25 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 
     # Bust caches so the next render reflects changes immediately
     st.cache_data.clear()
-
     st.success("Gig updated successfully ✅")
+    
+# -----------------------------
+# Auto-send Sound Tech confirmation if assignment changed
+# -----------------------------
+try:
+    if (
+        not sound_provided
+        and autoc_send_now
+        and (sound_tech_id_val is not None)
+        and (str(sound_tech_id_val) != str(orig_sound_tech_id or ""))
+    ):
+        from tools.send_soundtech_confirm import send_soundtech_confirm
+        send_soundtech_confirm(gid)
+        st.toast("Sound-tech confirmation sent automatically.", icon="📧")
+except Exception as e:
+    st.warning(f"Auto-send failed: {e}")
+    
+    
 # DEBUG OUTPUT (commented) — keep for future troubleshooting if needed
     # st.write({
         # "id": row.get("id"),
