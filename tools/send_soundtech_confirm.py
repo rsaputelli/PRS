@@ -203,17 +203,17 @@ def send_soundtech_confirm(gig_id: str) -> None:
     greet_name = (tech.get("display_name") or name_join or tech.get("company") or "there")
 
     mailto = (
-        f"mailto:{tech['email']}?subject="
+        f"mailto:{FROM_EMAIL}?subject="
         f"Confirm%20received%20-%20{title}%20({ev['event_date']})%20[{token}]&body=Reply%20to%20confirm.%20Token%3A%20{token}"
     )
 
     html = f"""
     <p>Hi {greet_name},</p>
-    <p>You’ve been assigned as <b>Sound Tech</b> for the gig below.</p>
+    <p>You're booked <b>Sound Tech</b> for the Philly Rock and Soul gig below.</p>
     {html_table}
     <p>
       Please <a href="{mailto}"><b>confirm received</b></a>.
-      This helps us keep staffing tight and on time.
+      This helps us Ray to not lose his mind.
     </p>
     <p>— {FROM_NAME}</p>
     """
@@ -222,22 +222,45 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
     # Attach ICS if enabled
     atts = []
-    if INCLUDE_ICS:
-        ics_bytes = make_ics_bytes(
-            uid=token + "@prs",
-            title=f"{title} — Sound Tech",
-            starts_at=starts_at,
-            ends_at=ends_at,
-            location="",  # add venue address later if you want
-            description="Sound tech call. Brought to you by PRS Scheduling.",
-        )
-        atts.append(
-            {
-                "filename": f"{title}-{ev['event_date']}.ics",
-                "mime": "text/calendar",
-                "content": ics_bytes,
-            }
-        )
+@@
+     if INCLUDE_ICS:
+-        ics_bytes = make_ics_bytes(
++        ics_bytes = make_ics_bytes(
+             uid=token + "@prs",
+             title=f"{title} — Sound Tech",
+             starts_at=starts_at,
+             ends_at=ends_at,
+             location="",  # add venue address later if you want
+             description="Sound tech call. Brought to you by PRS Scheduling.",
+         )
++        # Upgrade to a real invite: add METHOD + ORGANIZER/ATTENDEE
++        try:
++            _txt = ics_bytes.decode("utf-8", "ignore")
++            if "METHOD:" not in _txt:
++                _txt = _txt.replace(
++                    "BEGIN:VCALENDAR\nVERSION:2.0\n",
++                    "BEGIN:VCALENDAR\nVERSION:2.0\nMETHOD:REQUEST\n",
++                    1,
++                )
++            if "ORGANIZER:" not in _txt or "ATTENDEE:" not in _txt:
++                _txt = _txt.replace(
++                    "END:VEVENT",
++                    f"ORGANIZER:mailto:{FROM_EMAIL}\nATTENDEE:mailto:{tech['email']}\nEND:VEVENT",
++                    1,
++                )
++            ics_bytes = _txt.encode("utf-8")
++        except Exception:
++            # If anything odd happens, fall back to original bytes
++            pass
+         atts.append(
+             {
+                 "filename": f"{title}-{ev['event_date']}.ics",
+-                "mime": "text/calendar",
++                "mime": "text/calendar; method=REQUEST; charset=UTF-8",
+                 "content": ics_bytes,
+             }
+         )
+
 
     # ---- SEND + AUDIT with strict checks ----
     try:
