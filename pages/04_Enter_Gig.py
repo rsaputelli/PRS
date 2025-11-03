@@ -20,9 +20,6 @@ if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
     st.stop()
 
-# Path to logo
-logo_path = Path(__file__).parent.parent / "assets" / "prs_logo.png"
-
 # Header
 render_header(title="Enter Gig", emoji="")
 st.markdown("---")
@@ -112,7 +109,6 @@ def _opt_label(val, fallback=""):
     return str(val) if pd.notna(val) and str(val).strip() else fallback
 
 def _name_for_mus_row(r: pd.Series) -> str:
-    # Prefer stage name, then first+last, then display_name
     stage = _opt_label(r.get("stage_name"), "")
     if stage:
         return stage
@@ -132,7 +128,7 @@ def _format_12h(t: time) -> str:
 
 # Robust insert that auto-drops unknown columns (PGRST204)
 def _robust_insert(table: str, payload: Dict, max_attempts: int = 8) -> Optional[Dict]:
-    data = dict(payload)  # copy
+    data = dict(payload)
     for _ in range(max_attempts):
         try:
             res = sb.table(table).insert(data).execute()
@@ -213,17 +209,43 @@ ROLE_CHOICES = [
 IS_ADMIN = bool(st.session_state.get("is_admin", True))
 
 # -----------------------------
-# Session defaults
+# Session defaults / flags
 # -----------------------------
 st.session_state.setdefault("preselect_agent_id", None)
 st.session_state.setdefault("preselect_venue_id", None)
 st.session_state.setdefault("preselect_sound_id", None)
 st.session_state.setdefault("preselect_role_ids", {})  # role -> musician_id
+st.session_state.setdefault("show_add_agent", False)
+st.session_state.setdefault("show_add_venue", False)
+st.session_state.setdefault("show_add_sound", False)
+for _r in ROLE_CHOICES:
+    st.session_state.setdefault(f"show_add_mus__{_r}", False)
+
+# -----------------------------
+# on_change callbacks (fire inside form)
+# -----------------------------
+def _agent_change():
+    sel = st.session_state.get("agent_sel")
+    st.session_state["show_add_agent"] = (sel == "__ADD_AGENT__")
+
+def _venue_change():
+    sel = st.session_state.get("venue_sel")
+    st.session_state["show_add_venue"] = (sel == "__ADD_VENUE__")
+
+def _sound_change():
+    sel = st.session_state.get("sound_sel")
+    st.session_state["show_add_sound"] = (sel == "__ADD_SOUND__")
+
+def _mus_change_factory(role: str):
+    def _cb():
+        sel = st.session_state.get(f"mus_sel_{role}")
+        st.session_state[f"show_add_mus__{role}"] = (str(sel) == f"__ADD_MUS__:{role}")
+    return _cb
 
 # =============================
 # MAIN FORM
 # =============================
-with st.form("enter_gig_form"):
+with st.form("enter_gig_form", clear_on_submit=False):
     # -----------------------------
     # Event Basics
     # -----------------------------
@@ -238,7 +260,6 @@ with st.form("enter_gig_form"):
         contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0, key="status_in")
         fee = st.number_input("Contracted Fee ($)", min_value=0.0, step=50.0, format="%.2f", key="fee_in")
 
-        # AM/PM-time inputs
         def _ampm_time_input(label: str, default_hour: int, default_min: int = 0, key: str = "") -> dt.time:
             col1, col2, col3 = st.columns([1, 1, 1])
             with col1:
@@ -281,10 +302,16 @@ with st.form("enter_gig_form"):
                 return "(+ Add New Agent)"
             return agent_labels.get(x, x)
 
-        agent_id_sel = st.selectbox("Agent", options=agent_options, format_func=agent_fmt, key="agent_sel")
+        agent_id_sel = st.selectbox(
+            "Agent",
+            options=agent_options,
+            format_func=agent_fmt,
+            key="agent_sel",
+            on_change=_agent_change,  # <-- important
+        )
 
     with band_col:
-        st.empty()  # spacer / reserved
+        st.empty()
 
     # -----------------------------
     # Venue & Sound
@@ -302,7 +329,14 @@ with st.form("enter_gig_form"):
             return venue_labels.get(x, x)
         venue_default = st.session_state.get("preselect_venue_id") or ""
         venue_index = venue_options_ids.index(venue_default) if venue_default in venue_options_ids else 0
-        venue_id_sel = st.selectbox("Venue", options=venue_options_ids, index=venue_index, format_func=venue_fmt, key="venue_sel")
+        venue_id_sel = st.selectbox(
+            "Venue",
+            options=venue_options_ids,
+            index=venue_index,
+            format_func=venue_fmt,
+            key="venue_sel",
+            on_change=_venue_change,  # <-- important
+        )
 
         is_private = st.checkbox("Private Event?", value=False, key="is_private_in")
         eligible_1099 = st.checkbox("1099 Eligible", value=False, key="eligible_1099_in")
@@ -316,8 +350,14 @@ with st.form("enter_gig_form"):
             return sound_labels.get(x, x)
         sound_default = st.session_state.get("preselect_sound_id") or ""
         sound_index = sound_options_ids.index(sound_default) if sound_default in sound_options_ids else 0
-        sound_id_sel = st.selectbox("Confirmed Sound Tech", options=sound_options_ids, index=sound_index,
-                                    format_func=sound_fmt, key="sound_sel")
+        sound_id_sel = st.selectbox(
+            "Confirmed Sound Tech",
+            options=sound_options_ids,
+            index=sound_index,
+            format_func=sound_fmt,
+            key="sound_sel",
+            on_change=_sound_change,  # <-- important
+        )
         sound_by_venue = st.checkbox("Sound provided by venue?", value=False, key="sound_by_venue_in")
 
     if sound_by_venue:
@@ -331,7 +371,7 @@ with st.form("enter_gig_form"):
         sound_by_venue_phone = ""
 
     # -----------------------------
-    # Lineup (Role Assignments) — FILTERED
+    # Lineup (Role Assignments)
     # -----------------------------
     st.markdown("---")
     st.subheader("Lineup (Role Assignments)")
@@ -369,7 +409,6 @@ with st.form("enter_gig_form"):
     lineup_cols = st.columns(3)
     lineup_selections: List[Dict] = []
     preselect_roles: Dict[str, Optional[str]] = st.session_state.get("preselect_role_ids", {})
-    role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
 
     for idx, role in enumerate(ROLE_CHOICES):
         with lineup_cols[idx % 3]:
@@ -400,13 +439,18 @@ with st.form("enter_gig_form"):
 
             pre_id = preselect_roles.get(role) or ""
             sel_index = mus_options_ids.index(pre_id) if pre_id in mus_options_ids else 0
-            sel_id = st.selectbox(role, options=mus_options_ids, index=sel_index,
-                                  format_func=mus_fmt, key=f"mus_sel_{role}")
+            st.selectbox(
+                role,
+                options=mus_options_ids,
+                index=sel_index,
+                format_func=mus_fmt,
+                key=f"mus_sel_{role}",
+                on_change=_mus_change_factory(role),  # <-- important
+            )
 
-            if sel_id and not sel_id.startswith("__ADD_MUS__"):
+            sel_id = st.session_state.get(f"mus_sel_{role}", "")
+            if sel_id and not str(sel_id).startswith("__ADD_MUS__"):
                 lineup_selections.append({"role": role, "musician_id": sel_id})
-
-            role_add_boxes[role] = st.empty()
 
     # -----------------------------
     # Notes & Private details
@@ -419,7 +463,7 @@ with st.form("enter_gig_form"):
                          key="notes_in")
 
     private_vals = {}
-    if is_private:
+    if st.session_state.get("is_private_in", False):
         st.markdown("#### Private Event Details")
         p1, p2 = st.columns([1, 1])
         with p1:
@@ -468,28 +512,23 @@ with st.form("enter_gig_form"):
             "Auto-send Agent Confirmation on Create",
             value=True,
             key="autoc_send_agent_on_create",
-            help="When checked, sends an email to the agent immediately after saving the gig."
         )
 
-        # Sound Tech: only relevant when PRS provides sound (not by venue)
-        if not sound_by_venue:
+        if not st.session_state.get("sound_by_venue_in", False):
             autoc_send_st_on_create = st.checkbox(
                 "Auto-send Sound Tech Confirmation on Create",
                 value=True,
                 key="autoc_send_st_on_create",
-                help="When checked, emails the confirmed sound tech after saving."
             )
 
-        has_lineup = bool(lineup_selections)
-        if has_lineup:
+        if lineup_selections:
             autoc_send_players_on_create = st.checkbox(
                 "Auto-send Player Confirmations on Create",
                 value=True,
                 key="autoc_send_players_on_create",
-                help="When checked, emails all musicians in the lineup after saving."
             )
 
-    # --- Submit inside the form ---
+    # Submit inside the form
     submit = st.form_submit_button("💾 Save Gig", key="enter_save_gig_btn")
 
 # =============================
@@ -502,7 +541,7 @@ venue_add_box = st.empty()
 sound_add_box = st.empty()
 
 # --- Agent add sub-form (outside main form) ---
-if st.session_state.get("agent_sel") == "__ADD_AGENT__":
+if st.session_state.get("show_add_agent"):
     agent_add_box.empty()
     with agent_add_box.container():
         st.markdown("**➕ Add New Agent**")
@@ -541,6 +580,8 @@ if st.session_state.get("agent_sel") == "__ADD_AGENT__":
                 res = sb.table("agents").insert(payload).execute()
                 new_agent_id = str(res.data[0]["id"])
                 st.success("Agent created ✅")
+                # Reset flag and apply pending-selection
+                st.session_state["show_add_agent"] = False
                 st.session_state["agent_sel_pending"] = new_agent_id
                 st.experimental_rerun()
             except Exception as e:
@@ -557,6 +598,7 @@ if st.session_state.get("agent_sel") == "__ADD_AGENT__":
                         if existing.data:
                             existing_id = str(existing.data[0]["id"])
                             st.info("Agent with that email already exists; selecting existing record.")
+                            st.session_state["show_add_agent"] = False
                             st.session_state["agent_sel_pending"] = existing_id
                             st.experimental_rerun()
                         else:
@@ -567,7 +609,7 @@ if st.session_state.get("agent_sel") == "__ADD_AGENT__":
                     st.error(f"Could not create agent: {e}")
 
 # --- Venue add sub-form ---
-if st.session_state.get("venue_sel") == "__ADD_VENUE__":
+if st.session_state.get("show_add_venue"):
     venue_add_box.empty()
     with venue_add_box.container():
         st.markdown("**➕ Add New Venue**")
@@ -597,12 +639,13 @@ if st.session_state.get("venue_sel") == "__ADD_VENUE__":
                 new_id = str(new_row["id"]) if new_row and "id" in new_row else None
             if new_id:
                 st.cache_data.clear()
+                st.session_state["show_add_venue"] = False
                 st.session_state["preselect_venue_id"] = new_id
                 st.success("Venue created.")
                 st.rerun()
 
 # --- Sound Tech add sub-form ---
-if st.session_state.get("sound_sel") == "__ADD_SOUND__":
+if st.session_state.get("show_add_sound"):
     sound_add_box.empty()
     with sound_add_box.container():
         st.markdown("**➕ Add New Sound Tech**")
@@ -626,15 +669,14 @@ if st.session_state.get("sound_sel") == "__ADD_SOUND__":
                 new_id = str(new_row["id"]) if new_row and "id" in new_row else None
             if new_id:
                 st.cache_data.clear()
+                st.session_state["show_add_sound"] = False
                 st.session_state["preselect_sound_id"] = new_id
                 st.success("Sound Tech created.")
                 st.rerun()
 
-# --- Musician add (role-specific sentinel; pre-fill instrument with role) ---
+# --- Musician add (role-specific) ---
 for role in ROLE_CHOICES:
-    sel_id = st.session_state.get(f"mus_sel_{role}", "")
-    sentinel = f"__ADD_MUS__:{role}"
-    if sel_id == sentinel:
+    if st.session_state.get(f"show_add_mus__{role}", False):
         box = st.empty()
         with box.container():
             st.markdown(f"**➕ Add New Musician for {role}**")
@@ -665,10 +707,12 @@ for role in ROLE_CHOICES:
                         pre = st.session_state.get("preselect_role_ids", {})
                         pre[role] = new_id
                         st.session_state["preselect_role_ids"] = pre
+                        st.session_state[f"show_add_mus__{role}"] = False
                         st.success(f"Musician created and preselected for {role}.")
                         st.rerun()
             with c2:
                 if st.button("Cancel", key=f"cancel_mus_btn_{role}"):
+                    st.session_state[f"show_add_mus__{role}"] = False
                     st.session_state[f"mus_sel_{role}"] = ""
                     st.rerun()
 
@@ -697,7 +741,6 @@ if submit:
     sound_sel_val = st.session_state.get("sound_sel")
     sound_tech_id_val = (sound_sel_val if (sound_sel_val not in ("", "__ADD_SOUND__") and not st.session_state.get("sound_by_venue_in")) else None)
 
-    # Build gig payload
     gig_payload = {
         "title": (st.session_state.get("title_in") or None),
         "event_date": st.session_state["event_date_in"].isoformat(),
@@ -713,7 +756,6 @@ if submit:
         "sound_by_venue_name": (st.session_state.get("sv_name_in") or None),
         "sound_by_venue_phone": (st.session_state.get("sv_phone_in") or None),
     }
-    # Merge private fields (if any)
     for k in ("private_event_type", "organizer", "guest_of_honor", "private_contact", "private_contact_info", "additional_services"):
         if k in locals().get("private_vals", {}):
             gig_payload[k] = private_vals.get(k) or None
@@ -773,7 +815,6 @@ if submit:
     # -----------------------------
     # Auto-sends (admin-only toggles with safe fallbacks)
     # -----------------------------
-    # Agent
     try:
         if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and agent_id_val:
             from tools.send_agent_confirm import send_agent_confirm
@@ -784,7 +825,6 @@ if submit:
     except Exception as e:
         st.warning(f"Agent auto-send failed: {e}")
 
-    # Sound Tech (only if PRS provides sound)
     try:
         if IS_ADMIN and (not st.session_state.get("sound_by_venue_in", False)) and st.session_state.get("autoc_send_st_on_create", False) and sound_tech_id_val:
             from tools.send_soundtech_confirm import send_soundtech_confirm
@@ -795,12 +835,11 @@ if submit:
     except Exception as e:
         st.warning(f"Sound-tech auto-send failed: {e}")
 
-    # Players (lineup present)
     try:
         if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False):
             from tools.send_player_confirms import send_player_confirms
             with st.status("Emailing players…", state="running") as s:
-                send_player_confirms(gig_id)  # None => all lineup
+                send_player_confirms(gig_id)
                 s.update(label="Player confirmations sent", state="complete")
             st.toast("📧 Players emailed.", icon="📧")
     except Exception as e:
