@@ -543,25 +543,76 @@ else:
 # -----------------------------
 # Sub-forms NEAR triggers (ID-based sentinels)
 # -----------------------------
+# -----------------------------
 # Agent add
+# -----------------------------
 if agent_id_sel == "__ADD_AGENT__":
     agent_add_box.empty()
     with agent_add_box.container():
         st.markdown("**➕ Add New Agent**")
-        a1, a2 = st.columns([1,1])
+        a1, a2 = st.columns([1, 1])
         with a1:
-            new_agent_name = st.text_input("Agent Name", key="new_agent_name")
+            ag_first = st.text_input("First name", key="new_agent_first")
+            ag_company = st.text_input("Company (optional)", key="new_agent_company")
+            ag_phone = st.text_input("Phone (optional)", key="new_agent_phone")
         with a2:
-            new_agent_company = st.text_input("Company (optional)", key="new_agent_company")
-        if st.button("Create Agent", key="create_agent_btn"):
-            new_id = None
-            if (new_agent_name or "").strip() or (new_agent_company or "").strip():
-                new_id = _create_agent((new_agent_name or "").strip(), (new_agent_company or "").strip())
-            if new_id:
-                st.cache_data.clear()
-                st.session_state["preselect_agent_id"] = new_id
-                st.success("Agent created.")
-                st.rerun()
+            ag_last = st.text_input("Last name", key="new_agent_last")
+            ag_email = st.text_input("Email", key="new_agent_email", help="Required; unique (case-insensitive)")
+            ag_website = st.text_input("Website (optional)", key="new_agent_website")
+
+        c1, c2 = st.columns([1, 3])
+        with c1:
+            save_new = st.button("Save Agent", key="save_new_agent_btn")
+        with c2:
+            st.caption("Tip: display name will be auto-built from name/company by a DB trigger.")
+
+        if save_new:
+            email_val = (ag_email or "").strip()
+            if not email_val:
+                st.error("Email is required to create an agent.")
+                st.stop()
+
+            # Prepare payload; display_name is handled by trigger, so omit it.
+            payload = {
+                "first_name": (ag_first or "").strip() or None,
+                "last_name": (ag_last or "").strip() or None,
+                "company": (ag_company or "").strip() or None,
+                "phone": (ag_phone or "").strip() or None,
+                "email": email_val,
+                "website": (ag_website or "").strip() or None,
+                "active": True,
+            }
+
+            try:
+                res = sb.table("agents").insert(payload).execute()
+                new_agent_id = str(res.data[0]["id"])
+                st.success("Agent created ✅")
+                # set the current selection to the new agent
+                agent_id_sel = new_agent_id
+                st.session_state["agent_sel"] = new_agent_id
+            except Exception as e:
+                # If duplicate email, select the existing agent by email (unique on lower(email))
+                err_text = str(e).lower()
+                if "duplicate" in err_text or "unique" in err_text:
+                    try:
+                        existing = (
+                            sb.table("agents")
+                              .select("id, email, display_name, first_name, last_name, company")
+                              .ilike("email", email_val)   # case-insensitive match
+                              .limit(1)
+                              .execute()
+                        )
+                        if existing.data:
+                            existing_id = str(existing.data[0]["id"])
+                            st.info("Agent with that email already exists; selecting existing record.")
+                            agent_id_sel = existing_id
+                            st.session_state["agent_sel"] = existing_id
+                        else:
+                            st.warning("Duplicate email reported but existing record not found.")
+                    except Exception as e2:
+                        st.error(f"Could not select existing agent: {e2}")
+                else:
+                    st.error(f"Could not create agent: {e}")
 
 # Venue add
 if venue_id_sel == "__ADD_VENUE__":
@@ -755,7 +806,8 @@ if st.button("💾 Save Gig", type="primary"):
         if rows:
             _insert_rows("gig_deposits", rows)
 
-if st.button("💾 Save Gig", type="primary"):
+if st.button("💾 Save Gig", type="primary", key="enter_save_gig_btn"):
+
     # ... your insert logic that sets gig_id, plus any other post-save code ...
 
     # Success summary (12-hour times)
