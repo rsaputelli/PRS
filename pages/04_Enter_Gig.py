@@ -487,41 +487,38 @@ with st.form("enter_gig_form", clear_on_submit=False):
 
     # The one and only submit button (inside the form)
     submit = st.form_submit_button("💾 Save Gig", key="enter_save_gig_btn")
+# Auto-open sub-forms when a sentinel option is chosen inside the form
+def _auto_open_add_forms():
+    opened = False
+    # Agent / Venue / Sound
+    if st.session_state.get("agent_sel") == "__ADD_AGENT__" and not st.session_state.get("show_add_agent", False):
+        st.session_state["show_add_agent"] = True
+        opened = True
+        # Clear the select so it doesn't keep showing the sentinel
+        st.session_state["agent_sel"] = ""
 
-# =============================
-# POST-FORM TRIGGERS (open sub-forms)
-# =============================
-trig_cols = st.columns([1, 1, 1, 2])
-with trig_cols[0]:
-    if st.session_state.get("agent_sel") == "__ADD_AGENT__":
-        if st.button("➕ Open Agent Form", key="open_agent_form_btn"):
-            st.session_state["show_add_agent"] = True
-            st.rerun()
-with trig_cols[1]:
-    if st.session_state.get("venue_sel") == "__ADD_VENUE__":
-        if st.button("➕ Open Venue Form", key="open_venue_form_btn"):
-            st.session_state["show_add_venue"] = True
-            st.rerun()
-with trig_cols[2]:
-    if st.session_state.get("sound_sel") == "__ADD_SOUND__":
-        if st.button("➕ Open Sound Form", key="open_sound_form_btn"):
-            st.session_state["show_add_sound"] = True
-            st.rerun()
+    if st.session_state.get("venue_sel") == "__ADD_VENUE__" and not st.session_state.get("show_add_venue", False):
+        st.session_state["show_add_venue"] = True
+        opened = True
+        st.session_state["venue_sel"] = ""
 
-# Per-role musician triggers
-mus_triggered = False
-for role in ROLE_CHOICES:
-    sel_id = st.session_state.get(f"mus_sel_{role}", "")
-    if str(sel_id) == f"__ADD_MUS__:{role}":
-        mus_triggered = True
-        break
-if mus_triggered:
-    with st.expander("➕ Open Musician Form(s)"):
-        for role in ROLE_CHOICES:
-            if str(st.session_state.get(f"mus_sel_{role}", "")) == f"__ADD_MUS__:{role}":
-                if st.button(f"Open Musician Form for {role}", key=f"open_mus_form_btn_{role}"):
-                    st.session_state[f"show_add_mus__{role}"] = True
-                    st.rerun()
+    if st.session_state.get("sound_sel") == "__ADD_SOUND__" and not st.session_state.get("show_add_sound", False):
+        st.session_state["show_add_sound"] = True
+        opened = True
+        st.session_state["sound_sel"] = ""
+
+    # Per-role musician sentinels
+    from typing import Iterable
+    for role in ROLE_CHOICES:
+        if st.session_state.get(f"mus_sel_{role}") == f"__ADD_MUS__:{role}" and not st.session_state.get(f"show_add_mus__{role}", False):
+            st.session_state[f"show_add_mus__{role}"] = True
+            opened = True
+            st.session_state[f"mus_sel_{role}"] = ""
+
+    if opened:
+        st.rerun()
+
+_auto_open_add_forms()
 
 # =============================
 # SUB-FORMS (OUTSIDE MAIN FORM)
@@ -712,7 +709,8 @@ if submit:
             end_dt += timedelta(days=1)
         return start_dt, end_dt
 
-    start_dt, end_dt = _compose_datetimes(st.session_state["event_date_in"], st.session_state["start_time_in"], st.session_state["end_time_in"])
+    # Use local vars from the form: event_date, start_time_in, end_time_in
+    start_dt, end_dt = _compose_datetimes(event_date, start_time_in, end_time_in)
     if end_dt.date() > start_dt.date():
         st.info(
             f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). "
@@ -728,9 +726,9 @@ if submit:
 
     gig_payload = {
         "title": (st.session_state.get("title_in") or None),
-        "event_date": st.session_state["event_date_in"].isoformat(),
-        "start_time": st.session_state["start_time_in"].strftime("%H:%M:%S"),
-        "end_time":   st.session_state["end_time_in"].strftime("%H:%M:%S"),
+        "event_date": event_date.isoformat(),
+        "start_time": start_time_in.strftime("%H:%M:%S"),
+        "end_time":   end_time_in.strftime("%H:%M:%S"),
         "contract_status": st.session_state.get("status_in"),
         "fee": float(st.session_state.get("fee_in") or 0.0),
         "agent_id": agent_id_val,
@@ -741,6 +739,7 @@ if submit:
         "sound_by_venue_name": (st.session_state.get("sv_name_in") or None),
         "sound_by_venue_phone": (st.session_state.get("sv_phone_in") or None),
     }
+
     for k in ("private_event_type", "organizer", "guest_of_honor", "private_contact", "private_contact_info", "additional_services"):
         if k in locals().get("private_vals", {}):
             gig_payload[k] = private_vals.get(k) or None
