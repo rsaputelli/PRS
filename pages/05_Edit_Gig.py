@@ -560,28 +560,28 @@ st.caption(f"DBG gid_str={gid_str}")
 st.caption(f"DBG assigned_df_rows={0 if assigned_df is None else len(assigned_df)}")
 
 # Ensure SB client is available in this scope
-sb = _sb()
+# sb = _sb()
 
 # Also hit Supabase directly and show any error (RLS/permission) on cold start
-try:
-    dbg = sb.table("gig_musicians").select("gig_id,role,musician_id").eq("gig_id", gid_str).limit(3).execute()
-    st.caption(f"DBG supabase_resp_count={len(dbg.data) if getattr(dbg, 'data', None) else 0}")
-    if getattr(dbg, "error", None):
-        st.error(f"DBG supabase_error: {dbg.error}")
-except Exception as e:
-    st.error(f"DBG exception on select: {e}")
+# try:
+    # dbg = sb.table("gig_musicians").select("gig_id,role,musician_id").eq("gig_id", gid_str).limit(3).execute()
+    # st.caption(f"DBG supabase_resp_count={len(dbg.data) if getattr(dbg, 'data', None) else 0}")
+    # if getattr(dbg, "error", None):
+        # st.error(f"DBG supabase_error: {dbg.error}")
+# except Exception as e:
+    # st.error(f"DBG exception on select: {e}")
 
 # ----- One-time lineup buffer per gig -----
 buf_key = k("lineup_buf")
 buf_gid_key = k("lineup_buf_gid")
 
-if buf_key not in st.session_state or st.session_state.get(buf_gid_key) != gid:
+if buf_key not in st.session_state or st.session_state.get(buf_gid_key) != gid_str:
     cur_map: Dict[str, Optional[str]] = {}
     if not assigned_df.empty:
         for _, r in assigned_df.iterrows():
             cur_map[str(r.get("role"))] = str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
     st.session_state[buf_key] = cur_map
-    st.session_state[buf_gid_key] = gid
+    st.session_state[buf_gid_key] = gid_str
 else:
     cur_map = st.session_state[buf_key]
 
