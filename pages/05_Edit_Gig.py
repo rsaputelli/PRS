@@ -1052,12 +1052,17 @@ try:
         and (sound_tech_id_val is not None)
         and (str(sound_tech_id_val) != str(orig_sound_tech_id or ""))
     ):
-        from tools.send_soundtech_confirm import send_soundtech_confirm
-        send_soundtech_confirm(gid)
-        st.toast("Sound-tech confirmation sent automatically.", icon="📧")
+        import time
+        t0 = time.perf_counter()
+        with st.status("Sending sound-tech confirmation…", state="running") as s:
+            from tools.send_soundtech_confirm import send_soundtech_confirm
+            send_soundtech_confirm(gid)
+            s.update(label="Confirmation sent", state="complete")
+        dt = time.perf_counter() - t0
+        st.toast(f"📧 Sound-tech emailed (took {dt:.1f}s).", icon="📧")
 except Exception as e:
     st.warning(f"Auto-send failed: {e}")
-    
+   
     
 # DEBUG OUTPUT (commented) — keep for future troubleshooting if needed
     # st.write({
