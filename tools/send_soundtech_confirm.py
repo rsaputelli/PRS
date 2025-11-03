@@ -88,10 +88,10 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
     if not stid:
         raise ValueError("No sound tech is assigned to this gig.")
 
-    # Fetch sound tech safely
+    # Fetch sound tech safely (matches schema)
     tech_res = (
         sb.table("sound_techs")
-        .select("id, full_name, display_name, email")
+        .select("id, display_name, first_name, last_name, company, email")
         .eq("id", stid)
         .limit(1)
         .execute()
@@ -101,12 +101,10 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
         raise ValueError("Assigned sound tech not found or not accessible (RLS).")
 
     tech = tech_rows[0]
-    if not tech.get("email"):
+    if not (tech.get("email") and tech["email"].strip()):
         raise ValueError("Assigned sound tech has no email on file.")
 
     return {"event": ev, "tech": tech}
-
-
 
 def _localize(event_date_str: str, time_str: str) -> tuple[dt.datetime, dt.datetime]:
     tz = pytz.timezone(TZ)
@@ -155,7 +153,10 @@ def send_soundtech_confirm(gig_id: str) -> None:
     ]
     html_table = build_html_table(rows)
 
-    greet_name = tech.get("full_name") or tech.get("display_name") or "there"
+    name_parts = [ (tech.get("first_name") or "").strip(), (tech.get("last_name") or "").strip() ]
+    name_join = " ".join(p for p in name_parts if p)
+    greet_name = (tech.get("display_name") or name_join or tech.get("company") or "there")
+
     mailto = (
         f"mailto:{tech['email']}?subject="
         f"Confirm%20received%20-%20{title}%20({ev['event_date']})%20[{token}]&body=Reply%20to%20confirm.%20Token%3A%20{token}"
