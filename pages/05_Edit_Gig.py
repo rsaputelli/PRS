@@ -400,18 +400,6 @@ if prev_gid is not None and prev_gid != gid:
         st.session_state.pop(sk, None)
 st.session_state["_edit_prev_gid"] = gid
 
-# (Optional) one-time lineup buffer seed per gig
-buf_key = k("lineup_buf")
-buf_gid_key = k("lineup_buf_gid")
-if buf_key not in st.session_state or st.session_state.get(buf_gid_key) != gid:
-    # load once from DB to seed the working view-model
-    try:
-        cur_map = load_lineup_map_from_db(gid)  # {role: musician_id or ""}
-    except Exception:
-        cur_map = {}
-    st.session_state[buf_key] = cur_map
-    st.session_state[buf_gid_key] = gid
-
 # -----------------------------
 # Edit form
 # -----------------------------
@@ -584,6 +572,10 @@ if buf_key not in st.session_state or st.session_state.get(buf_gid_key) != gid_s
     st.session_state[buf_gid_key] = gid_str
 else:
     cur_map = st.session_state[buf_key]
+    
+st.caption(f"DBG buf_gid_key={st.session_state.get(buf_gid_key)}")
+st.caption(f"DBG buf_has_roles={(st.session_state.get(buf_key) or {})}")
+    
 
 import re
 ROLE_INSTRUMENT_MAP = {
