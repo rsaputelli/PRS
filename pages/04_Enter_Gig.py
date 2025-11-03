@@ -508,7 +508,8 @@ deposit_rows: List[Dict] = []
 if IS_ADMIN:
     st.markdown("---")
     st.subheader("Finance (Admin Only)")
-    add_deps = st.number_input("Number of deposits (0–4)", min_value=0, max_value=4, step=1, value=int(st.session_state.get("num_deposits", 0)), key="num_deposits")
+    add_deps = st.number_input("Number of deposits (0–4)", min_value=0, max_value=4, step=1,
+                               value=int(st.session_state.get("num_deposits", 0)), key="num_deposits")
     for i in range(int(add_deps)):
         cdl, cda, cdm = st.columns([1,1,1])
         with cdl:
@@ -518,6 +519,26 @@ if IS_ADMIN:
         with cdm:
             is_pct = st.checkbox(f"Deposit {i+1} is % of fee", value=False, key=f"dep_pct_{i}")
         deposit_rows.append({"sequence": i+1, "due_date": due, "amount": amt, "is_percentage": is_pct})
+
+    # -----------------------------
+    # Auto-send toggles (admin-only)
+    # -----------------------------
+    autoc_send_agent_on_create = st.checkbox(
+        "Auto-send Agent Confirmation on Create",
+        value=True,
+        key="autoc_send_agent_on_create",
+        help="When checked, sends an email to the agent immediately after saving the gig."
+    )
+    autoc_send_on_create = st.checkbox(
+        "Auto-send Sound Tech Confirmation on Create",
+        value=True,
+        key="autoc_send_on_create",
+        help="When checked, sends an email to the sound tech immediately after saving the gig."
+    )
+else:
+    # Ensure vars exist so later code can reference them safely
+    autoc_send_agent_on_create = False
+    autoc_send_on_create = False
 
 # -----------------------------
 # Sub-forms NEAR triggers (ID-based sentinels)
@@ -734,8 +755,11 @@ if st.button("💾 Save Gig", type="primary"):
         if rows:
             _insert_rows("gig_deposits", rows)
 
+if st.button("💾 Save Gig", type="primary"):
+    # ... your insert logic that sets gig_id, plus any other post-save code ...
+
     # Success summary (12-hour times)
-    st.success("Gig saved successfully ✅")
+    st.success("Gig saved successfully ✅")    
     st.write({
         "id": gig_id,
         "title": new_gig.get("title"),
@@ -745,17 +769,32 @@ if st.button("💾 Save Gig", type="primary"):
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
-
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
-# Auto-send Sound Tech confirmation on create
-try:
-    if (not sound_by_venue) and autoc_send_on_create and (sound_id_sel not in ("", "__ADD_SOUND__")):
-        import time
-        with st.status("Sending sound-tech confirmation…", state="running") as s:
-            from tools.send_soundtech_confirm import send_soundtech_confirm
-            send_soundtech_confirm(gig_id)  # uses the new gig's id
-            s.update(label="Confirmation sent", state="complete")
-        st.toast("📧 Sound-tech emailed.", icon="📧")
-except Exception as e:
-    st.warning(f"Auto-send (create) failed: {e}")
+    # -----------------------------
+    # Auto-send Agent confirmation on create
+    # -----------------------------
+    try:
+        if autoc_send_agent_on_create and agent_id_sel not in ("", "__ADD_AGENT__"):
+            from tools.send_agent_confirm import send_agent_confirm
+            # If you put the helper under tools/, use:
+            # from tools.send_agent_confirm import send_agent_confirm
+            with st.status("Emailing agent…", state="running") as s:
+                send_agent_confirm(gig_id)
+                s.update(label="Agent confirmation sent", state="complete")
+            st.toast("📧 Agent emailed.", icon="📧")
+    except Exception as e:
+        st.warning(f"Agent auto-send failed: {e}")
+
+    # -----------------------------
+    # Auto-send Sound Tech confirmation on create
+    # -----------------------------
+    try:
+        if (not sound_by_venue) and autoc_send_on_create and (sound_id_sel not in ("", "__ADD_SOUND__")):
+            with st.status("Sending sound-tech confirmation…", state="running") as s:
+                from tools.send_soundtech_confirm import send_soundtech_confirm
+                send_soundtech_confirm(gig_id)  # uses the new gig's id
+                s.update(label="Confirmation sent", state="complete")
+            st.toast("📧 Sound-tech emailed.", icon="📧")
+    except Exception as e:
+        st.warning(f"Auto-send (create) failed: {e}")
