@@ -487,38 +487,27 @@ with st.form("enter_gig_form", clear_on_submit=False):
 
     # The one and only submit button (inside the form)
     submit = st.form_submit_button("💾 Save Gig", key="enter_save_gig_btn")
-# Auto-open sub-forms when a sentinel option is chosen inside the form
-def _auto_open_add_forms():
-    opened = False
-    # Agent / Venue / Sound
-    if st.session_state.get("agent_sel") == "__ADD_AGENT__" and not st.session_state.get("show_add_agent", False):
+# --- Add-New toolbar (outside the form) ---
+t1, t2, t3, t4 = st.columns([1,1,1,4])
+
+with t1:
+    if st.button("➕ Add New Agent", key="btn_add_agent"):
         st.session_state["show_add_agent"] = True
-        opened = True
-        # Clear the select so it doesn't keep showing the sentinel
-        st.session_state["agent_sel"] = ""
-
-    if st.session_state.get("venue_sel") == "__ADD_VENUE__" and not st.session_state.get("show_add_venue", False):
-        st.session_state["show_add_venue"] = True
-        opened = True
-        st.session_state["venue_sel"] = ""
-
-    if st.session_state.get("sound_sel") == "__ADD_SOUND__" and not st.session_state.get("show_add_sound", False):
-        st.session_state["show_add_sound"] = True
-        opened = True
-        st.session_state["sound_sel"] = ""
-
-    # Per-role musician sentinels
-    from typing import Iterable
-    for role in ROLE_CHOICES:
-        if st.session_state.get(f"mus_sel_{role}") == f"__ADD_MUS__:{role}" and not st.session_state.get(f"show_add_mus__{role}", False):
-            st.session_state[f"show_add_mus__{role}"] = True
-            opened = True
-            st.session_state[f"mus_sel_{role}"] = ""
-
-    if opened:
         st.rerun()
 
-_auto_open_add_forms()
+with t2:
+    if st.button("➕ Add New Venue", key="btn_add_venue"):
+        st.session_state["show_add_venue"] = True
+        st.rerun()
+
+with t3:
+    if st.button("➕ Add New Sound Tech", key="btn_add_sound"):
+        st.session_state["show_add_sound"] = True
+        st.rerun()
+
+with t4:
+    st.caption("Tip: use these buttons to create new records without submitting the form.")
+
 
 # =============================
 # SUB-FORMS (OUTSIDE MAIN FORM)
