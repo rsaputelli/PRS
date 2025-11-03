@@ -53,7 +53,7 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
     ev = (
         sb.table("gigs")
         .select(
-            "id, title, gig_name, event_date, start_time, end_time, "
+            "id, title, event_date, start_time, end_time, "
             "sound_provided, sound_fee, sound_tech_id"
         )
         .eq("id", gig_id)
