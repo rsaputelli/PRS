@@ -543,9 +543,9 @@ assigned_df = _table_exists("gig_musicians") and _select_df(
 )
 assigned_df = assigned_df if isinstance(assigned_df, pd.DataFrame) else pd.DataFrame()
 
-# --- DIAGNOSTIC: verify gig_id + rowcount + RLS errors on cold start ---
-st.caption(f"DBG gid_str={gid_str}")
-st.caption(f"DBG assigned_df_rows={0 if assigned_df is None else len(assigned_df)}")
+# --- DIAGNOSTIC: verify gig_id + rowcount + RLS errors on cold start --- Keep for future troubleshooting if needed
+# st.caption(f"DBG gid_str={gid_str}")
+# st.caption(f"DBG assigned_df_rows={0 if assigned_df is None else len(assigned_df)}")
 
 # Ensure SB client is available in this scope
 # sb = _sb()
@@ -573,8 +573,9 @@ if buf_key not in st.session_state or st.session_state.get(buf_gid_key) != gid_s
 else:
     cur_map = st.session_state[buf_key]
     
-st.caption(f"DBG buf_gid_key={st.session_state.get(buf_gid_key)}")
-st.caption(f"DBG buf_has_roles={(st.session_state.get(buf_key) or {})}")
+#DBG - Keep for future troubleshooting if needed
+# st.caption(f"DBG buf_gid_key={st.session_state.get(buf_gid_key)}")
+# st.caption(f"DBG buf_has_roles={(st.session_state.get(buf_key) or {})}")
     
 
 import re
@@ -1018,16 +1019,17 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     st.cache_data.clear()
 
     st.success("Gig updated successfully ✅")
-    st.write({
-        "id": row.get("id"),
-        "event_date": str(event_date),
-        "time": f"{start_time_in.strftime('%I:%M %p').lstrip('0')} – {end_time_in.strftime('%I:%M %p').lstrip('0')}",
-        "status": contract_status,
-        "fee": format_currency(fee),
-        "sound_provided": bool(sound_provided),
-        "sound_tech_id": sound_tech_id_val or "(none)",
-        "sound_fee": (None if sound_fee_val is None else format_currency(sound_fee_val)),
-    })
+# DEBUG OUTPUT (commented) — keep for future troubleshooting if needed
+    # st.write({
+        # "id": row.get("id"),
+        # "event_date": str(event_date),
+        # "time": f"{start_time_in.strftime('%I:%M %p').lstrip('0')} – {end_time_in.strftime('%I:%M %p').lstrip('0')}",
+        # "status": contract_status,
+        # "fee": format_currency(fee),
+        # "sound_provided": bool(sound_provided),
+        # "sound_tech_id": sound_tech_id_val or "(none)",
+        # "sound_fee": (None if sound_fee_val is None else format_currency(sound_fee_val)),
+    # })
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
