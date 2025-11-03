@@ -375,6 +375,7 @@ labels = {idx: _label_row(gigs.loc[idx]) for idx in opts}
 sel_idx = st.selectbox("Select a gig to edit", options=opts, format_func=lambda i: labels.get(i, str(i)))
 row = gigs.loc[sel_idx]
 gid = str(row.get("id") or f"edit-{sel_idx}")
+gid_str = str(row.get("id") or gid)
 
 # ------------------------------------------------------------------
 # Per-gig widget keys + gig-switch cleanup (place this right here)
@@ -549,7 +550,10 @@ with sv2:
 st.markdown("---")
 st.subheader("Lineup (Role Assignments)")
 
-assigned_df = _table_exists("gig_musicians") and _select_df("gig_musicians", "*", where_eq={"gig_id": row.get("id")})
+assigned_df = _table_exists("gig_musicians") and _select_df(
+    "gig_musicians", "*", where_eq={"gig_id": gid_str}
+)
+
 assigned_df = assigned_df if isinstance(assigned_df, pd.DataFrame) else pd.DataFrame()
 
 # ----- One-time lineup buffer per gig -----
@@ -902,8 +906,14 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         st.stop()
 
     # --- Persist lineup (no table-exists gate) ---
+    # Guard: avoid accidental full wipe unless explicitly confirmed
+    if not lineup:
+        st.warning("No roles are assigned. To clear the entire lineup, check the box below and save again.")
+        if not st.checkbox("Yes, clear all lineup for this gig", key=k("confirm_clear_lineup")):
+            st.stop()
+
     try:
-        sb.table("gig_musicians").delete().eq("gig_id", row.get("id")).execute()
+        sb.table("gig_musicians").delete().eq("gig_id", gid_str).execute()
     except Exception as e:
         st.error(f"Could not clear existing lineup: {e}")
     else:
@@ -912,7 +922,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 rows = []
                 for r in lineup:
                     rows.append(_filter_to_schema("gig_musicians", {
-                        "gig_id": row.get("id"),
+                        "gig_id": gid_str,
                         "role": r["role"],
                         "musician_id": r["musician_id"],
                     }))
@@ -920,11 +930,17 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     sb.table("gig_musicians").insert(rows).execute()
             except Exception as e:
                 st.error(f"Could not insert lineup: {e}")
-
+    # Post-save sanity check
+    try:
+        post = _select_df("gig_musicians", "count(*) as c", where_eq={"gig_id": gid_str})
+        n_roles = int(post.iloc[0]["c"]) if (isinstance(post, pd.DataFrame) and not post.empty) else 0
+        st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
+    except Exception:
+        pass
     # --- Persist deposits (no table-exists gate) ---
     if dep_rows:
         try:
-            sb.table("gig_deposits").delete().eq("gig_id", row.get("id")).execute()
+            sb.table("gig_deposits").delete().eq("gig_id", gid_str).execute()
         except Exception as e:
             st.error(f"Could not clear existing deposits: {e}")
         else:
@@ -932,7 +948,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 rows = []
                 for d in dep_rows:
                     rows.append(_filter_to_schema("gig_deposits", {
-                        "gig_id": row.get("id"),
+                        "gig_id": gid_str,
                         "sequence": d["sequence"],
                         "due_date": d["due_date"].isoformat() if isinstance(d["due_date"], (date, datetime)) else d["due_date"],
                         "amount": float(d["amount"] or 0.0),
