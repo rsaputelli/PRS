@@ -44,10 +44,19 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     )
 
 
-
 def _sb() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
+    sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+    # If running inside Streamlit, attach the logged-in user session so RLS allows the row
+    try:
+        import streamlit as st
+        at = st.session_state.get("sb_access_token")
+        rt = st.session_state.get("sb_refresh_token")
+        if at and rt:
+            sb.auth.set_session(access_token=at, refresh_token=rt)
+    except Exception:
+        # Not running in Streamlit, or no session — that's fine (e.g., GitHub Actions will use SERVICE_ROLE if provided)
+        pass
+    return sb
 
 def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
     # Fetch gig safely (avoid .single() so 0 rows doesn't raise PGRST116)
