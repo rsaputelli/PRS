@@ -895,14 +895,15 @@ if IS_ADMIN:
     st.markdown("---")
     st.subheader("Email — Sound Tech")
 
+    # Diagnostic toggle (does not email; writes 'dry-run' to email_audit)
+    diag_dry_run = st.checkbox("Diagnostic mode (no email, write 'dry-run' to audit)", value=True, key=f"dryrun_send_sound_{gid}")
+
     # Derive current selection for sending (independent of Save block)
     if sound_provided:
         selected_soundtech_id_for_send = None
     else:
-        # Prefer the live selectbox state; fall back to current widgets
         sel = st.session_state.get(f"sound_sel_{gid}", "")
         if not sel:
-            # sound_id_sel is the current widget value from above
             sel = sound_id_sel if (sound_id_sel not in ("", SOUND_ADD)) else ""
         selected_soundtech_id_for_send = sel if sel and sel != SOUND_ADD else None
 
@@ -911,15 +912,47 @@ if IS_ADMIN:
     if not can_send:
         st.caption("Assign a sound tech and uncheck “Venue provides sound?” to enable the send button.")
     else:
-        # Optional: show who will be emailed
         tech_label = sound_labels.get(selected_soundtech_id_for_send, "(selected tech)")
         st.caption(f"Will email: {tech_label} (includes .ics attachment).")
 
     if st.button("📧 Send Sound Tech Confirm", key=f"send_soundtech_{gid}", disabled=not can_send):
         try:
-            # Lazy import to avoid cost unless clicked
+            # temporarily set DRY-RUN via secrets shim (env is fine too)
+            if diag_dry_run:
+                os.environ["SOUNDT_EMAIL_DRY_RUN"] = "1"
+            else:
+                os.environ.pop("SOUNDT_EMAIL_DRY_RUN", None)
+
             from tools.send_soundtech_confirm import send_soundtech_confirm
             send_soundtech_confirm(gid)
-            st.success("Sound tech confirmation email sent and logged ✅")
+            st.success("Sound tech confirmation executed. See audit below for status.")
+            st.session_state.pop(f"send_soundtech_last_error_{gid}", None)
         except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            st.session_state[f"send_soundtech_last_error_{gid}"] = (f"{type(e).__name__}: {e}", tb)
             st.error(f"Unable to send the email: {e}")
+
+    # Persisted error details
+    persisted = st.session_state.get(f"send_soundtech_last_error_{gid}")
+    if persisted:
+        msg, tb = persisted
+        with st.expander("Show detailed error trace", expanded=True):
+            st.code(tb, language="python")
+
+    # Show last 10 audit rows inline (helps confirm write path even on dry-run)
+    with st.expander("Recent email_audit entries (last 10)", expanded=True):
+        try:
+            audit_df = _select_df(
+                "email_audit",
+                "ts, kind, status, gig_id, recipient_email, token",
+                None,
+                limit=200
+            )
+            if not audit_df.empty:
+                audit_df = audit_df[audit_df["kind"].isin(["soundtech_confirm"])].sort_values("ts", ascending=False).head(10)
+                st.dataframe(audit_df, use_container_width=True)
+            else:
+                st.caption("No audit rows available to display.")
+        except Exception as _:
+            st.caption("Could not load email_audit (possibly RLS).")

@@ -44,6 +44,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     )
 
 
+def _is_dry_run() -> bool:
+    val = _get_secret("SOUNDT_EMAIL_DRY_RUN", "0")
+    return str(val).lower() in {"1", "true", "yes", "on"}
+
+
+
 def _sb() -> Client:
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
     # If running inside Streamlit, attach the logged-in user session so RLS allows the row
@@ -186,27 +192,40 @@ def send_soundtech_confirm(gig_id: str) -> None:
             }
         )
 
-    # ---- SEND + AUDIT with try/except ----
-    try:
-        gmail_send(subject, tech["email"], html, cc=[CC_RAY], attachments=atts)
-        _insert_email_audit(
-            sb,
-            token=token,
-            gig_id=ev["id"],
-            recipient_email=tech["email"],
-            kind="soundtech_confirm",
-            status="sent",
-        )
-    except Exception as e:
-        _insert_email_audit(
-            sb,
-            token=token,
-            gig_id=ev["id"],
-            recipient_email=tech["email"],
-            kind="soundtech_confirm",
-            status=f"error: {e}",
-        )
-        raise
+# ---- SEND + AUDIT with strict checks ----
+try:
+    # Respect diagnostic dry-run (no outbound email, still audit)
+    if _is_dry_run():
+        result = True
+    else:
+        result = gmail_send(subject, tech["email"], html, cc=[CC_RAY], attachments=atts)
+
+    # Treat any falsy return as failure so it won't silently pass
+    if not result:
+        raise RuntimeError("gmail_send returned a non-success value (None/False)")
+
+    _insert_email_audit(
+        sb,
+        token=token,
+        gig_id=ev["id"],
+        recipient_email=tech["email"],
+        kind="soundtech_confirm",
+        status=("dry-run" if _is_dry_run() else "sent"),
+    )
+    print(f"[soundtech_confirm] {'DRY-RUN' if _is_dry_run() else 'SENT'} token={token} to={tech['email']} subject={subject}")
+
+except Exception as e:
+    _insert_email_audit(
+        sb,
+        token=token,
+        gig_id=ev["id"],
+        recipient_email=tech["email"],
+        kind="soundtech_confirm",
+        status=f"error: {e}",
+    )
+    print(f"[soundtech_confirm] ERROR token={token} to={tech.get('email')} err={e}")
+    raise
+
 
 
 # -----------------------------
