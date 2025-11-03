@@ -519,7 +519,14 @@ else:
 sound_add_box = st.empty()
 
 # Conditional Sound Fee when PRS provides sound
-cur_sound_fee = float(row.get("sound_fee") or 0.0)
+# Safe default: coerce NaN/None to 0.0 for the UI
+
+cur_sound_fee_raw = row.get("sound_fee")
+cur_sound_fee = (
+    float(cur_sound_fee_raw)
+    if (cur_sound_fee_raw is not None and not pd.isna(cur_sound_fee_raw))
+    else 0.0
+)
 sound_fee = None
 if not sound_provided:
     sound_fee = st.number_input("Sound Fee ($)", min_value=0.0, step=25.0, format="%.2f",
@@ -936,7 +943,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         # PRS provides sound -> use selected tech if any; do NOT create from text fields
         sel = sound_id_sel if sound_id_sel not in ("", SOUND_ADD) else None
         sound_tech_id_val = sel
-        sound_fee_val = float(sound_fee) if (sound_fee is not None) else None
+        sound_fee_val = None if (sound_fee is None or pd.isna(sound_fee)) else float(sound_fee)
 
     # Build payload
     payload = {
