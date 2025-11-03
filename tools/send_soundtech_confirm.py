@@ -210,11 +210,11 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
     html = f"""
     <p>Hi {greet_name},</p>
-    <p>You're booked <b>Sound Tech</b> for the Philly Rock and Soul gig below.</p>
+    <p>You're booked as <b>Sound Tech</b> for the Philly Rock and Soul gig below.</p>
     {html_table}
     <p>
       Please <a href="{mailto}"><b>confirm received</b></a>.
-      This helps us Ray to not lose his mind.
+      This helps Ray to not lose his mind.
     </p>
     <p>— {FROM_NAME}</p>
     """
