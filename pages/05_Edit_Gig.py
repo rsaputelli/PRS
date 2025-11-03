@@ -553,8 +553,23 @@ st.subheader("Lineup (Role Assignments)")
 assigned_df = _table_exists("gig_musicians") and _select_df(
     "gig_musicians", "*", where_eq={"gig_id": gid_str}
 )
-
 assigned_df = assigned_df if isinstance(assigned_df, pd.DataFrame) else pd.DataFrame()
+
+# --- DIAGNOSTIC: verify gig_id + rowcount + RLS errors on cold start ---
+st.caption(f"DBG gid_str={gid_str}")
+st.caption(f"DBG assigned_df_rows={0 if assigned_df is None else len(assigned_df)}")
+
+# Ensure SB client is available in this scope
+sb = _sb()
+
+# Also hit Supabase directly and show any error (RLS/permission) on cold start
+try:
+    dbg = sb.table("gig_musicians").select("gig_id,role,musician_id").eq("gig_id", gid_str).limit(3).execute()
+    st.caption(f"DBG supabase_resp_count={len(dbg.data) if getattr(dbg, 'data', None) else 0}")
+    if getattr(dbg, "error", None):
+        st.error(f"DBG supabase_error: {dbg.error}")
+except Exception as e:
+    st.error(f"DBG exception on select: {e}")
 
 # ----- One-time lineup buffer per gig -----
 buf_key = k("lineup_buf")
