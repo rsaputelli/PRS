@@ -202,6 +202,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
     name_join = " ".join(p for p in name_parts if p)
     greet_name = (tech.get("display_name") or name_join or tech.get("company") or "there")
 
+    # Send confirmation back to our band inbox (not to the tech)
     mailto = (
         f"mailto:{FROM_EMAIL}?subject="
         f"Confirm%20received%20-%20{title}%20({ev['event_date']})%20[{token}]&body=Reply%20to%20confirm.%20Token%3A%20{token}"
@@ -222,44 +223,46 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
     # Attach ICS if enabled
     atts = []
-@@
-     if INCLUDE_ICS:
--        ics_bytes = make_ics_bytes(
-+        ics_bytes = make_ics_bytes(
-             uid=token + "@prs",
-             title=f"{title} — Sound Tech",
-             starts_at=starts_at,
-             ends_at=ends_at,
-             location="",  # add venue address later if you want
-             description="Sound tech call. Brought to you by PRS Scheduling.",
-         )
-+        # Upgrade to a real invite: add METHOD + ORGANIZER/ATTENDEE
-+        try:
-+            _txt = ics_bytes.decode("utf-8", "ignore")
-+            if "METHOD:" not in _txt:
-+                _txt = _txt.replace(
-+                    "BEGIN:VCALENDAR\nVERSION:2.0\n",
-+                    "BEGIN:VCALENDAR\nVERSION:2.0\nMETHOD:REQUEST\n",
-+                    1,
-+                )
-+            if "ORGANIZER:" not in _txt or "ATTENDEE:" not in _txt:
-+                _txt = _txt.replace(
-+                    "END:VEVENT",
-+                    f"ORGANIZER:mailto:{FROM_EMAIL}\nATTENDEE:mailto:{tech['email']}\nEND:VEVENT",
-+                    1,
-+                )
-+            ics_bytes = _txt.encode("utf-8")
-+        except Exception:
-+            # If anything odd happens, fall back to original bytes
-+            pass
-         atts.append(
-             {
-                 "filename": f"{title}-{ev['event_date']}.ics",
--                "mime": "text/calendar",
-+                "mime": "text/calendar; method=REQUEST; charset=UTF-8",
-                 "content": ics_bytes,
-             }
-         )
+    if INCLUDE_ICS:
+        ics_bytes = make_ics_bytes(
+            uid=token + "@prs",
+            title=f"{title} — Sound Tech",
+            starts_at=starts_at,
+            ends_at=ends_at,
+            location="",  # add venue address later if you want
+            description="Sound tech call. Brought to you by PRS Scheduling.",
+        )
+
+        # Upgrade to a real invite: add METHOD + ORGANIZER/ATTENDEE
+        try:
+            _txt = ics_bytes.decode("utf-8", "ignore")
+            # Add METHOD:REQUEST at VCALENDAR level if missing
+            if "METHOD:" not in _txt:
+                _txt = _txt.replace(
+                    "BEGIN:VCALENDAR\nVERSION:2.0\n",
+                    "BEGIN:VCALENDAR\nVERSION:2.0\nMETHOD:REQUEST\n",
+                    1,
+                )
+            # Ensure ORGANIZER and ATTENDEE are present inside VEVENT
+            if "ORGANIZER:" not in _txt or "ATTENDEE:" not in _txt:
+                _txt = _txt.replace(
+                    "END:VEVENT",
+                    f"ORGANIZER:mailto:{FROM_EMAIL}\nATTENDEE:mailto:{tech['email']}\nEND:VEVENT",
+                    1,
+                )
+            ics_bytes = _txt.encode("utf-8")
+        except Exception:
+            # If anything odd happens, fall back to original bytes
+            pass
+
+        atts.append(
+            {
+                "filename": f"{title}-{ev['event_date']}.ics",
+                "mime": "text/calendar; method=REQUEST; charset=UTF-8",
+                "content": ics_bytes,
+            }
+        )
+
 
 
     # ---- SEND + AUDIT with strict checks ----
