@@ -43,7 +43,7 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
     if ev.get("sound_tech_id"):
         tech = (
             sb.table("sound_techs")
-            .select("id, full_name, email")
+            .select("id, full_name, display_name, email")
             .eq("id", ev["sound_tech_id"])
             .single()
             .execute()
@@ -90,15 +90,6 @@ def send_soundtech_confirm(gig_id: str) -> None:
         fee_str = f"${float(ev['sound_fee']):,.2f}"
 
     token = uuid.uuid4().hex
-    _insert_email_audit(
-        sb,
-        token=token,
-        gig_id=ev["id"],
-        recipient_email=tech["email"],
-        kind="soundtech_confirm",
-        status="sent",
-    )
-
     title = ev.get("title") or ev.get("gig_name") or "Gig"
 
     rows = [
@@ -111,13 +102,14 @@ def send_soundtech_confirm(gig_id: str) -> None:
     ]
     html_table = build_html_table(rows)
 
+    greet_name = tech.get("full_name") or tech.get("display_name") or "there"
     mailto = (
         f"mailto:{tech['email']}?subject="
         f"Confirm%20received%20-%20{title}%20({ev['event_date']})%20[{token}]&body=Reply%20to%20confirm.%20Token%3A%20{token}"
     )
 
     html = f"""
-    <p>Hi {tech['full_name']},</p>
+    <p>Hi {greet_name},</p>
     <p>You’ve been assigned as <b>Sound Tech</b> for the gig below.</p>
     {html_table}
     <p>
@@ -147,13 +139,69 @@ def send_soundtech_confirm(gig_id: str) -> None:
             }
         )
 
-    gmail_send(subject, tech["email"], html, cc=[CC_RAY], attachments=atts)
+    # ---- SEND + AUDIT with try/except ----
+    try:
+        gmail_send(subject, tech["email"], html, cc=[CC_RAY], attachments=atts)
+        _insert_email_audit(
+            sb,
+            token=token,
+            gig_id=ev["id"],
+            recipient_email=tech["email"],
+            kind="soundtech_confirm",
+            status="sent",
+        )
+    except Exception as e:
+        _insert_email_audit(
+            sb,
+            token=token,
+            gig_id=ev["id"],
+            recipient_email=tech["email"],
+            kind="soundtech_confirm",
+            status=f"error: {e}",
+        )
+        raise
+
+
+# -----------------------------
+# Auto T-7 sender (for scheduler)
+# -----------------------------
+def run_auto_t7(today: dt.date | None = None) -> None:
+    """Send confirmations for gigs that occur in exactly 7 days and have a sound tech assigned."""
+    sb = _sb()
+    if today is None:
+        today = dt.date.today()
+    target = today + dt.timedelta(days=7)
+
+    gigs = (
+        sb.table("gigs")
+        .select("id, event_date, sound_tech_id")
+        .eq("event_date", target.isoformat())
+        .not_.is_("sound_tech_id", None)
+        .execute()
+    ).data or []
+
+    for g in gigs:
+        gid = g.get("id")
+        if not gid:
+            continue
+        try:
+            send_soundtech_confirm(str(gid))
+        except Exception as e:
+            # Already audited within send_soundtech_confirm; keep console note for Actions logs
+            print(f"⚠️ Failed T-7 send for gig {gid}: {e}")
 
 
 if __name__ == "__main__":
     import argparse
 
-    p = argparse.ArgumentParser(description="Send immediate sound tech confirmation email")
-    p.add_argument("gig_id", type=str, help="Gig ID (UUID)")
+    p = argparse.ArgumentParser(description="Send sound tech confirmation email(s)")
+    p.add_argument("gig_id", nargs="?", help="Gig ID (UUID) for single send")
+    p.add_argument("--auto_t7", action="store_true", help="Send for gigs happening in 7 days")
     args = p.parse_args()
-    send_soundtech_confirm(args.gig_id)
+
+    if args.auto_t7:
+        run_auto_t7()
+    elif args.gig_id:
+        send_soundtech_confirm(args.gig_id)
+    else:
+        p.print_help()

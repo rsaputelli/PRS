@@ -888,4 +888,29 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "sound_fee": (None if sound_fee_val is None else format_currency(sound_fee_val)),
     })
 
+# -----------------------------
+# MANUAL: Send Sound Tech Confirm (admin-only)
+# -----------------------------
+if IS_ADMIN:
+    st.markdown("---")
+    st.subheader("Email — Sound Tech")
+
+    has_tech = bool(sound_tech_id_val)  # from your save block
+    can_send = (not sound_provided) and has_tech
+
+    if not can_send:
+        st.caption(
+            "Assign a sound tech and uncheck “Venue provides sound?” to enable the send button."
+        )
+    else:
+        st.caption("Assigned sound tech will receive a confirmation with an .ics attachment.")
+
+    if st.button("📧 Send Sound Tech Confirm", key=f"send_soundtech_{gid}", disabled=not can_send):
+        try:
+            # Lazy import to avoid import cost unless clicked
+            from tools.send_soundtech_confirm import send_soundtech_confirm
+            send_soundtech_confirm(gid)
+            st.success("Sound tech confirmation email sent and logged ✅")
+        except Exception as e:
+            st.error(f"Unable to send the email: {e}")
 

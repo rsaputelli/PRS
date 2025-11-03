@@ -1,0 +1,37 @@
+name: Daily Sound Tech Reminders (T-7)
+
+on:
+  schedule:
+    # 13:00 UTC ~= 08:00 America/New_York (handles DST via choosing UTC)
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run daily T-7 soundtech confirmations
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          BAND_FROM_NAME: "PRS Scheduling"
+          BAND_FROM_EMAIL: ${{ secrets.BAND_FROM_EMAIL }}
+          CC_RAY: "ray@lutinemanagement.com"
+          APP_TZ: "America/New_York"
+          INCLUDE_ICS: "true"
+        run: |
+          python tools/send_soundtech_confirm.py --auto_t7
