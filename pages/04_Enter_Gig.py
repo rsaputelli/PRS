@@ -637,6 +637,18 @@ for role in ROLE_CHOICES:
 # -----------------------------
 # SAVE button
 # -----------------------------
+
+# Auto-send on create (only when PRS provides sound and a real tech is selected)
+autoc_send_on_create = False
+if not sound_by_venue:
+    _sel_ok = (sound_id_sel not in ("", "__ADD_SOUND__"))
+    if _sel_ok:
+        autoc_send_on_create = st.checkbox(
+            "Send confirmation to sound tech on create",
+            value=True,
+            key="send_on_create",
+        )
+
 if st.button("💾 Save Gig", type="primary"):
     def _compose_datetimes(event_dt: date, start_t: time, end_t: time):
         start_dt = datetime.combine(event_dt, start_t)
@@ -736,3 +748,14 @@ if st.button("💾 Save Gig", type="primary"):
 
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
+# Auto-send Sound Tech confirmation on create
+try:
+    if (not sound_by_venue) and autoc_send_on_create and (sound_id_sel not in ("", "__ADD_SOUND__")):
+        import time
+        with st.status("Sending sound-tech confirmation…", state="running") as s:
+            from tools.send_soundtech_confirm import send_soundtech_confirm
+            send_soundtech_confirm(gig_id)  # uses the new gig's id
+            s.update(label="Confirmation sent", state="complete")
+        st.toast("📧 Sound-tech emailed.", icon="📧")
+except Exception as e:
+    st.warning(f"Auto-send (create) failed: {e}")
