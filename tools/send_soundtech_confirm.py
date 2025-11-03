@@ -11,14 +11,38 @@ from supabase import create_client, Client
 from lib.email_utils import gmail_send, build_html_table
 from lib.calendar_utils import make_ics_bytes
 
-TZ = os.getenv("APP_TZ", "America/New_York")
-INCLUDE_ICS = os.getenv("INCLUDE_ICS", "true").lower() in {"1", "true", "yes"}
+def _get_secret(name: str, default: str | None = None):
+    # Prefer Streamlit secrets when running inside the app
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and name in st.secrets:
+            return st.secrets[name]
+    except Exception:
+        pass
+    # Fallback to environment variables (e.g., GitHub Actions)
+    return os.environ.get(name, default)
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE") or os.environ["SUPABASE_KEY"]
-CC_RAY = os.getenv("CC_RAY", "ray@lutinemanagement.com")
-FROM_NAME = os.getenv("BAND_FROM_NAME", "PRS Scheduling")
-FROM_EMAIL = os.getenv("BAND_FROM_EMAIL", "no-reply@prs.local")
+TZ = _get_secret("APP_TZ", "America/New_York")
+INCLUDE_ICS = str(_get_secret("INCLUDE_ICS", "true")).lower() in {"1", "true", "yes"}
+
+SUPABASE_URL = _get_secret("SUPABASE_URL")
+# Prefer service role for server-side scripts; fallback to standard or anon if needed
+SUPABASE_KEY = (
+    _get_secret("SUPABASE_SERVICE_ROLE")
+    or _get_secret("SUPABASE_KEY")
+    or _get_secret("SUPABASE_ANON_KEY")
+)
+
+CC_RAY = _get_secret("CC_RAY", "ray@lutinemanagement.com")
+FROM_NAME = _get_secret("BAND_FROM_NAME", "PRS Scheduling")
+FROM_EMAIL = _get_secret("BAND_FROM_EMAIL", "no-reply@prs.local")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError(
+        "Missing Supabase credentials: set SUPABASE_URL and one of "
+        "SUPABASE_SERVICE_ROLE / SUPABASE_KEY / SUPABASE_ANON_KEY in secrets."
+    )
+
 
 
 def _sb() -> Client:
