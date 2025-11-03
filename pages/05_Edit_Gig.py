@@ -818,26 +818,62 @@ if is_private:
 # -----------------------------
 # Deposits (Admin)
 # -----------------------------
-dep_rows: List[Dict] = []
 if _table_exists("gig_deposits"):
     existing_deps = _select_df("gig_deposits", "*", where_eq={"gig_id": gid_str})
-    existing_deps = existing_deps.sort_values(by="sequence") if not existing_deps.empty else existing_deps
+    existing_deps = existing_deps.sort_values(by="sequence") if isinstance(existing_deps, pd.DataFrame) and not existing_deps.empty else pd.DataFrame()
+
     st.markdown("---")
     st.subheader("Finance (Deposits)")
+
     cur_n = len(existing_deps) if not existing_deps.empty else 0
     n = st.number_input("Number of deposits (0–4)", min_value=0, max_value=4, step=1, value=cur_n, key=f"deps_n_{gid}")
-    for i in range(int(n)):
-        cdl, cda, cdm = st.columns([1, 1, 1])
-        with cdl:
-            due_default = (existing_deps.iloc[i]["due_date"] if (not existing_deps.empty and i < len(existing_deps) and pd.notna(existing_deps.iloc[i].get("due_date"))) else date.today())
-            due = st.date_input(f"Deposit {i+1} due", value=pd.to_datetime(due_default).date() if pd.notna(due_default) else date.today(), key=f"edit_dep_due_{i}_{gid}")
-        with cda:
-            amt_default = float(existing_deps.iloc[i].get("amount", 0.0)) if (not existing_deps.empty and i < len(existing_deps)) else 0.0
-            amt = st.number_input(f"Deposit {i+1} amount", min_value=0.0, step=50.0, format="%.2f", value=amt_default, key=f"edit_dep_amt_{i}_{gid}")
-        with cdm:
-            pct_default = bool(existing_deps.iloc[i].get("is_percentage", False)) if (not existing_deps.empty and i < len(existing_deps)) else False
-            is_pct = st.checkbox(f"Deposit {i+1} is % of fee", value=pct_default, key=f"edit_dep_pct_{i}_{gid}")
-        dep_rows.append({"sequence": i + 1, "due_date": due, "amount": amt, "is_percentage": is_pct})
+
+    # ---- Buffer-based editor (keep this; remove the earlier inline builder) ----
+    dep_buf_key = k("deposit_buf")
+    if dep_buf_key not in st.session_state:
+        if not existing_deps.empty:
+            seed = (
+                existing_deps.sort_values("sequence")
+                .assign(
+                    sequence=lambda d: d["sequence"].fillna(0).astype(int),
+                    amount=lambda d: d["amount"].fillna(0.0).astype(float),
+                    is_percentage=lambda d: d["is_percentage"].fillna(False).astype(bool),
+                    due_date=lambda d: d["due_date"].fillna(""),
+                )[["sequence", "due_date", "amount", "is_percentage"]]
+                .to_dict("records")
+            )
+        else:
+            seed = []
+        st.session_state[dep_buf_key] = seed
+
+    dep_rows = st.session_state[dep_buf_key]
+
+    # Sync buffer length to n
+    cur_len = len(dep_rows)
+    if n > cur_len:
+        for i in range(cur_len, n):
+            dep_rows.append({"sequence": i + 1, "due_date": "", "amount": 0.0, "is_percentage": False})
+    elif n < cur_len:
+        del dep_rows[n:]
+
+    st.markdown("#### Deposit Schedule")
+    for i, d in enumerate(dep_rows):
+        c = st.columns([1, 3, 2, 2, 1])
+        with c[0]:
+            d["sequence"] = int(st.number_input("Seq", min_value=1, max_value=10, step=1,
+                                                value=int(d.get("sequence", i + 1)), key=k(f"dep_seq_{i}")))
+        with c[1]:
+            d["due_date"] = st.text_input("Due (YYYY-MM-DD)", value=str(d.get("due_date") or ""), key=k(f"dep_due_{i}"))
+        with c[2]:
+            d["amount"] = st.number_input("Amount", min_value=0.0, step=50.0,
+                                          value=float(d.get("amount") or 0.0), key=k(f"dep_amt_{i}"))
+        with c[3]:
+            d["is_percentage"] = st.checkbox("% of Fee", value=bool(d.get("is_percentage")), key=k(f"dep_pct_{i}"))
+        with c[4]:
+            if st.button("🗑", key=k(f"dep_del_{i}")):
+                dep_rows.pop(i)
+                st.rerun()
+      
 
 # -----------------------------
 # SAVE CHANGES
