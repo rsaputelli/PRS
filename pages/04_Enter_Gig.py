@@ -535,14 +535,27 @@ if IS_ADMIN:
         key="autoc_send_on_create",
         help="When checked, sends an email to the sound tech immediately after saving the gig."
     )
-else:
-    # Ensure vars exist so later code can reference them safely
-    autoc_send_agent_on_create = False
-    autoc_send_on_create = False
+
+    # NEW: Player confirmation toggle
+    _has_lineup = bool(lineup_selections)  # lineup_selections already holds your musicians list
+    autoc_send_players_on_create = False
+    if _has_lineup:
+        autoc_send_players_on_create = st.checkbox(
+            "Auto-send Player Confirmations on Create",
+            value=True,
+            key="autoc_send_players_on_create",
+            help="When checked, sends an email to all musicians in the lineup immediately after saving the gig."
+        )
+
+    else:
+        # Ensure vars exist so later code can reference them safely
+        autoc_send_agent_on_create = False
+        autoc_send_on_create = False
+        autoc_send_players_on_create = False
+
 
 # -----------------------------
 # Sub-forms NEAR triggers (ID-based sentinels)
-# -----------------------------
 # -----------------------------
 # Agent add
 # -----------------------------
@@ -721,7 +734,11 @@ if not sound_by_venue:
             key="send_on_create",
         )
 
-if st.button("💾 Save Gig", type="primary"):
+# If you also have an agent auto-send toggle elsewhere, it will be in scope.
+# If not, this makes it safely default to False.
+autoc_send_agent_on_create = globals().get("autoc_send_agent_on_create", False)
+
+if st.button("💾 Save Gig", type="primary", key="enter_save_gig_btn"):
     def _compose_datetimes(event_dt: date, start_t: time, end_t: time):
         start_dt = datetime.combine(event_dt, start_t)
         end_dt = datetime.combine(event_dt, end_t)
@@ -773,9 +790,6 @@ if st.button("💾 Save Gig", type="primary"):
 
     gig_id = str(new_gig.get("id", ""))
 
-
-    # (rest of your save logic: gig_musicians, gig_deposits, success message, etc.)
-
     # gig_musicians
     if _table_exists("gig_musicians"):
         gm_rows: List[Dict] = []
@@ -806,12 +820,8 @@ if st.button("💾 Save Gig", type="primary"):
         if rows:
             _insert_rows("gig_deposits", rows)
 
-if st.button("💾 Save Gig", type="primary", key="enter_save_gig_btn"):
-
-    # ... your insert logic that sets gig_id, plus any other post-save code ...
-
     # Success summary (12-hour times)
-    st.success("Gig saved successfully ✅")    
+    st.success("Gig saved successfully ✅")
     st.write({
         "id": gig_id,
         "title": new_gig.get("title"),
@@ -829,8 +839,6 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_gig_btn"):
     try:
         if autoc_send_agent_on_create and agent_id_sel not in ("", "__ADD_AGENT__"):
             from tools.send_agent_confirm import send_agent_confirm
-            # If you put the helper under tools/, use:
-            # from tools.send_agent_confirm import send_agent_confirm
             with st.status("Emailing agent…", state="running") as s:
                 send_agent_confirm(gig_id)
                 s.update(label="Agent confirmation sent", state="complete")
@@ -843,10 +851,25 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_gig_btn"):
     # -----------------------------
     try:
         if (not sound_by_venue) and autoc_send_on_create and (sound_id_sel not in ("", "__ADD_SOUND__")):
+            from tools.send_soundtech_confirm import send_soundtech_confirm
             with st.status("Sending sound-tech confirmation…", state="running") as s:
-                from tools.send_soundtech_confirm import send_soundtech_confirm
-                send_soundtech_confirm(gig_id)  # uses the new gig's id
+                send_soundtech_confirm(gig_id)
                 s.update(label="Confirmation sent", state="complete")
             st.toast("📧 Sound-tech emailed.", icon="📧")
     except Exception as e:
         st.warning(f"Auto-send (create) failed: {e}")
+
+    # -----------------------------
+    # Auto-send Player confirmations on create
+    # -----------------------------
+    try:
+        if autoc_send_players_on_create and _has_lineup:
+            from tools.send_player_confirms import send_player_confirms
+            with st.status("Emailing players…", state="running") as s:
+                # None => send to ALL current lineup
+                send_player_confirms(gig_id)
+                s.update(label="Player confirmations sent", state="complete")
+            st.toast("📧 Players emailed.", icon="📧")
+    except Exception as e:
+        st.warning(f"Player auto-send failed: {e}")
+
