@@ -50,33 +50,47 @@ def _sb() -> Client:
 
 
 def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
-    ev = (
+    # Fetch gig safely (avoid .single() so 0 rows doesn't raise PGRST116)
+    ev_res = (
         sb.table("gigs")
         .select(
             "id, title, event_date, start_time, end_time, "
             "sound_provided, sound_fee, sound_tech_id"
         )
         .eq("id", gig_id)
-        .single()
+        .limit(1)
         .execute()
-    ).data
-    if not ev:
-        raise ValueError(f"Gig {gig_id} not found")
+    )
+    ev_rows = (ev_res.data or []) if ev_res else []
+    if not ev_rows:
+        # Most common causes: wrong gig_id or RLS preventing visibility
+        raise ValueError(f"Gig {gig_id} not found or not accessible (RLS)")
 
-    tech = None
-    if ev.get("sound_tech_id"):
-        tech = (
-            sb.table("sound_techs")
-            .select("id, full_name, display_name, email")
-            .eq("id", ev["sound_tech_id"])
-            .single()
-            .execute()
-        ).data
+    ev = ev_rows[0]
 
-    if not tech or not tech.get("email"):
-        raise ValueError("Assigned sound tech has no email")
+    # Ensure there is a sound tech assigned
+    stid = ev.get("sound_tech_id")
+    if not stid:
+        raise ValueError("No sound tech is assigned to this gig.")
+
+    # Fetch sound tech safely
+    tech_res = (
+        sb.table("sound_techs")
+        .select("id, full_name, display_name, email")
+        .eq("id", stid)
+        .limit(1)
+        .execute()
+    )
+    tech_rows = (tech_res.data or []) if tech_res else []
+    if not tech_rows:
+        raise ValueError("Assigned sound tech not found or not accessible (RLS).")
+
+    tech = tech_rows[0]
+    if not tech.get("email"):
+        raise ValueError("Assigned sound tech has no email on file.")
 
     return {"event": ev, "tech": tech}
+
 
 
 def _localize(event_date_str: str, time_str: str) -> tuple[dt.datetime, dt.datetime]:
