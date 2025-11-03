@@ -26,27 +26,62 @@ _MAX_RETRIES = 5                       # exponential backoff attempts on 429/5xx
 def _gmail_service():
     """
     Build (or return cached) Gmail API client.
-    Accepts GMAIL_TOKEN_JSON as raw JSON or as a filesystem path.
+
+    Supports two credential styles:
+
+    A) JSON blobs (legacy):
+       - GMAIL_TOKEN_JSON: authorized user JSON (raw JSON string or path)
+       - GMAIL_CLIENT_SECRET_JSON: client secret JSON (raw JSON string or path) [not strictly required]
+
+    B) Piecemeal (recommended):
+       - GMAIL_CLIENT_ID
+       - GMAIL_CLIENT_SECRET
+       - GMAIL_REFRESH_TOKEN
+       - (optional) GMAIL_SCOPES (comma-separated or space-separated)
     """
     global _SERVICE
     if _SERVICE is not None:
         return _SERVICE
 
+    # --- Prefer JSON blob path if provided (back-compat) ---
     token_json = os.getenv("GMAIL_TOKEN_JSON")
-    # Retained for parity if other modules use it (not strictly required here).
-    _ = os.getenv("GMAIL_CLIENT_SECRET_JSON")
+    if token_json:
+        # client secret JSON not strictly required; token JSON carries what we need
+        if token_json.strip().startswith("{"):
+            user_info = json.loads(token_json)
+        else:
+            with open(token_json, "r", encoding="utf-8") as f:
+                user_info = json.loads(f.read())
+        creds = Credentials.from_authorized_user_info(user_info)
+        _SERVICE = build("gmail", "v1", credentials=creds)
+        return _SERVICE
 
-    if not token_json:
-        raise RuntimeError("GMAIL_TOKEN_JSON env var is required")
+    # --- Otherwise build from client_id / client_secret / refresh_token ---
+    client_id = os.getenv("GMAIL_CLIENT_ID")
+    client_secret = os.getenv("GMAIL_CLIENT_SECRET")
+    refresh_token = os.getenv("GMAIL_REFRESH_TOKEN")
+    scopes_raw = os.getenv("GMAIL_SCOPES", "https://www.googleapis.com/auth/gmail.send")
+    # allow comma or space separated
+    scopes = [s for s in [p.strip() for p in scopes_raw.replace(",", " ").split()] if s]
 
-    if token_json.strip().startswith("{"):
-        creds = Credentials.from_authorized_user_info(json.loads(token_json))
-    else:
-        with open(token_json, "r", encoding="utf-8") as f:
-            creds = Credentials.from_authorized_user_info(json.loads(f.read()))
+    if client_id and client_secret and refresh_token:
+        creds = Credentials(
+            token=None,  # will be fetched via refresh_token
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=scopes,
+        )
+        _SERVICE = build("gmail", "v1", credentials=creds)
+        return _SERVICE
 
-    _SERVICE = build("gmail", "v1", credentials=creds)
-    return _SERVICE
+    # If we got here, creds are missing in both styles
+    raise RuntimeError(
+        "Missing Gmail credentials. Provide either "
+        "[GMAIL_TOKEN_JSON (and optionally GMAIL_CLIENT_SECRET_JSON)] or "
+        "[GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN]."
+    )
 
 
 def _sleep_with_jitter():
@@ -93,6 +128,8 @@ def gmail_send(
 ):
     """
     Send an HTML email via Gmail API.
+    Returns the Gmail API response dict on success (truthy), raises on failure.
+
     attachments: list of dicts with keys:
         - filename: str
         - content: bytes
@@ -109,14 +146,14 @@ def gmail_send(
         part = MIMEBase("application", "octet-stream")
         part.set_payload(att["content"])
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", f"attachment; filename=\"{att['filename']}\"")
+        part.add_header("Content-Disposition", f'attachment; filename="{att["filename"]}"')
         if att.get("mime"):
             part.add_header("Content-Type", att["mime"])
         msg.attach(part)
 
     raw_b64 = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service = _gmail_service()
-    _send_with_retry(service, raw_b64)
+    return _send_with_retry(service, raw_b64)
 
 
 def build_html_table(rows: list[dict]) -> str:
