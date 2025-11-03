@@ -186,19 +186,36 @@ def send_soundtech_confirm(gig_id: str) -> None:
     token = uuid.uuid4().hex
     title = ev.get("title") or "Gig"
 
+    # --- 12-hour time helper (safe for time|datetime|string) ---
+    from datetime import datetime, time as _time
+    def _fmt_time12(t) -> str:
+        """Return 12-hour time like '7:30 PM' from time|datetime|string; fallback to raw."""
+        try:
+            if isinstance(t, (_time, datetime)):
+                return t.strftime("%I:%M %p").lstrip("0")
+            s = str(t or "").strip()
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    return datetime.strptime(s, fmt).strftime("%I:%M %p").lstrip("0")
+                except ValueError:
+                    pass
+        except Exception:
+            pass
+        return str(t or "")
+
     # Build the small info table for the email
     rows = [
         {
             "Gig": title,
             "Date": ev["event_date"],
-            "Call Time": ev.get("start_time") or "",
+            "Call Time": _fmt_time12(ev.get("start_time")),
             "Fee (if applicable)": fee_str or "—",
         }
     ]
     html_table = build_html_table(rows)
 
     # Greeting using your schema
-    name_parts = [ (tech.get("first_name") or "").strip(), (tech.get("last_name") or "").strip() ]
+    name_parts = [(tech.get("first_name") or "").strip(), (tech.get("last_name") or "").strip()]
     name_join = " ".join(p for p in name_parts if p)
     greet_name = (tech.get("display_name") or name_join or tech.get("company") or "there")
 
@@ -219,7 +236,8 @@ def send_soundtech_confirm(gig_id: str) -> None:
     <p>— {FROM_NAME}</p>
     """
 
-    subject = f"[Sound Tech] {title} — {ev['event_date']}"
+    # Nice touch: include 12-hr time in subject
+    subject = f"[Sound Tech] {title} — {ev['event_date']} @ {_fmt_time12(ev.get('start_time'))}"
 
     # Attach ICS if enabled
     atts = []
@@ -262,8 +280,6 @@ def send_soundtech_confirm(gig_id: str) -> None:
                 "content": ics_bytes,
             }
         )
-
-
 
     # ---- SEND + AUDIT with strict checks ----
     try:
