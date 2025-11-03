@@ -376,6 +376,41 @@ sel_idx = st.selectbox("Select a gig to edit", options=opts, format_func=lambda 
 row = gigs.loc[sel_idx]
 gid = str(row.get("id") or f"edit-{sel_idx}")
 
+# ------------------------------------------------------------------
+# Per-gig widget keys + gig-switch cleanup (place this right here)
+# ------------------------------------------------------------------
+
+# Key helper: namespace all widget keys to this gig
+def k(name: str) -> str:
+    return f"{name}_{gid}"
+
+# If the selected gig changed, purge stale state from prior gig
+prev_gid = st.session_state.get("_edit_prev_gid")
+if prev_gid is not None and prev_gid != gid:
+    stale_keys = [
+        key for key in list(st.session_state.keys())
+        if key.startswith("edit_role_")
+        or key.startswith("edit_soundtech_")
+        or key.startswith("edit_lineup_form_")
+        or key.endswith("_lineup_buf")        # if you buffer lineup edits
+        or key.endswith("_lineup_buf_gid")    # if you buffer lineup edits
+    ]
+    for sk in stale_keys:
+        st.session_state.pop(sk, None)
+st.session_state["_edit_prev_gid"] = gid
+
+# (Optional) one-time lineup buffer seed per gig
+buf_key = k("lineup_buf")
+buf_gid_key = k("lineup_buf_gid")
+if buf_key not in st.session_state or st.session_state.get(buf_gid_key) != gid:
+    # load once from DB to seed the working view-model
+    try:
+        cur_map = load_lineup_map_from_db(gid)  # {role: musician_id or ""}
+    except Exception:
+        cur_map = {}
+    st.session_state[buf_key] = cur_map
+    st.session_state[buf_gid_key] = gid
+
 # -----------------------------
 # Edit form
 # -----------------------------
@@ -516,10 +551,20 @@ st.subheader("Lineup (Role Assignments)")
 
 assigned_df = _table_exists("gig_musicians") and _select_df("gig_musicians", "*", where_eq={"gig_id": row.get("id")})
 assigned_df = assigned_df if isinstance(assigned_df, pd.DataFrame) else pd.DataFrame()
-cur_map: Dict[str, Optional[str]] = {}
-if not assigned_df.empty:
-    for _, r in assigned_df.iterrows():
-        cur_map[str(r.get("role"))] = str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
+
+# ----- One-time lineup buffer per gig -----
+buf_key = k("lineup_buf")
+buf_gid_key = k("lineup_buf_gid")
+
+if buf_key not in st.session_state or st.session_state.get(buf_gid_key) != gid:
+    cur_map: Dict[str, Optional[str]] = {}
+    if not assigned_df.empty:
+        for _, r in assigned_df.iterrows():
+            cur_map[str(r.get("role"))] = str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
+    st.session_state[buf_key] = cur_map
+    st.session_state[buf_gid_key] = gid
+else:
+    cur_map = st.session_state[buf_key]
 
 import re
 ROLE_INSTRUMENT_MAP = {
@@ -553,46 +598,71 @@ def _matches_role(instr: str, role: str) -> bool:
     cfg = ROLE_INSTRUMENT_MAP.get(role, {})
     return any(tok in s for tok in cfg.get("substr", []))
 
-line_cols = st.columns(3)
-lineup: List[Dict] = []
-role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
+# === Buffered lineup editor (wrap in a form) ===
+with st.form(k("edit_lineup_form")):
+    # Use the per-gig buffer seeded earlier
+    lineup_buf = st.session_state[buf_key]   # {role: musician_id or ""}
 
-for idx, role in enumerate(ROLE_CHOICES):
-    with line_cols[idx % 3]:
-        sentinel = f"__ADD_MUS__:{role}"
+    line_cols = st.columns(3)
+    lineup: List[Dict] = []
+    role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
 
-        role_df = mus_df.copy()
-        if "instrument" in role_df.columns:
-            role_df = role_df[role_df["instrument"].fillna("").apply(lambda x: _matches_role(x, role))]
-        if role_df.empty:
-            role_df = mus_df
+    for idx, role in enumerate(ROLE_CHOICES):
+        with line_cols[idx % 3]:
+            sentinel = f"__ADD_MUS__:{role}"
 
-        if "active" in role_df.columns:
-            role_df = role_df.sort_values(by="active", ascending=False)
+            # Filter candidates by instrument match; fall back to all
+            role_df = mus_df.copy()
+            if "instrument" in role_df.columns:
+                role_df = role_df[role_df["instrument"].fillna("").apply(lambda x: _matches_role(x, role))]
+            if role_df.empty:
+                role_df = mus_df
+            if "active" in role_df.columns:
+                role_df = role_df.sort_values(by="active", ascending=False)
 
-        role_labels: Dict[str, str] = {}
-        if not role_df.empty and "id" in role_df.columns:
-            for _, r in role_df.iterrows():
-                rid = str(r["id"])
-                role_labels[rid] = _name_for_mus_row(r)
+            # Build labels for options
+            role_labels: Dict[str, str] = {}
+            if not role_df.empty and "id" in role_df.columns:
+                for _, r in role_df.iterrows():
+                    rid = str(r["id"])
+                    role_labels[rid] = _name_for_mus_row(r)
 
-        mus_options_ids = [""] + list(role_labels.keys()) + [sentinel]
+            # Default from buffer (NOT directly from DB on every rerun)
+            default_val = lineup_buf.get(role, "")
 
-        def mus_fmt(x: str, _role=role):
-            if x == "":
-                return "(unassigned)"
-            if x.startswith("__ADD_MUS__"):
-                return "(+ Add New Musician)"
-            return role_labels.get(x, mus_labels.get(x, x))
+            # Always include the current value even if the filter hid it
+            if default_val and default_val not in role_labels:
+                fallback = mus_labels.get(default_val)
+                if fallback:
+                    role_labels[default_val] = fallback
 
-        default_val = cur_map.get(role, "")
-        sel = st.selectbox(role, options=mus_options_ids,
-                           index=(mus_options_ids.index(default_val) if default_val in mus_options_ids else 0),
-                           format_func=mus_fmt, key=f"edit_role_{role}")
-        if sel and not sel.startswith("__ADD_MUS__"):
-            lineup.append({"role": role, "musician_id": sel})
+            mus_options_ids = [""] + list(role_labels.keys()) + [sentinel]
 
-        role_add_boxes[role] = st.empty()
+            def mus_fmt(x: str, _role=role):
+                if x == "":
+                    return "(unassigned)"
+                if x.startswith("__ADD_MUS__"):
+                    return "(+ Add New Musician)"
+                return role_labels.get(x, mus_labels.get(x, x))
+
+            sel = st.selectbox(
+                role,
+                options=mus_options_ids,
+                index=(mus_options_ids.index(default_val) if default_val in mus_options_ids else 0),
+                format_func=mus_fmt,
+                key=k(f"edit_role_{role}"),  # per-gig key (namespaced)
+            )
+
+            # Stage into buffer (don’t write DB yet)
+            lineup_buf[role] = sel
+
+            # If a real musician is selected, stage for save
+            if sel and not sel.startswith("__ADD_MUS__"):
+                lineup.append({"role": role, "musician_id": sel})
+
+            role_add_boxes[role] = st.empty()
+
+    submitted = st.form_submit_button("💾 Save Lineup")
 
 # -----------------------------
 # Inline “Add New …” sub-forms
