@@ -275,7 +275,7 @@ with st.form("enter_gig_form", clear_on_submit=False):
     with band_col:
         st.empty()
 
-     # Venue & Sound
+    # Venue & Sound
     st.markdown("---")
     st.subheader("Venue & Sound")
 
@@ -283,21 +283,16 @@ with st.form("enter_gig_form", clear_on_submit=False):
     with vs1:
         VENUE_ADD = "__ADD_VENUE__"
         venue_options_ids = [""] + list(venue_labels.keys()) + [VENUE_ADD]
-
-        def venue_fmt(x: str):
+        def venue_fmt(x: str) -> str:
             if x == "": return "(select venue)"
             if x == VENUE_ADD: return "(+ Add New Venue)"
             return venue_labels.get(x, x)
-
-        # ✅ NEW: apply pending preselect BEFORE the selectbox
-        _pending_v = st.session_state.pop("venue_sel_pending", None)
-        if _pending_v:
-            st.session_state["venue_sel"] = _pending_v
-
-        # (Remove the old preselect_venue_id/index calc)
+        venue_default = st.session_state.get("preselect_venue_id") or ""
+        venue_index = venue_options_ids.index(venue_default) if venue_default in venue_options_ids else 0
         venue_id_sel = st.selectbox(
             "Venue",
             options=venue_options_ids,
+            index=venue_index,
             format_func=venue_fmt,
             key="venue_sel",
         )
@@ -308,29 +303,20 @@ with st.form("enter_gig_form", clear_on_submit=False):
     with vs2:
         SOUND_ADD = "__ADD_SOUND__"
         sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]
-
         def sound_fmt(x: str) -> str:
-            if x == "": 
-                return "(none)"
-            if x == SOUND_ADD: 
-                return "(+ Add New Sound Tech)"
+            if x == "": return "(none)"
+            if x == SOUND_ADD: return "(+ Add New Sound Tech)"
             return sound_labels.get(x, x)
-
-        # ✅ NEW: apply pending preselect BEFORE the selectbox
-        _pending_s = st.session_state.pop("sound_sel_pending", None)
-        if _pending_s:
-            st.session_state["sound_sel"] = _pending_s
-
-        # (Remove the old preselect_sound_id/index logic)
+        sound_default = st.session_state.get("preselect_sound_id") or ""
+        sound_index = sound_options_ids.index(sound_default) if sound_default in sound_options_ids else 0
         sound_id_sel = st.selectbox(
             "Confirmed Sound Tech",
             options=sound_options_ids,
+            index=sound_index,
             format_func=sound_fmt,
             key="sound_sel",
         )
-
         sound_by_venue = st.checkbox("Sound provided by venue?", value=False, key="sound_by_venue_in")
-
 
     if sound_by_venue:
         sv1, sv2 = st.columns([1, 1])
@@ -570,7 +556,7 @@ if st.session_state.get("show_add_agent"):
                 st.success("Agent created ✅")
                 st.session_state["show_add_agent"] = False
                 st.session_state["agent_sel_pending"] = new_agent_id
-                st.rerun()
+                st.experimental_rerun()
             except Exception as e:
                 err_text = str(e).lower()
                 if "duplicate" in err_text or "unique" in err_text:
@@ -587,7 +573,7 @@ if st.session_state.get("show_add_agent"):
                             st.info("Agent with that email already exists; selecting existing record.")
                             st.session_state["show_add_agent"] = False
                             st.session_state["agent_sel_pending"] = existing_id
-                            st.rerun()
+                            st.experimental_rerun()
                         else:
                             st.warning("Duplicate email reported but existing record not found.")
                     except Exception as e2:
@@ -626,7 +612,7 @@ if st.session_state.get("show_add_venue"):
             if new_id:
                 st.cache_data.clear()
                 st.session_state["show_add_venue"] = False
-                st.session_state["venue_sel_pending"] = new_id
+                st.session_state["preselect_venue_id"] = new_id
                 st.success("Venue created.")
                 st.rerun()
 
@@ -655,7 +641,7 @@ if st.session_state.get("show_add_sound"):
             if new_id:
                 st.cache_data.clear()
                 st.session_state["show_add_sound"] = False
-                st.session_state["sound_sel_pending"] = new_id
+                st.session_state["preselect_sound_id"] = new_id
                 st.success("Sound Tech created.")
                 st.rerun()
 
@@ -789,8 +775,8 @@ if submit:
         "id": gig_id,
         "title": new_gig.get("title"),
         "event_date": new_gig.get("event_date"),
-        "start_time (12-hr)": _format_12h(start_time_in),
-        "end_time (12-hr)": _format_12h(end_time_in),
+        "start_time (12-hr)": _format_12h(st.session_state["start_time_in"]),
+        "end_time (12-hr)": _format_12h(st.session_state["end_time_in"]),
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
