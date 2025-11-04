@@ -110,6 +110,15 @@ with st.expander("Auto-send log (persists across reruns)", expanded=True):
             if e.get("trace"):
                 st.code(e["trace"])
 
+# ---------- Autosend session guard ----------
+def _autosend_once(stage: str, gig_id: str) -> bool:
+    """True the first time per (stage,gig) for this session; False thereafter."""
+    import streamlit as st
+    k = f"autosend_once::{stage}::{gig_id}"
+    if st.session_state.get(k):
+        return False
+    st.session_state[k] = True
+    return True
 
 # ===== AUTOSEND RUNTIME (queue + resumable per-channel) =====
 def _autosend_run_for(gig_id_str: str):
@@ -280,17 +289,6 @@ def _table_exists(table: str) -> bool:
         return True
     except Exception:
         return False
-
-# ---------- Autosend session guard ----------
-def _autosend_once(stage: str, gig_id: str) -> bool:
-    """True the first time per (stage,gig) for this session; False thereafter."""
-    import streamlit as st
-    k = f"autosend_once::{stage}::{gig_id}"
-    if st.session_state.get(k):
-        return False
-    st.session_state[k] = True
-    return True
-
 
 def _filter_to_schema(table: str, payload: Dict):
     cols = _table_columns(table)
