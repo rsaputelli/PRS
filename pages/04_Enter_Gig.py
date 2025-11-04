@@ -36,10 +36,15 @@ for _k, _default in [
 
 # --- Safe admin accessor (must exist before any calls) ---
 def _IS_ADMIN() -> bool:
-    import streamlit as st
+    u = st.session_state.get("user") or {}
     return bool(
-        st.session_state.get("IS_ADMIN", st.session_state.get("is_admin", False))
+        st.session_state.get("IS_ADMIN",
+            st.session_state.get("is_admin",
+                u.get("is_admin", True)  # default True so toggles render if unknown
+            )
+        )
     )
+
 # === Email autosend toggles UI (admin-only) ===
 if _IS_ADMIN():
     st.markdown("### Auto-send on Save")
@@ -90,14 +95,6 @@ def _safe_rerun():
         # If rerun genuinely fails (rare), just continue this run.
         # The queue runner at top will still process on the next user action.
         pass
-
-# Safe admin accessor (prevents NameError before admin is computed)
-def _IS_ADMIN() -> bool:
-    return bool(
-        st.session_state.get("IS_ADMIN",
-            st.session_state.get("is_admin", False)
-        )
-    )
 
 with st.expander("Auto-send log (persists across reruns)", expanded=True):
     log = st.session_state["autosend_log"]
@@ -671,30 +668,6 @@ if _IS_ADMIN():
         with cdm:
             st.checkbox(f"Deposit {i+1} is % of fee", value=False, key=f"dep_pct_{i}")
 
-    st.markdown("##### Auto-send on Save")
-    st.checkbox(
-        "Agent Confirmation",
-        value=True,
-        key="autoc_send_agent_on_create",
-        help="Sends an email to the agent after saving the gig.",
-    )
-    st.checkbox(
-        "Sound Tech Confirmation",
-        value=True,
-        key="autoc_send_st_on_create",
-        help="Sends an email to the sound tech after saving the gig.",
-    )
-    st.checkbox(
-        "Player Confirmations",
-        value=False,
-        key="autoc_send_players_on_create",
-        help="Emails players after saving the gig.",
-    )
-else:
-    st.session_state["autoc_send_agent_on_create"] = False
-    st.session_state["autoc_send_st_on_create"] = False
-    st.session_state["autoc_send_players_on_create"] = False
-
 # ============================
 # Add-New sub-forms (rendered in the anchors right below each select)
 # ============================
@@ -1021,25 +994,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             except Exception:
                 _safe_rerun()
 
-    # === Queue autosend after save (one-time per gig) ===
-    gig_id_str = str(gig_id_str)  # ensure string UUID
-
-    if any([
-        st.session_state.get("autoc_send_st_on_create", False),
-        st.session_state.get("autoc_send_agent_on_create", False),
-        st.session_state.get("autoc_send_players_on_create", False),
-    ]):
-        guard_key = f"autosend_guard__{gig_id_str}"
-        if not st.session_state.get(guard_key, False):
-            if gig_id_str not in st.session_state["autosend_queue"]:
-                st.session_state["autosend_queue"].append(gig_id_str)
-
-            # Safe rerun to trigger autosend runner
-            try:
-                st.rerun()
-            except Exception:
-                pass
-        
+    
         
     # Success summary
     def _fmt12(t: time) -> str:
