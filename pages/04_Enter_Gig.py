@@ -871,21 +871,39 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     if st.session_state.get(sent_key):
         st.caption("Auto-sends already marked complete for this gig_id; no re-send on rerun.")
     else:
-        # --- tiny debug helper to surface call results ---
+        # --- debug helper with retry for "No gig found" timing ---
         def _call_and_report(label: str, fn, *args, **kwargs):
-            import json
-            st.write(f"🔔 DEBUG: invoking {label}…")
-            try:
-                result = fn(*args, **kwargs)
-                st.write(f"✅ DEBUG: {label} returned:", result)
-                st.session_state[f"autosend_result_{label}"] = result
-                print(f"AUTO-SEND CALL {label} RESULT:", json.dumps({"result": str(result)}, indent=2))
-                return True
-            except Exception as e:
-                st.error(f"❌ {label} raised: {e}")
-                st.session_state[f"autosend_result_{label}"] = f"RAISED: {e}"
-                print(f"AUTO-SEND CALL {label} EXC:", str(e))
-                return False
+            import json, time
+            max_tries = 8         # ~2s total at 250ms each
+            delay_s   = 0.25
+
+            st.write(f"🔔 DEBUG: invoking {label} with retry…")
+            last_err = None
+            for i in range(1, max_tries + 1):
+                try:
+                    result = fn(*args, **kwargs)
+                    st.write(f"✅ DEBUG: {label} try {i}/{max_tries} returned:", result)
+                    st.session_state[f"autosend_result_{label}"] = result
+                    print(f"AUTO-SEND CALL {label} RESULT (try {i}):", json.dumps({"result": str(result)}, indent=2))
+                    return True
+                except Exception as e:
+                    msg = str(e)
+                    last_err = e
+                    print(f"AUTO-SEND CALL {label} EXC (try {i}): {msg}")
+                    # only retry on the specific propagation error
+                    if "No gig found:" in msg:
+                        time.sleep(delay_s)
+                        continue
+                    else:
+                        st.error(f"❌ {label} raised: {e}")
+                        st.session_state[f"autosend_result_{label}"] = f"RAISED: {e}"
+                        return False
+
+            # exhausted retries
+            st.error(f"❌ {label} failed after {max_tries} tries: {last_err}")
+            st.session_state[f"autosend_result_{label}"] = f"RETRIES_EXHAUSTED: {last_err}"
+            return False
+
         # --- Agent ---
         try:
             if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_id:
