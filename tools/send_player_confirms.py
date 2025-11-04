@@ -101,13 +101,16 @@ def _gig_musician_ids(gig_id: str) -> List[str]:
 def _fetch_musicians_map(ids: List[str]) -> Dict[str, Dict[str, Any]]:
     if not ids:
         return {}
-    # Fetch all and map by id (simple FK usage)
-    res = _sb().table("musicians").select("id, name, email").in_("id", ids).execute()
+    # Select only columns that exist in your schema
+    res = _sb().table("musicians").select(
+        "id, email, display_name, first_name, last_name, stage_name"
+    ).in_("id", ids).execute()
     rows = res.data or []
     out = {}
     for r in rows:
-        mid = str(r.get("id"))
-        out[mid] = r
+        mid = r.get("id")
+        if mid is not None:
+            out[str(mid)] = r
     return out
 
 def _gig_roles_for(gig_id: str) -> Dict[str, str]:
@@ -136,6 +139,17 @@ def _fmt_time12(t: Optional[str]) -> str:
 
 def _nz(v) -> str:
     return "" if v is None else str(v).strip()
+
+def _mus_display_name(r: Dict[str, Any]) -> str:
+    # Prefer display/stage; fall back to first + last; then "there"
+    for key in ("display_name", "stage_name"):
+        v = (r.get(key) or "").strip()
+        if v:
+            return v
+    fn = (r.get("first_name") or "").strip()
+    ln = (r.get("last_name") or "").strip()
+    combo = (fn + " " + ln).strip()
+    return combo or "there"
 
 def _fmt_addr(v: Dict[str, Any]) -> str:
     parts = []
@@ -211,7 +225,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             continue
 
         role = roles.get(mid, "")
-        greet = _nz(mrow.get("name")) or "there"
+        greet = _mus_display_name(mrow)
         html = f"""
         <p>Hello {greet},</p>
         <p>You’re confirmed for <b>{title}</b>{f" ({role})" if role else ""}.</p>
