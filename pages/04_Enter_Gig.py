@@ -934,55 +934,88 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     }
     _log("snapshot", f"{snap}")
 
-    # --- Replace the old _autosend_call(...) lines with the block below ---
+    # ---------- Resumable, per-channel progress ----------
+    prog_key = f"autosend_progress__{gig_id_str}"
+    prog = st.session_state.get(prog_key) or {"st": False, "agent": False, "players": False}
+    st.session_state[prog_key] = prog  # persist now
 
-    # Sound-tech
+    def _mark_done(name: str):
+        prog[name] = True
+        st.session_state[prog_key] = prog  # persist after each channel
+
+    # ---------- Channel 1: Sound-tech ----------
     _enabled_st = (IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
                    and not st.session_state.get("sound_by_venue_in", False)
                    and bool(sound_tech_id_val))
+
     if not _enabled_st:
         _log("Sound-tech confirmation",
              f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
              f"sound_by_venue={st.session_state.get('sound_by_venue_in', False)}, sound_tech_id_val={bool(sound_tech_id_val)}")
-    else:
-        _autosend_call(
-            label="Sound-tech confirmation",
-            enabled=True,
-            precond=True,
-            module_path="tools.send_soundtech_confirm",
-            func_name="send_soundtech_confirm",
-        )
+        _mark_done("st")
+    elif not prog["st"]:
+        _log("Sound-tech confirmation", "Calling sender...")
+        try:
+            from tools.send_soundtech_confirm import send_soundtech_confirm
+            send_soundtech_confirm(gig_id_str)
+            st.toast("📧 Sound-tech emailed.", icon="📧")
+            _log("Sound-tech confirmation", "Sent OK.")
+        except Exception:
+            tr = traceback.format_exc()
+            _log("Sound-tech confirmation", "Send failed", tr)
+            st.error("Sound-tech autosend failed — see log above.")
+            st.code(tr)
+        finally:
+            _mark_done("st")
 
-    # Agent
+    # ---------- Channel 2: Agent ----------
     _enabled_agent = (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and bool(agent_id_val))
+
     if not _enabled_agent:
         _log("Agent confirmation",
              f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_agent_on_create', False)}, agent_id_val={bool(agent_id_val)}")
-    else:
-        _autosend_call(
-            label="Agent confirmation",
-            enabled=True,
-            precond=True,
-            module_path="tools.send_agent_confirm",
-            func_name="send_agent_confirm",
-        )
+        _mark_done("agent")
+    elif not prog["agent"]:
+        _log("Agent confirmation", "Calling sender...")
+        try:
+            from tools.send_agent_confirm import send_agent_confirm
+            send_agent_confirm(gig_id_str)
+            st.toast("📧 Agent emailed.", icon="📧")
+            _log("Agent confirmation", "Sent OK.")
+        except Exception:
+            tr = traceback.format_exc()
+            _log("Agent confirmation", "Send failed", tr)
+            st.error("Agent autosend failed — see log above.")
+            st.code(tr)
+        finally:
+            _mark_done("agent")
 
-    # Players
+    # ---------- Channel 3: Players ----------
     _enabled_players = (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and bool(has_players_assigned))
+
     if not _enabled_players:
         _log("Player confirmations",
              f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_players_on_create', False)}, has_players_assigned={bool(has_players_assigned)}")
-    else:
-        _autosend_call(
-            label="Player confirmations",
-            enabled=True,
-            precond=True,
-            module_path="tools.send_player_confirms",
-            func_name="send_player_confirms",
-        )
+        _mark_done("players")
+    elif not prog["players"]:
+        _log("Player confirmations", "Calling sender...")
+        try:
+            from tools.send_player_confirms import send_player_confirms
+            send_player_confirms(gig_id_str)
+            st.toast("📧 Players emailed.", icon="📧")
+            _log("Player confirmations", "Sent OK.")
+        except Exception:
+            tr = traceback.format_exc()
+            _log("Player confirmations", "Send failed", tr)
+            st.error("Player autosend failed — see log above.")
+            st.code(tr)
+        finally:
+            _mark_done("players")
 
-    # Mark guard so reruns won't re-trigger; logs remain visible
-    st.session_state[guard_key] = True
-
-    # End page cleanly
-    st.stop()
+    # Finalize guard only when all channels processed (sent or skipped)
+    if prog["st"] and prog["agent"] and prog["players"]:
+        st.session_state[guard_key] = True
+        # optional: clear progress for this gig to avoid clutter
+        # del st.session_state[prog_key]
+        # Clean end AFTER all three were attempted
+        st.stop()
