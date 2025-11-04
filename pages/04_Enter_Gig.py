@@ -22,6 +22,22 @@ if "user" not in st.session_state or not st.session_state["user"]:
 render_header(title="Enter Gig", emoji="")
 st.markdown("---")
 
+# ---- Persisted auto-send log (renders every run) ----
+st.session_state.setdefault("autosend_log", [])  # list of dicts
+def _autosend_log_add(entry: dict):
+    # Keep only the last ~50 entries to avoid bloat
+    st.session_state["autosend_log"].append(entry)
+    if len(st.session_state["autosend_log"]) > 50:
+        st.session_state["autosend_log"] = st.session_state["autosend_log"][-50:]
+
+if st.session_state["autosend_log"]:
+    with st.expander("Auto-send log (persists across reruns)", expanded=False):
+        for i, e in enumerate(st.session_state["autosend_log"], 1):
+            st.markdown(f"**{i}. {e.get('ts','')} [{e.get('run_id','-')}] {e.get('channel','-')}** — {e.get('msg','')}")
+            if e.get("trace"):
+                st.code(e["trace"])
+
+
 # ============================
 # Secrets / Supabase
 # ============================
@@ -796,80 +812,118 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
     # ============================
-    # CLEAN AUTO-SEND (single-run, session-guarded)
-    # Structure mirrors sound-tech pattern for all three.
+    # CLEAN AUTO-SEND (single-run, session-guarded) with persistent logging
     # ============================
     from time import sleep
+    from datetime import datetime as _dt
+    import importlib, traceback, uuid
 
-    gig_id_str = f"{gig_id}"  # ensure string UUID for downstream send_* functions
-    guard_key = f"autosend_guard__{gig_id_str}"  # single key prevents duplicates on rerun
+    gig_id_str = f"{gig_id}"
+    guard_key = f"autosend_guard__{gig_id_str}"
+    run_id = str(uuid.uuid4())[:8]
 
-    if not st.session_state.get(guard_key, False):
-        # Read-your-writes warm-up: ensure the new gig is queryable before emailing
-        try:
-            found = False
-            for _ in range(6):  # ~1.2s max
-                try:
-                    chk = sb.table("gigs").select("id").eq("id", gig_id_str).limit(1).execute()
-                    if (chk.data or []) and str(chk.data[0].get("id")) == gig_id_str:
-                        found = True
-                        break
-                except Exception:
-                    pass
-                sleep(0.2)
-            if not found:
-                st.warning("Auto-send paused: gig not yet readable after save. Try saving again in a few seconds.")
-                st.session_state[guard_key] = True
-                st.stop()
-        except Exception as e:
-            st.exception(e)
-            st.warning("Auto-send aborted due to a lookup error.")
+    def _log(channel: str, msg: str, trace: str = ""):
+        _autosend_log_add({
+            "ts": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "run_id": run_id,
+            "channel": channel,
+            "msg": msg,
+            "trace": trace,
+        })
+
+    # Ensure read-your-writes before attempting email lookups
+    try:
+        found = False
+        for _ in range(8):  # up to ~1.6s
+            try:
+                chk = sb.table("gigs").select("id").eq("id", gig_id_str).limit(1).execute()
+                if (chk.data or []) and str(chk.data[0].get("id")) == gig_id_str:
+                    found = True
+                    break
+            except Exception:
+                pass
+            sleep(0.2)
+        if not found:
+            _log("system", "Gig not readable yet after save; autosend paused.")
+            st.warning("Auto-send paused: gig not yet readable after save. Try again in a few seconds.")
             st.session_state[guard_key] = True
             st.stop()
-
-        # Sound Tech (if enabled and a sound tech is selected + venue is not providing sound)
-        try:
-            if (
-                IS_ADMIN
-                and st.session_state.get("autoc_send_st_on_create", False)
-                and not st.session_state.get("sound_by_venue_in", False)
-                and sound_tech_id_val
-            ):
-                from tools.send_soundtech_confirm import send_soundtech_confirm
-                with st.status("Sending sound-tech confirmation…", state="running") as s:
-                    send_soundtech_confirm(gig_id_str)  # pass string UUID
-                    s.update(label="Sound-tech confirmation sent", state="complete")
-                st.toast("📧 Sound-tech emailed.", icon="📧")
-        except Exception as e:
-            st.exception(e)
-            st.error("Sound-tech auto-send failed (trace above).")
-
-        # Agent (if enabled and agent selected)
-        try:
-            if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and agent_id_val:
-                from tools.send_agent_confirm import send_agent_confirm
-                with st.status("Sending agent confirmation…", state="running") as s:
-                    send_agent_confirm(gig_id_str)  # pass string UUID
-                    s.update(label="Agent confirmation sent", state="complete")
-                st.toast("📧 Agent emailed.", icon="📧")
-        except Exception as e:
-            st.exception(e)
-            st.error("Agent auto-send failed (trace above).")
-
-        # Players (if enabled and any players assigned)
-        try:
-            if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and has_players_assigned:
-                from tools.send_player_confirms import send_player_confirms
-                with st.status("Sending player confirmations…", state="running") as s:
-                    send_player_confirms(gig_id_str)  # pass string UUID
-                    s.update(label="Player confirmations sent", state="complete")
-                st.toast("📧 Players emailed.", icon="📧")
-        except Exception as e:
-            st.exception(e)
-            st.error("Player auto-send failed (trace above).")
-
-        # Mark guard so reruns don't re-trigger
+    except Exception as e:
+        _log("system", "Lookup error before autosend", traceback.format_exc())
+        st.error("Autosend aborted due to a lookup error. See log above.")
         st.session_state[guard_key] = True
+        st.stop()
 
-    # Clean exit after completion to avoid incidental reruns reprocessing state
+    # Single-run guard
+    if st.session_state.get(guard_key, False):
+        _log("system", "Guard active, skipping duplicate autosend.")
+        st.stop()
+
+    def _autosend_call(label: str, enabled: bool, precond: bool, module_path: str, func_name: str):
+        """
+        Unified call wrapper with persistent logging, import checks, and visible status.
+        """
+        if not enabled:
+            _log(label, "Not enabled; skipping.")
+            return
+        if not precond:
+            _log(label, "Precondition failed; skipping.")
+            return
+
+        try:
+            mod = importlib.import_module(module_path)
+        except Exception:
+            _log(label, f"Import failed: {module_path}", traceback.format_exc())
+            st.error(f"{label} autosend import failed — see log above.")
+            return
+
+        fn = getattr(mod, func_name, None)
+        if fn is None:
+            _log(label, f"Function not found: {module_path}.{func_name}")
+            st.error(f"{label} autosend function missing — see log above.")
+            return
+
+        _log(label, "Calling sender...")
+        try:
+            with st.status(f"Sending {label.lower()}…", state="running") as s:
+                fn(gig_id_str)  # always pass string UUID
+                s.update(label=f"{label} sent", state="complete")
+            st.toast(f"📧 {label} emailed.", icon="📧")
+            _log(label, "Sent OK.")
+        except Exception:
+            tr = traceback.format_exc()
+            _log(label, "Send failed", tr)
+            st.error(f"{label} autosend failed — see log above.")
+
+    # Execute three channels in the same simple pattern
+    _autosend_call(
+        label="Sound-tech confirmation",
+        enabled=(IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
+                 and not st.session_state.get("sound_by_venue_in", False)
+                 and bool(sound_tech_id_val)),
+        precond=True,
+        module_path="tools.send_soundtech_confirm",
+        func_name="send_soundtech_confirm",
+    )
+
+    _autosend_call(
+        label="Agent confirmation",
+        enabled=(IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and bool(agent_id_val)),
+        precond=True,
+        module_path="tools.send_agent_confirm",
+        func_name="send_agent_confirm",
+    )
+
+    _autosend_call(
+        label="Player confirmations",
+        enabled=(IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and bool(has_players_assigned)),
+        precond=True,
+        module_path="tools.send_player_confirms",
+        func_name="send_player_confirms",
+    )
+
+    # Mark guard so reruns won't re-trigger; logs remain visible
+    st.session_state[guard_key] = True
+
+    # End page cleanly
     st.stop()
