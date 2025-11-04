@@ -794,64 +794,74 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
-# ============================
-# Auto-sends (with pre-checks + user messages)
-# ============================
-# Helper: quick check if any players were assigned
-def _any_players_assigned() -> bool:
-    for _role in ROLE_CHOICES:
-        sel = st.session_state.get(f"mus_sel_{_role}", "")
-        if sel and not sel.startswith("__ADD_MUS__"):
-            return True
-    return False
+    # -----------------------------
+    # Auto-sends (run once, right after save)
+    # -----------------------------
+    sent_key = f"sent_autos_for_{gig_id}"
+    if not st.session_state.get(sent_key):
 
-# --- Agent ---
-try:
-    if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and agent_id_val:
-        # Fetch agent to confirm email exists
-        ag = None
+        # Re-resolve selected IDs safely from session
+        _agent_sel = st.session_state.get("agent_sel")
+        _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
+
+        _sound_sel = st.session_state.get("sound_sel")
+        _sound_id  = None if st.session_state.get("sound_by_venue_in", False) else (
+            _sound_sel if _sound_sel not in ("", "__ADD_SOUND__") else None
+        )
+
+        def _any_players_assigned_now() -> bool:
+            for _role in ROLE_CHOICES:
+                sel = st.session_state.get(f"mus_sel_{_role}", "")
+                if sel and not sel.startswith("__ADD_MUS__"):
+                    return True
+            return False
+
+        # --- Agent ---
         try:
-            ag = sb.table("agents").select("id,email,display_name,first_name,last_name").eq("id", agent_id_val).single().execute().data
-        except Exception:
-            ag = None
-        ag_email = (ag or {}).get("email") if isinstance(ag, dict) else None
-        if ag_email and str(ag_email).strip():
-            from tools.send_agent_confirm import send_agent_confirm
-            with st.status("Emailing agent…", state="running") as s:
-                send_agent_confirm(gig_id)
-                s.update(label="Agent confirmation sent", state="complete")
-            st.toast("📧 Agent emailed.", icon="📧")
-        else:
-            st.info("Agent email skipped: no email on file for the selected agent.", icon="ℹ️")
-except Exception as e:
-    st.warning(f"Agent auto-send failed: {e}")
+            if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_id:
+                # Confirm agent has an email
+                ag = None
+                try:
+                    ag = sb.table("agents").select("id,email").eq("id", _agent_id).single().execute().data
+                except Exception:
+                    ag = None
+                ag_email = (ag or {}).get("email") if isinstance(ag, dict) else None
+                if ag_email and str(ag_email).strip():
+                    from tools.send_agent_confirm import send_agent_confirm
+                    with st.status("Emailing agent…", state="running") as s:
+                        send_agent_confirm(gig_id)
+                        s.update(label="Agent confirmation sent", state="complete")
+                    st.toast("📧 Agent emailed.", icon="📧")
+                else:
+                    st.info("Agent email skipped: no email on file for the selected agent.", icon="ℹ️")
+        except Exception as e:
+            st.warning(f"Agent auto-send failed: {e}")
 
-# --- Sound Tech ---
-try:
-    if (
-        IS_ADMIN
-        and not st.session_state.get("sound_by_venue_in", False)
-        and st.session_state.get("autoc_send_st_on_create", False)
-        and sound_tech_id_val
-    ):
-        from tools.send_soundtech_confirm import send_soundtech_confirm
-        with st.status("Sending sound-tech confirmation…", state="running") as s:
-            send_soundtech_confirm(gig_id)
-            s.update(label="Sound-tech confirmation sent", state="complete")
-        st.toast("📧 Sound-tech emailed.", icon="📧")
-except Exception as e:
-    st.warning(f"Sound-tech auto-send failed: {e}")
+        # --- Sound Tech ---
+        try:
+            if IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False) and _sound_id:
+                from tools.send_soundtech_confirm import send_soundtech_confirm
+                with st.status("Sending sound-tech confirmation…", state="running") as s:
+                    send_soundtech_confirm(gig_id)
+                    s.update(label="Sound-tech confirmation sent", state="complete")
+                st.toast("📧 Sound-tech emailed.", icon="📧")
+        except Exception as e:
+            st.warning(f"Sound-tech auto-send failed: {e}")
 
-# --- Players ---
-try:
-    if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False):
-        if _any_players_assigned():
-            from tools.send_player_confirms import send_player_confirms
-            with st.status("Emailing players…", state="running") as s:
-                send_player_confirms(gig_id)
-                s.update(label="Player confirmations sent", state="complete")
-            st.toast("📧 Players emailed.", icon="📧")
-        else:
-            st.info("Player emails skipped: no lineup selected.", icon="ℹ️")
-except Exception as e:
-    st.warning(f"Player auto-send failed: {e}")
+        # --- Players ---
+        try:
+            if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False):
+                if _any_players_assigned_now():
+                    from tools.send_player_confirms import send_player_confirms
+                    with st.status("Emailing players…", state="running") as s:
+                        send_player_confirms(gig_id)
+                        s.update(label="Player confirmations sent", state="complete")
+                    st.toast("📧 Players emailed.", icon="📧")
+                else:
+                    st.info("Player emails skipped: no lineup selected.", icon="ℹ️")
+        except Exception as e:
+            st.warning(f"Player auto-send failed: {e}")
+
+        # Mark done to avoid any duplicates on rerun
+        st.session_state[sent_key] = True
+
