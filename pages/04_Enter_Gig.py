@@ -673,6 +673,23 @@ def _compose_datetimes(event_dt: date, start_t: time, end_t: time) -> Tuple[date
         end_dt += timedelta(days=1)
     return start_dt, end_dt
 
+# -------------------------------------------------------------------
+# Helper: resilient gig loader for immediate post-save email lookups
+# -------------------------------------------------------------------
+def _load_gig_for_email(gid: str, tries: int = 3):
+    """Fetches the gig directly from the base table (not joined views),
+    retrying briefly to let related inserts become visible."""
+    import time
+    for _ in range(tries):
+        try:
+            row = sb.table("gigs").select("*").eq("id", gid).limit(1).execute().data
+            if row:
+                return row[0]
+        except Exception:
+            pass
+        time.sleep(0.1)  # short micro-wait
+    return None
+
 if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     # Guard: if PRS provides sound but sentinel selected, block save
     if (not st.session_state.get("sound_by_venue_in", False)) and st.session_state.get("sound_sel") == "__ADD_SOUND__":
@@ -794,15 +811,22 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
-    # -----------------------------
-    # Auto-sends (run once, right after save)
-    # -----------------------------
-    sent_key = f"sent_autos_for_{gig_id}"
-    if not st.session_state.get(sent_key):
+# -----------------------------
+# Auto-sends (run once, right after save)
+# -----------------------------
+sent_key = f"sent_autos_for_{gig_id}"
+if not st.session_state.get(sent_key):
+    # Ensure fresh read and confirm gig visibility for downstream senders
+    st.cache_data.clear()
+    _gig_row = _load_gig_for_email(gig_id)
 
-        # Re-resolve selected IDs safely from session
-        _agent_sel = st.session_state.get("agent_sel")
-        _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
+    if not _gig_row:
+        st.info("Gig not yet visible for agent/player emails; those sends were skipped this run.", icon="ℹ️")
+
+    # Re-resolve selected IDs safely from session
+    _agent_sel = st.session_state.get("agent_sel")
+    _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
+
 
         _sound_sel = st.session_state.get("sound_sel")
         _sound_id  = None if st.session_state.get("sound_by_venue_in", False) else (
@@ -818,7 +842,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
         # --- Agent ---
         try:
-            if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_id:
+            if _gig_row and IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_id:
                 # Confirm agent has an email
                 ag = None
                 try:
@@ -850,7 +874,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
         # --- Players ---
         try:
-            if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False):
+            if _gig_row and IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False):
                 if _any_players_assigned_now():
                     from tools.send_player_confirms import send_player_confirms
                     with st.status("Emailing players…", state="running") as s:
