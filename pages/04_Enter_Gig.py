@@ -871,6 +871,21 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     if st.session_state.get(sent_key):
         st.caption("Auto-sends already marked complete for this gig_id; no re-send on rerun.")
     else:
+        # --- tiny debug helper to surface call results ---
+        def _call_and_report(label: str, fn, *args, **kwargs):
+            import json
+            st.write(f"🔔 DEBUG: invoking {label}…")
+            try:
+                result = fn(*args, **kwargs)
+                st.write(f"✅ DEBUG: {label} returned:", result)
+                st.session_state[f"autosend_result_{label}"] = result
+                print(f"AUTO-SEND CALL {label} RESULT:", json.dumps({"result": str(result)}, indent=2))
+                return True
+            except Exception as e:
+                st.error(f"❌ {label} raised: {e}")
+                st.session_state[f"autosend_result_{label}"] = f"RAISED: {e}"
+                print(f"AUTO-SEND CALL {label} EXC:", str(e))
+                return False
         # --- Agent ---
         try:
             if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_id:
@@ -883,12 +898,10 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                 if ag_email and str(ag_email).strip():
                     from tools.send_agent_confirm import send_agent_confirm
                     with st.status("Emailing agent…", state="running") as s:
-                        try:
-                            send_agent_confirm(gig_id)
-                            s.update(label="Agent confirmation sent", state="complete")
-                            st.toast("📧 Agent emailed.", icon="📧")
-                        except Exception as e:
-                            st.info(f"Agent email skipped due to lookup timing ({e}). Try resend from Edit Gig.", icon="ℹ️")
+                        ok = _call_and_report("send_agent_confirm", send_agent_confirm, gig_id)
+                        s.update(label=("Agent confirmation sent" if ok else "Agent confirmation failed"), state=("complete" if ok else "error"))
+                    if ok:
+                        st.toast("📧 Agent emailed.", icon="📧")
                 else:
                     st.info("Agent email skipped: no email on file for the selected agent.", icon="ℹ️")
             else:
@@ -925,12 +938,10 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                 if _any_players_assigned_now():
                     from tools.send_player_confirms import send_player_confirms
                     with st.status("Emailing players…", state="running") as s:
-                        try:
-                            send_player_confirms(gig_id)
-                            s.update(label="Player confirmations sent", state="complete")
-                            st.toast("📧 Players emailed.", icon="📧")
-                        except Exception as e:
-                            st.info(f"Player emails skipped due to lookup timing ({e}). Try resend from Edit Gig.", icon="ℹ️")
+                        ok = _call_and_report("send_player_confirms", send_player_confirms, gig_id)
+                        s.update(label=("Player confirmations sent" if ok else "Player confirmations failed"), state=("complete" if ok else "error"))
+                    if ok:
+                        st.toast("📧 Players emailed.", icon="📧")
                 else:
                     st.info("Player emails skipped: no lineup selected.", icon="ℹ️")
             else:
@@ -941,6 +952,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                     st.caption("Player auto-send not triggered (" + ", ".join(reasons) + ").")
         except Exception as e:
             st.warning(f"Player auto-send failed: {e}")
+
 
         # Mark done to avoid duplicates on rerun
         st.session_state[sent_key] = True
