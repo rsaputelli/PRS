@@ -821,9 +821,6 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         st.cache_data.clear()
         _gig_row = _load_gig_for_email(gig_id)
 
-        if not _gig_row:
-            st.info("Gig not yet visible for agent/player emails; those sends were skipped this run.", icon="ℹ️")
-
         # Re-resolve selected IDs safely from session
         _agent_sel = st.session_state.get("agent_sel")
         _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
@@ -840,10 +837,26 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                     return True
             return False
 
+        # ---- DEBUG PANEL (temporary; remove after we confirm) ----
+        with st.expander("🔎 Auto-send debug (temporary)", expanded=True):
+            st.write({
+                "sent_key_already_set": bool(st.session_state.get(sent_key)),
+                "IS_ADMIN": IS_ADMIN,
+                "_gig_row_found": bool(_gig_row),
+                "_agent_id": _agent_id,
+                "_sound_id": _sound_id,
+                "autoc_send_agent_on_create": st.session_state.get("autoc_send_agent_on_create", None),
+                "autoc_send_st_on_create": st.session_state.get("autoc_send_st_on_create", None),
+                "autoc_send_players_on_create": st.session_state.get("autoc_send_players_on_create", None),
+                "any_players_now": _any_players_assigned_now(),
+                "sound_by_venue": st.session_state.get("sound_by_venue_in", False),
+            })
+        if not _gig_row:
+            st.info("Gig not yet visible for agent/player emails; those sends will be skipped this run.", icon="ℹ️")
+
         # --- Agent ---
         try:
             if _gig_row and IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_id:
-                # Confirm agent has an email
                 ag = None
                 try:
                     ag = sb.table("agents").select("id,email").eq("id", _agent_id).single().execute().data
@@ -858,6 +871,15 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                     st.toast("📧 Agent emailed.", icon="📧")
                 else:
                     st.info("Agent email skipped: no email on file for the selected agent.", icon="ℹ️")
+            else:
+                # Explain why it didn’t fire
+                reasons = []
+                if not _gig_row: reasons.append("no _gig_row")
+                if not IS_ADMIN: reasons.append("not admin")
+                if not st.session_state.get("autoc_send_agent_on_create", False): reasons.append("toggle off")
+                if not _agent_id: reasons.append("no agent selected")
+                if reasons:
+                    st.caption("Agent auto-send not triggered (" + ", ".join(reasons) + ").")
         except Exception as e:
             st.warning(f"Agent auto-send failed: {e}")
 
@@ -869,6 +891,13 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                     send_soundtech_confirm(gig_id)
                     s.update(label="Sound-tech confirmation sent", state="complete")
                 st.toast("📧 Sound-tech emailed.", icon="📧")
+            else:
+                reasons = []
+                if not IS_ADMIN: reasons.append("not admin")
+                if not st.session_state.get("autoc_send_st_on_create", False): reasons.append("toggle off")
+                if not _sound_id: reasons.append("no sound tech selected or sound by venue")
+                if reasons:
+                    st.caption("Sound-tech auto-send not triggered (" + ", ".join(reasons) + ").")
         except Exception as e:
             st.warning(f"Sound-tech auto-send failed: {e}")
 
@@ -883,6 +912,13 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                     st.toast("📧 Players emailed.", icon="📧")
                 else:
                     st.info("Player emails skipped: no lineup selected.", icon="ℹ️")
+            else:
+                reasons = []
+                if not _gig_row: reasons.append("no _gig_row")
+                if not IS_ADMIN: reasons.append("not admin")
+                if not st.session_state.get("autoc_send_players_on_create", False): reasons.append("toggle off")
+                if reasons:
+                    st.caption("Player auto-send not triggered (" + ", ".join(reasons) + ").")
         except Exception as e:
             st.warning(f"Player auto-send failed: {e}")
 
