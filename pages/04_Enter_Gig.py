@@ -140,14 +140,15 @@ agents_df = _select_df("agents", "*")
 agent_labels: Dict[str, str] = {}
 if not agents_df.empty and "id" in agents_df.columns:
     for _, r in agents_df.iterrows():
-        if _opt_label(r.get("name"), ""):
-            lbl = str(r["name"]).strip()
+        # Prefer display_name, then first+last, then company
+        disp = _opt_label(r.get("display_name"), "")
+        if disp:
+            lbl = disp
         else:
             fn = _opt_label(r.get("first_name"), "")
             ln = _opt_label(r.get("last_name"), "")
             if fn or ln:
-                nm = (fn + " " + ln).strip()
-                lbl = (nm + f" ({_opt_label(r.get('company'), '')})").strip().rstrip("()")
+                lbl = (fn + " " + ln).strip()
             else:
                 lbl = _opt_label(r.get("company"), "Unnamed Agent")
         agent_labels[str(r["id"])] = lbl
@@ -191,60 +192,35 @@ ROLE_CHOICES: List[str] = [
 IS_ADMIN = bool(st.session_state.get("is_admin", True))
 
 # ============================
-# Session defaults (pending-select)
+# Session defaults (pending-select + add flags)
 # ============================
 st.session_state.setdefault("agent_sel_pending", None)
 st.session_state.setdefault("venue_sel_pending", None)
 st.session_state.setdefault("sound_sel_pending", None)
 st.session_state.setdefault("preselect_role_ids", {})  # role -> musician_id
 
+st.session_state.setdefault("agent_is_add", False)
+st.session_state.setdefault("venue_is_add", False)
+st.session_state.setdefault("sound_is_add", False)
+for _r in ROLE_CHOICES:
+    st.session_state.setdefault(f"mus_is_add_{_r}", False)
+
 # ============================
-# Role filtering helpers
+# on_change callbacks for selects
 # ============================
-ROLE_INSTRUMENT_MAP = {
-    "Keyboard":  {"substr": ["keyboard", "keys", "piano", "pianist", "synth"]},
-    "Drums":     {"substr": ["drums", "drummer", "percussion"]},
-    "Guitar":    {"substr": ["guitar", "guitarist"]},
-    "Bass":      {"substr": ["bass guitar", "bass", "bassist"]},
-    "Trumpet":   {"substr": ["trumpet", "trumpeter"]},
-    "Saxophone": {"substr": ["saxophone", "sax", "alto sax", "tenor sax", "baritone sax", "saxophonist"]},
-    "Trombone":  {"substr": ["trombone", "trombonist"]},
-}
-MALE_TOKENS   = re.compile(r"\b(male|m(?![a-z])|men|man|guy|dude)\b", re.I)
-FEMALE_TOKENS = re.compile(r"\b(female|f(?![a-z])|women|woman|lady|girl)\b", re.I)
-VOCAL_TOKENS  = re.compile(r"\b(vocal|vocals|singer|lead vocal|lead singer)\b", re.I)
+def _on_agent_change():
+    st.session_state["agent_is_add"] = (st.session_state.get("agent_sel") == "__ADD_AGENT__")
 
-def _norm(s: str) -> str:
-    return (str(s or "").strip().lower())
+def _on_venue_change():
+    st.session_state["venue_is_add"] = (st.session_state.get("venue_sel") == "__ADD_VENUE__")
 
-def _matches_role(instr: str, role: str) -> bool:
-    s = _norm(instr)
-    if not s:
-        return False
-    if role == "Male Vocals":
-        if s in ("male vocal", "male vocals"):
-            return True
-        return bool(VOCAL_TOKENS.search(s)) and bool(MALE_TOKENS.search(s)) and not FEMALE_TOKENS.search(s)
-    if role == "Female Vocals":
-        if s in ("female vocal", "female vocals"):
-            return True
-        return bool(VOCAL_TOKENS.search(s)) and bool(FEMALE_TOKENS.search(s)) and not MALE_TOKENS.search(s)
-    cfg = ROLE_INSTRUMENT_MAP.get(role, {})
-    return any(tok in s for tok in cfg.get("substr", []))
+def _on_sound_change():
+    st.session_state["sound_is_add"] = (st.session_state.get("sound_sel") == "__ADD_SOUND__")
 
-def _role_labels_for(role: str) -> Dict[str, str]:
-    role_df = mus_df.copy()
-    if "instrument" in role_df.columns:
-        role_df = role_df[role_df["instrument"].fillna("").apply(lambda x: _matches_role(x, role))]
-    if role_df.empty:
-        role_df = mus_df
-    if not role_df.empty and "active" in role_df.columns:
-        role_df = role_df.sort_values(by="active", ascending=False)
-    labels: Dict[str, str] = {}
-    if not role_df.empty and "id" in role_df.columns:
-        for _, r in role_df.iterrows():
-            labels[str(r["id"])] = _name_for_mus_row(r)
-    return labels
+def _make_role_change(role: str):
+    def _cb():
+        st.session_state[f"mus_is_add_{role}"] = (st.session_state.get(f"mus_sel_{role}") == f"__ADD_MUS__:{role}")
+    return _cb
 
 # ============================
 # Event basics (no form)
@@ -259,7 +235,6 @@ with eb1:
 def _ampm_time_input(label: str, default_hour: int, default_min: int, key_prefix: str) -> time:
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
-        # map 12-> index 11; 1-> index 0
         default_index = (default_hour % 12) - 1
         if default_index < 0:
             default_index = 11
@@ -280,7 +255,9 @@ with eb2:
 with eb3:
     band_name = st.text_input("Band (optional)", placeholder="PRS", key="band_in")  # not stored today
 
-# Agent select with sentinel + pending
+# ============================
+# Agent select + inline add (anchor under the select)
+# ============================
 AGENT_ADD = "__ADD_AGENT__"
 agent_options = [""] + list(agent_labels.keys()) + [AGENT_ADD]
 def agent_fmt(x: str) -> str:
@@ -292,12 +269,16 @@ _pending_agent = st.session_state.pop("agent_sel_pending", None)
 if _pending_agent:
     st.session_state["agent_sel"] = _pending_agent
 
-agent_id_sel = st.selectbox(
-    "Agent",
-    options=agent_options,
-    format_func=agent_fmt,
-    key="agent_sel",
-)
+ag_col, _ = st.columns([1, 1])
+with ag_col:
+    agent_id_sel = st.selectbox(
+        "Agent",
+        options=agent_options,
+        format_func=agent_fmt,
+        key="agent_sel",
+        on_change=_on_agent_change,
+    )
+    agent_add_box = st.empty()  # anchor immediately below the select
 
 # ============================
 # Venue & Sound
@@ -323,7 +304,9 @@ with vs1:
         options=venue_options_ids,
         format_func=venue_fmt,
         key="venue_sel",
+        on_change=_on_venue_change,
     )
+    venue_add_box = st.empty()  # anchor directly under the select
 
     is_private = st.checkbox("Private Event?", value=False, key="is_private_in")
     eligible_1099 = st.checkbox("1099 Eligible", value=False, key="eligible_1099_in")
@@ -345,7 +328,9 @@ with vs2:
         options=sound_options_ids,
         format_func=sound_fmt,
         key="sound_sel",
+        on_change=_on_sound_change,
     )
+    sound_add_box = st.empty()  # anchor directly under the select
     sound_by_venue = st.checkbox("Sound provided by venue?", value=False, key="sound_by_venue_in")
 
 # Optional venue-provided sound contact fields
@@ -355,12 +340,10 @@ if sound_by_venue:
         sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)", key="sv_name_in")
     with sv2:
         sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)", key="sv_phone_in")
-    # PRS not providing; no sound fee relevant
     sound_fee_val = None
 else:
     sound_by_venue_name = ""
     sound_by_venue_phone = ""
-    # Add a sound fee field when PRS provides sound; guard NaN → None
     _sfee = st.number_input("Sound Fee ($, optional)", min_value=0.0, step=25.0, format="%.2f", key="sound_fee_in")
     sound_fee_val = float(_sfee) if pd.notna(_sfee) else None
 
@@ -372,6 +355,50 @@ st.subheader("Lineup (Role Assignments)")
 lineup_cols = st.columns(3)
 preselect_roles: Dict[str, Optional[str]] = st.session_state.get("preselect_role_ids", {})
 
+def _norm(s: str) -> str:
+    return (str(s or "").strip().lower())
+
+ROLE_INSTRUMENT_MAP = {
+    "Keyboard":  {"substr": ["keyboard", "keys", "piano", "pianist", "synth"]},
+    "Drums":     {"substr": ["drums", "drummer", "percussion"]},
+    "Guitar":    {"substr": ["guitar", "guitarist"]},
+    "Bass":      {"substr": ["bass guitar", "bass", "bassist"]},
+    "Trumpet":   {"substr": ["trumpet", "trumpeter"]},
+    "Saxophone": {"substr": ["saxophone", "sax", "alto sax", "tenor sax", "baritone sax", "saxophonist"]},
+    "Trombone":  {"substr": ["trombone", "trombonist"]},
+}
+MALE_TOKENS   = re.compile(r"\b(male|m(?![a-z])|men|man|guy|dude)\b", re.I)
+FEMALE_TOKENS = re.compile(r"\b(female|f(?![a-z])|women|woman|lady|girl)\b", re.I)
+VOCAL_TOKENS  = re.compile(r"\b(vocal|vocals|singer|lead vocal|lead singer)\b", re.I)
+
+def _matches_role(instr: str, role: str) -> bool:
+    s = _norm(instr)
+    if not s:
+        return False
+    if role == "Male Vocals":
+        if s in ("male vocal", "male vocals"): return True
+        return bool(VOCAL_TOKENS.search(s)) and bool(MALE_TOKENS.search(s)) and not FEMALE_TOKENS.search(s)
+    if role == "Female Vocals":
+        if s in ("female vocal", "female vocals"): return True
+        return bool(VOCAL_TOKENS.search(s)) and bool(FEMALE_TOKENS.search(s)) and not MALE_TOKENS.search(s)
+    cfg = ROLE_INSTRUMENT_MAP.get(role, {})
+    return any(tok in s for tok in cfg.get("substr", []))
+
+def _role_labels_for(role: str) -> Dict[str, str]:
+    role_df = mus_df.copy()
+    if "instrument" in role_df.columns:
+        role_df = role_df[role_df["instrument"].fillna("").apply(lambda x: _matches_role(x, role))]
+    if role_df.empty:
+        role_df = mus_df
+    if not role_df.empty and "active" in role_df.columns:
+        role_df = role_df.sort_values(by="active", ascending=False)
+    labels: Dict[str, str] = {}
+    if not role_df.empty and "id" in role_df.columns:
+        for _, r in role_df.iterrows():
+            labels[str(r["id"])] = _name_for_mus_row(r)
+    return labels
+
+role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
 for idx, role in enumerate(ROLE_CHOICES):
     with lineup_cols[idx % 3]:
         sentinel = f"__ADD_MUS__:{role}"
@@ -385,8 +412,15 @@ for idx, role in enumerate(ROLE_CHOICES):
 
         pre_id = preselect_roles.get(role) or ""
         sel_index = mus_options_ids.index(pre_id) if pre_id in mus_options_ids else 0
-        st.selectbox(role, options=mus_options_ids, index=sel_index,
-                     format_func=mus_fmt, key=f"mus_sel_{role}")
+        st.selectbox(
+            role,
+            options=mus_options_ids,
+            index=sel_index,
+            format_func=mus_fmt,
+            key=f"mus_sel_{role}",
+            on_change=_make_role_change(role),
+        )
+        role_add_boxes[role] = st.empty()  # anchor directly under the role select
 
 # ============================
 # Notes & Private details
@@ -457,134 +491,177 @@ else:
     st.session_state["autoc_send_players_on_create"] = False
 
 # ============================
-# Add-New sub-forms (sentinel-driven)
+# Add-New sub-forms (rendered in the anchors right below each select)
 # ============================
 
-# Agent add
-if st.session_state.get("agent_sel") == "__ADD_AGENT__":
-    st.markdown("**➕ Add New Agent**")
-    a1, a2 = st.columns([1, 1])
-    with a1:
-        new_agent_name = st.text_input("Agent Name", key="new_agent_name")
-    with a2:
-        new_agent_company = st.text_input("Company (optional)", key="new_agent_company")
+# --- Agent add (now with Email + Phone; dedupe by email, case-insensitive) ---
+if st.session_state.get("agent_is_add"):
+    with agent_add_box.container():
+        with st.expander("➕ Add New Agent", expanded=True):
+            a1, a2 = st.columns([1, 1])
+            with a1:
+                new_agent_first = st.text_input("First Name (optional)", key="new_agent_first")
+                new_agent_last  = st.text_input("Last Name (optional)", key="new_agent_last")
+                new_agent_company = st.text_input("Company (optional)", key="new_agent_company")
+            with a2:
+                new_agent_email = st.text_input("Email (optional; used for dedupe)", key="new_agent_email")
+                new_agent_phone = st.text_input("Phone (optional)", key="new_agent_phone")
+                new_agent_1099  = st.text_input("Name for 1099 (optional)", key="new_agent_1099")
 
-    if st.button("Create Agent", key="create_agent_btn"):
-        payload = _filter_to_schema("agents", {
-            "name": (new_agent_name or "").strip() or None,
-            "company": (new_agent_company or "").strip() or None,
-            "first_name": None,
-            "last_name": None,
-        })
-        row = _robust_insert("agents", payload)
-        if row and "id" in row:
-            st.cache_data.clear()
-            st.session_state["agent_sel_pending"] = str(row["id"])
-            st.success("Agent created ✅")
-            st.rerun()
-    if st.button("Cancel", key="cancel_agent_btn"):
-        st.session_state["agent_sel"] = ""
-        st.rerun()
+            c1, c2 = st.columns([1, 1])
+            if c1.button("Create Agent", key="create_agent_btn"):
+                email_val = (new_agent_email or "").strip()
+                # If email provided, try to find existing (case-insensitive)
+                existing_id: Optional[str] = None
+                if email_val:
+                    try:
+                        # ilike is case-insensitive comparison
+                        res = sb.table("agents").select("id,email").ilike("email", email_val).limit(1).execute()
+                        rows = res.data or []
+                        if rows:
+                            existing_id = str(rows[0]["id"])
+                    except Exception as e:
+                        st.warning(f"Lookup by email failed, proceeding to insert new agent. ({e})")
 
-# Venue add
-if st.session_state.get("venue_sel") == "__ADD_VENUE__":
-    st.markdown("**➕ Add New Venue**")
-    v1, v2 = st.columns([1, 1])
-    with v1:
-        new_v_name  = st.text_input("Venue Name", key="new_v_name")
-        new_v_addr1 = st.text_input("Address Line 1", key="new_v_addr1")
-        new_v_city  = st.text_input("City", key="new_v_city")
-        new_v_phone = st.text_input("Phone (optional)", key="new_v_phone")
-    with v2:
-        new_v_addr2 = st.text_input("Address Line 2 (optional)", key="new_v_addr2")
-        new_v_state = st.text_input("State", key="new_v_state")
-        new_v_zip   = st.text_input("Postal Code", key="new_v_zip")
+                if existing_id:
+                    st.session_state["agent_is_add"] = False
+                    st.session_state["agent_sel_pending"] = existing_id
+                    st.success("Agent with that email already exists; selecting existing record.")
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    payload = _filter_to_schema("agents", {
+                        "first_name": (new_agent_first or "").strip() or None,
+                        "last_name":  (new_agent_last or "").strip() or None,
+                        "company":    (new_agent_company or "").strip() or None,
+                        "email":      email_val or None,
+                        "phone":      (new_agent_phone or "").strip() or None,
+                        "name_for_1099": (new_agent_1099 or "").strip() or None,
+                        "active": True,
+                    })
+                    row = _robust_insert("agents", payload)
+                    if row and "id" in row:
+                        st.cache_data.clear()
+                        st.session_state["agent_is_add"] = False
+                        st.session_state["agent_sel_pending"] = str(row["id"])
+                        st.success("Agent created ✅")
+                        st.rerun()
 
-    if st.button("Create Venue", key="create_venue_btn"):
-        payload = _filter_to_schema("venues", {
-            "name": (new_v_name or "").strip() or None,
-            "address_line1": (new_v_addr1 or "").strip() or None,
-            "address_line2": (new_v_addr2 or "").strip() or None,
-            "city": (new_v_city or "").strip() or None,
-            "state": (new_v_state or "").strip() or None,
-            "postal_code": (new_v_zip or "").strip() or None,
-            "phone": (new_v_phone or "").strip() or None,
-        })
-        row = _robust_insert("venues", payload)
-        if row and "id" in row:
-            st.cache_data.clear()
-            st.session_state["venue_sel_pending"] = str(row["id"])
-            st.success("Venue created ✅")
-            st.rerun()
-    if st.button("Cancel", key="cancel_venue_btn"):
-        st.session_state["venue_sel"] = ""
-        st.rerun()
+            if c2.button("Cancel", key="cancel_agent_btn"):
+                st.session_state["agent_is_add"] = False
+                st.session_state["agent_sel"] = ""
+                st.rerun()
 
-# Sound tech add
-if st.session_state.get("sound_sel") == "__ADD_SOUND__":
-    st.markdown("**➕ Add New Sound Tech**")
-    s1, s2 = st.columns([1, 1])
-    with s1:
-        new_st_name   = st.text_input("Display Name", key="new_st_name")
-        new_st_phone  = st.text_input("Phone (optional)", key="new_st_phone")
-    with s2:
-        new_st_company = st.text_input("Company (optional)", key="new_st_company")
-        new_st_email   = st.text_input("Email (optional)", key="new_st_email")
+# --- Venue add ---
+if st.session_state.get("venue_is_add"):
+    with venue_add_box.container():
+        with st.expander("➕ Add New Venue", expanded=True):
+            v1, v2 = st.columns([1, 1])
+            with v1:
+                new_v_name  = st.text_input("Venue Name", key="new_v_name")
+                new_v_addr1 = st.text_input("Address Line 1", key="new_v_addr1")
+                new_v_city  = st.text_input("City", key="new_v_city")
+                new_v_phone = st.text_input("Phone (optional)", key="new_v_phone")
+            with v2:
+                new_v_addr2 = st.text_input("Address Line 2 (optional)", key="new_v_addr2")
+                new_v_state = st.text_input("State", key="new_v_state")
+                new_v_zip   = st.text_input("Postal Code", key="new_v_zip")
 
-    if st.button("Create Sound Tech", key="create_sound_btn"):
-        payload = _filter_to_schema("sound_techs", {
-            "display_name": (new_st_name or "").strip() or None,
-            "company": (new_st_company or "").strip() or None,
-            "phone": (new_st_phone or "").strip() or None,
-            "email": (new_st_email or "").strip() or None,
-        })
-        row = _robust_insert("sound_techs", payload)
-        if row and "id" in row:
-            st.cache_data.clear()
-            st.session_state["sound_sel_pending"] = str(row["id"])
-            st.success("Sound Tech created ✅")
-            st.rerun()
-    if st.button("Cancel", key="cancel_sound_btn"):
-        st.session_state["sound_sel"] = ""
-        st.rerun()
+            c1, c2 = st.columns([1, 1])
+            if c1.button("Create Venue", key="create_venue_btn"):
+                payload = _filter_to_schema("venues", {
+                    "name": (new_v_name or "").strip() or None,
+                    "address_line1": (new_v_addr1 or "").strip() or None,
+                    "address_line2": (new_v_addr2 or "").strip() or None,
+                    "city": (new_v_city or "").strip() or None,
+                    "state": (new_v_state or "").strip() or None,
+                    "postal_code": (new_v_zip or "").strip() or None,
+                    "phone": (new_v_phone or "").strip() or None,
+                })
+                row = _robust_insert("venues", payload)
+                if row and "id" in row:
+                    st.cache_data.clear()
+                    st.session_state["venue_is_add"] = False
+                    st.session_state["venue_sel_pending"] = str(row["id"])
+                    st.success("Venue created ✅")
+                    st.rerun()
+            if c2.button("Cancel", key="cancel_venue_btn"):
+                st.session_state["venue_is_add"] = False
+                st.session_state["venue_sel"] = ""
+                st.rerun()
 
-# Musician add per role
+# --- Sound tech add ---
+if st.session_state.get("sound_is_add"):
+    with sound_add_box.container():
+        with st.expander("➕ Add New Sound Tech", expanded=True):
+            s1, s2 = st.columns([1, 1])
+            with s1:
+                new_st_name   = st.text_input("Display Name", key="new_st_name")
+                new_st_phone  = st.text_input("Phone (optional)", key="new_st_phone")
+            with s2:
+                new_st_company = st.text_input("Company (optional)", key="new_st_company")
+                new_st_email   = st.text_input("Email (optional)", key="new_st_email")
+
+            c1, c2 = st.columns([1, 1])
+            if c1.button("Create Sound Tech", key="create_sound_btn"):
+                payload = _filter_to_schema("sound_techs", {
+                    "display_name": (new_st_name or "").strip() or None,
+                    "company": (new_st_company or "").strip() or None,
+                    "phone": (new_st_phone or "").strip() or None,
+                    "email": (new_st_email or "").strip() or None,
+                })
+                row = _robust_insert("sound_techs", payload)
+                if row and "id" in row:
+                    st.cache_data.clear()
+                    st.session_state["sound_is_add"] = False
+                    st.session_state["sound_sel_pending"] = str(row["id"])
+                    st.success("Sound Tech created ✅")
+                    st.rerun()
+            if c2.button("Cancel", key="cancel_sound_btn"):
+                st.session_state["sound_is_add"] = False
+                st.session_state["sound_sel"] = ""
+                st.rerun()
+
+# --- Musician add per role ---
 for role in ROLE_CHOICES:
     sel_id = st.session_state.get(f"mus_sel_{role}", "")
     sentinel = f"__ADD_MUS__:{role}"
-    if sel_id == sentinel:
-        st.markdown(f"**➕ Add New Musician for {role}**")
-        m1, m2, m3, m4 = st.columns([1, 1, 1, 1])
-        with m1:
-            new_mus_fn = st.text_input("First Name", key=f"new_mus_fn_{role}")
-        with m2:
-            new_mus_ln = st.text_input("Last Name", key=f"new_mus_ln_{role}")
-        with m3:
-            default_instr = role
-            new_mus_instr = st.text_input("Instrument", value=default_instr, key=f"new_mus_instr_{role}")
-        with m4:
-            new_mus_stage = st.text_input("Stage Name (optional)", key=f"new_mus_stage_{role}")
+    if st.session_state.get(f"mus_is_add_{role}") and sel_id == sentinel:
+        with role_add_boxes[role].container():
+            with st.expander(f"➕ Add New Musician for {role}", expanded=True):
+                m1, m2, m3, m4 = st.columns([1, 1, 1, 1])
+                with m1:
+                    new_mus_fn = st.text_input("First Name", key=f"new_mus_fn_{role}")
+                with m2:
+                    new_mus_ln = st.text_input("Last Name", key=f"new_mus_ln_{role}")
+                with m3:
+                    default_instr = role
+                    new_mus_instr = st.text_input("Instrument", value=default_instr, key=f"new_mus_instr_{role}")
+                with m4:
+                    new_mus_stage = st.text_input("Stage Name (optional)", key=f"new_mus_stage_{role}")
 
-        c1, c2 = st.columns([1, 1])
-        if c1.button("Create Musician", key=f"create_mus_btn_{role}"):
-            payload = _filter_to_schema("musicians", {
-                "first_name": (new_mus_fn or "").strip() or None,
-                "last_name": (new_mus_ln or "").strip() or None,
-                "stage_name": (new_mus_stage or "").strip() or None,
-                "instrument": (new_mus_instr or role or "").strip() or None,
-                "active": True if "active" in _table_columns("musicians") else None,
-            })
-            row = _robust_insert("musicians", payload)
-            if row and "id" in row:
-                st.cache_data.clear()
-                pre = st.session_state.get("preselect_role_ids", {})
-                pre[role] = str(row["id"])
-                st.session_state["preselect_role_ids"] = pre
-                st.success(f"Musician created and preselected for {role} ✅")
-                st.rerun()
-        if c2.button("Cancel", key=f"cancel_mus_btn_{role}"):
-            st.session_state[f"mus_sel_{role}"] = ""
-            st.rerun()
+                c1, c2 = st.columns([1, 1])
+                if c1.button("Create Musician", key=f"create_mus_btn_{role}"):
+                    payload = _filter_to_schema("musicians", {
+                        "first_name": (new_mus_fn or "").strip() or None,
+                        "last_name": (new_mus_ln or "").strip() or None,
+                        "stage_name": (new_mus_stage or "").strip() or None,
+                        "instrument": (new_mus_instr or role or "").strip() or None,
+                        "active": True if "active" in _table_columns("musicians") else None,
+                    })
+                    row = _robust_insert("musicians", payload)
+                    if row and "id" in row:
+                        st.cache_data.clear()
+                        pre = st.session_state.get("preselect_role_ids", {})
+                        pre[role] = str(row["id"])
+                        st.session_state["preselect_role_ids"] = pre
+                        st.session_state[f"mus_is_add_{role}"] = False
+                        st.success(f"Musician created and preselected for {role} ✅")
+                        st.rerun()
+                if c2.button("Cancel", key=f"cancel_mus_btn_{role}"):
+                    st.session_state[f"mus_is_add_{role}"] = False
+                    st.session_state[f"mus_sel_{role}"] = ""
+                    st.rerun()
 
 # ============================
 # SAVE button (single path)
