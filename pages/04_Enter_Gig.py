@@ -14,6 +14,8 @@ from lib.ui_format import format_currency  # kept for parity / future use
 # ============================
 # Page config + Auth gate
 # ============================
+# Safe admin accessor (works even if IS_ADMIN isn't defined yet)
+
 st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
 if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
@@ -47,7 +49,15 @@ def _log(channel: str, msg: str, trace: str | None = None):
         "msg": msg,
         "trace": trace,
     })
-
+# ---- Safe admin accessor (prevents NameError) ----
+def _IS_ADMIN() -> bool:
+    import streamlit as st
+    return bool(
+        st.session_state.get("IS_ADMIN",
+            st.session_state.get("is_admin", False)
+        )
+    )
+    
 with st.expander("Auto-send log (persists across reruns)", expanded=True):
     log = st.session_state["autosend_log"]
     if not log:
@@ -67,7 +77,7 @@ def _autosend_run_for(gig_id_str: str):
     import traceback
     # Snapshot (minimal)
     snap = {
-        "is_admin": bool(IS_ADMIN),
+        "is_admin": bool(_IS_ADMIN()),
         "toggles": {
             "agent": bool(st.session_state.get("autoc_send_agent_on_create", False)),
             "soundtech": bool(st.session_state.get("autoc_send_st_on_create", False)),
@@ -97,7 +107,7 @@ def _autosend_run_for(gig_id_str: str):
 
     # Sound-tech
     try:
-        enabled_st = (IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
+        enabled_st = (_IS_ADMIN() and st.session_state.get("autoc_send_st_on_create", False)
                       and not st.session_state.get("sound_by_venue_in", False))
         if not enabled_st:
             _log("Sound-tech confirmation", "SKIPPED")
@@ -120,7 +130,7 @@ def _autosend_run_for(gig_id_str: str):
 
     # Agent
     try:
-        enabled_agent = (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False))
+        enabled_agent = (_IS_ADMIN() and st.session_state.get("autoc_send_agent_on_create", False))
         if not enabled_agent:
             _log("Agent confirmation", "SKIPPED")
             _mark_done("agent")
@@ -142,7 +152,7 @@ def _autosend_run_for(gig_id_str: str):
 
     # Players
     try:
-        enabled_players = (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False))
+        enabled_players = (_IS_ADMIN() and st.session_state.get("autoc_send_players_on_create", False))
         if not enabled_players:
             _log("Player confirmations", "SKIPPED")
             _mark_done("players")
@@ -338,8 +348,6 @@ ROLE_CHOICES: List[str] = [
     "Keyboard", "Drums", "Guitar", "Bass",
     "Trumpet", "Saxophone", "Trombone",
 ]
-
-IS_ADMIN = bool(st.session_state.get("is_admin", True))
 
 # ============================
 # Session defaults (pending-select + add flags)
@@ -601,7 +609,7 @@ if is_private:
 # Finance (Admin Only)
 # ============================
 deposit_rows: List[Dict] = []
-if IS_ADMIN:
+if _IS_ADMIN():
     st.markdown("---")
     st.subheader("Finance (Admin Only)")
     add_deps = st.number_input(
@@ -933,7 +941,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             _insert_rows("gig_musicians", gm_rows)
 
     # gig_deposits
-    if IS_ADMIN and _table_exists("gig_deposits"):
+    if _IS_ADMIN() and _table_exists("gig_deposits"):
         rows: List[Dict] = []
         n = int(st.session_state.get("num_deposits", 0))
         for i in range(n):
@@ -999,7 +1007,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         )
         sent_st_key = f"sent_st_for_{gig_id}"
         if (
-            IS_ADMIN
+            _IS_ADMIN()
             and st.session_state.get("autoc_send_st_on_create", False)
             and _sound_id
             and not st.session_state.get(sent_st_key)
@@ -1055,7 +1063,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             st.write("**Agent**")
             if not _agent_ok:
                 st.caption("No agent email on file or no agent selected.")
-            disabled_agent = not (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_ok)
+            disabled_agent = not (_IS_ADMIN() and st.session_state.get("autoc_send_agent_on_create", False) and _agent_ok)
             if st.button("Send Agent Now", disabled=disabled_agent, key=f"send_agent_{gig_id}"):
                 from tools.send_agent_confirm import send_agent_confirm
                 _retry_sender("Agent confirmation", send_agent_confirm, gig_id)
@@ -1069,7 +1077,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                     if sel and not sel.startswith("__ADD_MUS__"):
                         return True
                 return False
-            disabled_players = not (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and _any_players_assigned_now())
+            disabled_players = not (_IS_ADMIN() and st.session_state.get("autoc_send_players_on_create", False) and _any_players_assigned_now())
             if not _any_players_assigned_now():
                 st.caption("No lineup selected.")
             if st.button("Send Players Now", disabled=disabled_players, key=f"send_players_{gig_id}"):
