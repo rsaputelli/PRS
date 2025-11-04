@@ -495,7 +495,7 @@ else:
 # Add-New sub-forms (rendered in the anchors right below each select)
 # ============================
 
-# --- Agent add (now with Email + Phone; dedupe by email, case-insensitive) ---
+# --- Agent add (with simple email-based dedupe) ---
 if st.session_state.get("agent_is_add"):
     with agent_add_box.container():
         with st.expander("➕ Add New Agent", expanded=True):
@@ -512,11 +512,9 @@ if st.session_state.get("agent_is_add"):
             c1, c2 = st.columns([1, 1])
             if c1.button("Create Agent", key="create_agent_btn"):
                 email_val = (new_agent_email or "").strip()
-                # If email provided, try to find existing (case-insensitive)
                 existing_id: Optional[str] = None
                 if email_val:
                     try:
-                        # ilike is case-insensitive comparison
                         res = sb.table("agents").select("id,email").ilike("email", email_val).limit(1).execute()
                         rows = res.data or []
                         if rows:
@@ -664,16 +662,6 @@ for role in ROLE_CHOICES:
                     st.session_state[f"mus_sel_{role}"] = ""
                     st.rerun()
 
-# ------- persistent debug viewer (always shows last save) -------
-if st.session_state.get("autosend_debug_dict"):
-    with st.expander("🔎 Auto-send debug (last save)", expanded=True):
-        import json
-        st.json(st.session_state["autosend_debug_dict"])
-        # Also mirror to logs every run so it's easy to find in Cloud logs
-        print("AUTO-SEND DEBUG (last save):", json.dumps(st.session_state["autosend_debug_dict"], indent=2))
-# ---------------------------------------------------------------
-
-
 # ============================
 # SAVE button (single path)
 # ============================
@@ -684,41 +672,21 @@ def _compose_datetimes(event_dt: date, start_t: time, end_t: time) -> Tuple[date
         end_dt += timedelta(days=1)
     return start_dt, end_dt
 
-# -------------------------------------------------------------------
-# Helper: resilient gig loader for immediate post-save email lookups
-# -------------------------------------------------------------------
-def _load_gig_for_email(gid: str, tries: int = 3):
-    """Fetches the gig directly from the base table (not joined views),
-    retrying briefly to let related inserts become visible."""
-    import time
-    for _ in range(tries):
-        try:
-            row = sb.table("gigs").select("*").eq("id", gid).limit(1).execute().data
-            if row:
-                return row[0]
-        except Exception:
-            pass
-        time.sleep(0.1)  # short micro-wait
-    return None
-
 if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
-    # Guard: if PRS provides sound but sentinel selected, block save
+    # If PRS provides sound but "add new" sentinel selected, block save
     if (not st.session_state.get("sound_by_venue_in", False)) and st.session_state.get("sound_sel") == "__ADD_SOUND__":
         st.error("Finish creating the new sound tech (click “Create Sound Tech”) or choose an existing one before saving.")
         st.stop()
 
-    start_dt, end_dt = _compose_datetimes(
-        event_date,            # local from date_input
-        start_time_in,         # local from _ampm_time_input
-        end_time_in,           # local from _ampm_time_input
-    )
+    # Compose start/end datetimes for UX (store only times in DB as before)
+    start_dt, end_dt = _compose_datetimes(event_date, start_time_in, end_time_in)
     if end_dt.date() > start_dt.date():
         st.info(
             f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). "
             "We’ll save event_date as the start date and keep your end time as entered."
         )
 
-    # Resolve IDs
+    # Resolve foreign keys (simple base-table references)
     agent_sel = st.session_state.get("agent_sel")
     agent_id_val = agent_sel if agent_sel not in ("", "__ADD_AGENT__") else None
 
@@ -731,11 +699,12 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         else (sound_sel if sound_sel not in ("", "__ADD_SOUND__") else None)
     )
 
-    # Build payload (sound_fee guard NaN→None already handled; may be absent in schema)
+    # Guard NaN → None for optional numeric
     _sfee_val = st.session_state.get("sound_fee_in", None)
     if _sfee_val is not None and pd.isna(_sfee_val):
         _sfee_val = None
 
+    # Build gig payload (base table only)
     gig_payload = {
         "title": st.session_state.get("title_in") or None,
         "event_date": event_date.isoformat(),
@@ -751,7 +720,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "sound_by_venue_name": st.session_state.get("sv_name_in") or None,
         "sound_by_venue_phone": st.session_state.get("sv_phone_in") or None,
         "sound_fee": float(_sfee_val) if (_sfee_val is not None and _sfee_val != 0.0) else None,
-        # private block (only if is_private)
+        # private block (only if private)
         "private_event_type": st.session_state.get("priv_type_in") or None if st.session_state.get("is_private_in") else None,
         "organizer": st.session_state.get("priv_org_in") or None if st.session_state.get("is_private_in") else None,
         "guest_of_honor": st.session_state.get("priv_gh_in") or None if st.session_state.get("is_private_in") else None,
@@ -768,7 +737,8 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
     gig_id = str(new_gig.get("id", ""))
 
-    # gig_musicians
+    # Insert lineup → gig_musicians (simple FK rows)
+    has_players_assigned = False
     if _table_exists("gig_musicians"):
         gm_rows: List[Dict] = []
         for role in ROLE_CHOICES:
@@ -781,8 +751,9 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                 }))
         if gm_rows:
             _insert_rows("gig_musicians", gm_rows)
+            has_players_assigned = True
 
-    # gig_deposits
+    # Insert deposits → gig_deposits (admin only)
     if IS_ADMIN and _table_exists("gig_deposits"):
         rows: List[Dict] = []
         n = int(st.session_state.get("num_deposits", 0))
@@ -800,7 +771,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         if rows:
             _insert_rows("gig_deposits", rows)
 
-    # Success summary
+    # Success summary (same UX as before)
     def _fmt12(t: time) -> str:
         dt0 = datetime(2000, 1, 1, t.hour, t.minute)
         return dt0.strftime("%I:%M %p").lstrip("0")
@@ -816,98 +787,58 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
-    # Optional: store the actual time objects in session for reuse elsewhere
     st.session_state["start_time_in_obj"] = start_time_in
     st.session_state["end_time_in_obj"]   = end_time_in
 
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
-    # -----------------------------
-    # Stable post-save actions
-    # -----------------------------
+    # ============================
+    # CLEAN AUTO-SEND (single-run, session-guarded)
+    # Structure mirrors sound-tech pattern for all three.
+    # ============================
+    guard_key = f"autosend_guard__{gig_id}"  # single key prevents duplicates on rerun
+    if not st.session_state.get(guard_key, False):
 
-    # 1) Sound Tech: still auto-send (with per-gig de-dupe)
-    try:
-        _sound_sel = st.session_state.get("sound_sel")
-        _sound_id  = None if st.session_state.get("sound_by_venue_in", False) else (
-            _sound_sel if _sound_sel not in ("", "__ADD_SOUND__") else None
-        )
-        sent_st_key = f"sent_st_for_{gig_id}"
-        if (
-            IS_ADMIN
-            and st.session_state.get("autoc_send_st_on_create", False)
-            and _sound_id
-            and not st.session_state.get(sent_st_key)
-        ):
-            from tools.send_soundtech_confirm import send_soundtech_confirm
-            with st.status("Sending sound-tech confirmation…", state="running") as s:
-                send_soundtech_confirm(gig_id)
-                s.update(label="Sound-tech confirmation sent", state="complete")
-            st.toast("📧 Sound-tech emailed.", icon="📧")
-            st.session_state[sent_st_key] = True
-    except Exception as e:
-        st.warning(f"Sound-tech auto-send failed: {e}")
+        # Sound Tech (if enabled and a sound tech is selected + venue is not providing sound)
+        try:
+            if (
+                IS_ADMIN
+                and st.session_state.get("autoc_send_st_on_create", False)
+                and not st.session_state.get("sound_by_venue_in", False)
+                and sound_tech_id_val
+            ):
+                from tools.send_soundtech_confirm import send_soundtech_confirm
+                with st.status("Sending sound-tech confirmation…", state="running") as s:
+                    send_soundtech_confirm(gig_id)
+                    s.update(label="Sound-tech confirmation sent", state="complete")
+                st.toast("📧 Sound-tech emailed.", icon="📧")
+        except Exception as e:
+            st.warning(f"Sound-tech auto-send failed: {e}")
 
-    # 2) Helper for Agent/Players with retry to beat 'No gig found' lag
-    def _retry_sender(label: str, fn, *args, **kwargs) -> bool:
-        import time, json
-        max_tries, delay = 8, 0.25  # ~2s
-        for i in range(1, max_tries + 1):
-            try:
-                res = fn(*args, **kwargs)
-                st.success(f"{label}: sent (try {i}/{max_tries})")
-                print(f"AUTOSEND {label} OK (try {i}):", json.dumps({"result": str(res)}, indent=2))
-                return True
-            except Exception as e:
-                msg = str(e)
-                print(f"AUTOSEND {label} ERR (try {i}): {msg}")
-                if "No gig found:" in msg and i < max_tries:
-                    time.sleep(delay)
-                    continue
-                st.error(f"{label} failed: {e}")
-                return False
-        return False
-
-    # 3) Explicit post-save controls for Agent & Players (always visible after save)
-    with st.expander("✉️ After-save email actions", expanded=True):
-        st.caption("Sound tech was sent automatically (if toggled). Send agent/players from here to avoid DB propagation timing issues.")
-
-        # Resolve agent email presence before enabling button
-        _agent_sel = st.session_state.get("agent_sel")
-        _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
-        _agent_ok  = False
-        if _agent_id:
-            try:
-                ag = sb.table("agents").select("id,email").eq("id", _agent_id).single().execute().data
-                ag_email = (ag or {}).get("email") if isinstance(ag, dict) else None
-                _agent_ok = bool(ag_email and str(ag_email).strip())
-            except Exception:
-                _agent_ok = False
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.write("**Agent**")
-            if not _agent_ok:
-                st.caption("No agent email on file or no agent selected.")
-            disabled_agent = not (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_ok)
-            if st.button("Send Agent Now", disabled=disabled_agent, key=f"send_agent_{gig_id}"):
+        # Agent (if enabled and agent selected)
+        try:
+            if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and agent_id_val:
                 from tools.send_agent_confirm import send_agent_confirm
-                _retry_sender("Agent confirmation", send_agent_confirm, gig_id)
+                with st.status("Sending agent confirmation…", state="running") as s:
+                    send_agent_confirm(gig_id)
+                    s.update(label="Agent confirmation sent", state="complete")
+                st.toast("📧 Agent emailed.", icon="📧")
+        except Exception as e:
+            st.warning(f"Agent auto-send failed: {e}")
 
-        with c2:
-            st.write("**Players**")
-            # Check lineup exists now
-            def _any_players_assigned_now() -> bool:
-                for _role in ROLE_CHOICES:
-                    sel = st.session_state.get(f"mus_sel_{_role}", "")
-                    if sel and not sel.startswith("__ADD_MUS__"):
-                        return True
-                return False
-            disabled_players = not (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and _any_players_assigned_now())
-            if not _any_players_assigned_now():
-                st.caption("No lineup selected.")
-            if st.button("Send Players Now", disabled=disabled_players, key=f"send_players_{gig_id}"):
+        # Players (if enabled and any players assigned)
+        try:
+            if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and has_players_assigned:
                 from tools.send_player_confirms import send_player_confirms
-                _retry_sender("Player confirmations", send_player_confirms, gig_id)
+                with st.status("Sending player confirmations…", state="running") as s:
+                    send_player_confirms(gig_id)
+                    s.update(label="Player confirmations sent", state="complete")
+                st.toast("📧 Players emailed.", icon="📧")
+        except Exception as e:
+            st.warning(f"Player auto-send failed: {e}")
 
+        # Mark guard so reruns don't re-trigger
+        st.session_state[guard_key] = True
+
+    # Clean exit after completion to avoid incidental reruns reprocessing state
+    st.stop()
