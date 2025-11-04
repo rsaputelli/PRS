@@ -680,9 +680,9 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         st.stop()
 
     start_dt, end_dt = _compose_datetimes(
-        st.session_state.get("event_date_in", date.today()),
-        st.session_state.get("start_time_in"),
-        st.session_state.get("end_time_in"),
+        event_date,            # local from date_input
+        start_time_in,         # local from _ampm_time_input
+        end_time_in,           # local from _ampm_time_input
     )
     if end_dt.date() > start_dt.date():
         st.info(
@@ -710,9 +710,9 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
     gig_payload = {
         "title": st.session_state.get("title_in") or None,
-        "event_date": st.session_state.get("event_date_in").isoformat(),
-        "start_time": st.session_state.get("start_time_in").strftime("%H:%M:%S"),
-        "end_time":   st.session_state.get("end_time_in").strftime("%H:%M:%S"),
+        "event_date": event_date.isoformat(),
+        "start_time": start_time_in.strftime("%H:%M:%S"),
+        "end_time":   end_time_in.strftime("%H:%M:%S"),
         "contract_status": st.session_state.get("status_in"),
         "fee": float(st.session_state.get("fee_in") or 0.0) or None,
         "agent_id": agent_id_val,
@@ -783,11 +783,15 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "id": gig_id,
         "title": new_gig.get("title"),
         "event_date": new_gig.get("event_date"),
-        "start_time (12-hr)": _fmt12(st.session_state.get("start_time_in")),
-        "end_time (12-hr)": _fmt12(st.session_state.get("end_time_in")),
+        "start_time (12-hr)": _fmt12(start_time_in),
+        "end_time (12-hr)": _fmt12(end_time_in),
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
+    # Optional: store the actual time objects in session for reuse elsewhere
+    st.session_state["start_time_in_obj"] = start_time_in
+    st.session_state["end_time_in_obj"]   = end_time_in    
+    
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
     # ============================
