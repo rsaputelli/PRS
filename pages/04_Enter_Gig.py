@@ -22,20 +22,36 @@ if "user" not in st.session_state or not st.session_state["user"]:
 render_header(title="Enter Gig", emoji="")
 st.markdown("---")
 
-# ---- Persisted auto-send log (renders every run) ----
-st.session_state.setdefault("autosend_log", [])  # list of dicts
-def _autosend_log_add(entry: dict):
-    # Keep only the last ~50 entries to avoid bloat
-    st.session_state["autosend_log"].append(entry)
-    if len(st.session_state["autosend_log"]) > 50:
-        st.session_state["autosend_log"] = st.session_state["autosend_log"][-50:]
+# ---- Persisted auto-send log (renders every run; always visible) ----
+st.session_state.setdefault("autosend_log", [])      # list[dict]
+st.session_state.setdefault("autosend_last", None)   # last entry dict
+st.session_state.setdefault("__last_trace", "")      # last raw traceback text
 
-if st.session_state["autosend_log"]:
-    with st.expander("Auto-send log (persists across reruns)", expanded=False):
-        for i, e in enumerate(st.session_state["autosend_log"], 1):
-            st.markdown(f"**{i}. {e.get('ts','')} [{e.get('run_id','-')}] {e.get('channel','-')}** — {e.get('msg','')}")
+def _autosend_log_add(entry: dict):
+    try:
+        st.session_state["autosend_log"].append(entry)
+        if len(st.session_state["autosend_log"]) > 50:
+            st.session_state["autosend_log"] = st.session_state["autosend_log"][-50:]
+        st.session_state["autosend_last"] = entry
+        if entry.get("trace"):
+            st.session_state["__last_trace"] = entry["trace"]
+    except Exception as _e:
+        st.write(f"Autosend logger failed: {_e!s}")
+
+with st.expander("Auto-send log (persists across reruns)", expanded=True):
+    log = st.session_state["autosend_log"]
+    if not log:
+        st.markdown("_No entries yet in this session._")
+    else:
+        for i, e in enumerate(log, 1):
+            ts   = e.get("ts","")
+            rid  = e.get("run_id","-")
+            chan = e.get("channel","-")
+            msg  = e.get("msg","")
+            st.markdown(f"**{i}. {ts} [{rid}] {chan}** — {msg}")
             if e.get("trace"):
                 st.code(e["trace"])
+
 
 
 # ============================
@@ -812,7 +828,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
     # ============================
-    # CLEAN AUTO-SEND (single-run, session-guarded) with persistent logging
+    # CLEAN AUTO-SEND (single-run, persistent logging + sticky trace)
     # ============================
     from time import sleep
     from datetime import datetime as _dt
@@ -848,8 +864,9 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             st.warning("Auto-send paused: gig not yet readable after save. Try again in a few seconds.")
             st.session_state[guard_key] = True
             st.stop()
-    except Exception as e:
-        _log("system", "Lookup error before autosend", traceback.format_exc())
+    except Exception:
+        tr = traceback.format_exc()
+        _log("system", "Lookup error before autosend", tr)
         st.error("Autosend aborted due to a lookup error. See log above.")
         st.session_state[guard_key] = True
         st.stop()
@@ -861,7 +878,8 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
     def _autosend_call(label: str, enabled: bool, precond: bool, module_path: str, func_name: str):
         """
-        Unified call wrapper with persistent logging, import checks, and visible status.
+        Unified call wrapper with persistent logging, import checks, and sticky traceback display.
+        NOTE: Avoid st.status here to prevent losing visible errors on rerun.
         """
         if not enabled:
             _log(label, "Not enabled; skipping.")
@@ -873,8 +891,10 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         try:
             mod = importlib.import_module(module_path)
         except Exception:
-            _log(label, f"Import failed: {module_path}", traceback.format_exc())
+            tr = traceback.format_exc()
+            _log(label, f"Import failed: {module_path}", tr)
             st.error(f"{label} autosend import failed — see log above.")
+            st.code(tr)
             return
 
         fn = getattr(mod, func_name, None)
@@ -885,17 +905,18 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
         _log(label, "Calling sender...")
         try:
-            with st.status(f"Sending {label.lower()}…", state="running") as s:
-                fn(gig_id_str)  # always pass string UUID
-                s.update(label=f"{label} sent", state="complete")
+            # Call directly (no st.status wrapper), then surface explicit success.
+            fn(gig_id_str)  # always pass string UUID
             st.toast(f"📧 {label} emailed.", icon="📧")
             _log(label, "Sent OK.")
         except Exception:
             tr = traceback.format_exc()
             _log(label, "Send failed", tr)
             st.error(f"{label} autosend failed — see log above.")
+            # Sticky inline trace so it cannot disappear even if a rerun occurs
+            st.code(tr)
 
-    # Execute three channels in the same simple pattern
+    # Execute three channels using the same pattern
     _autosend_call(
         label="Sound-tech confirmation",
         enabled=(IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
