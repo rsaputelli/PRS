@@ -25,6 +25,29 @@ if "user" not in st.session_state or not st.session_state["user"]:
 render_header(title="Enter Gig", emoji="")
 st.markdown("---")
 
+# === Email autosend toggles — init keys (do not use `value=` anywhere) ===
+for _k, _default in [
+    ("autoc_send_st_on_create", True),
+    ("autoc_send_agent_on_create", True),
+    ("autoc_send_players_on_create", True),
+]:
+    if _k not in st.session_state:
+        st.session_state[_k] = _default
+
+# === Email autosend toggles UI (admin-only) ===
+if _IS_ADMIN():
+    st.markdown("### Auto-send on Save")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.checkbox("Sound tech", key="autoc_send_st_on_create", help="Email the sound tech on save")
+    with c2:
+        st.checkbox("Agent", key="autoc_send_agent_on_create", help="Email the agent on save")
+    with c3:
+        st.checkbox("Players", key="autoc_send_players_on_create", help="Email all assigned players on save")
+else:
+    st.caption("Admin detected: **False** — toggles hidden")  # temporary sanity check; remove later
+
+
 # ---- Persisted auto-send log (renders every run; always visible) ----
 
 st.session_state.setdefault("autosend_log", [])      # list[dict]
@@ -992,6 +1015,26 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             except Exception:
                 _safe_rerun()
 
+    # === Queue autosend after save (one-time per gig) ===
+    gig_id_str = str(gig_id_str)  # ensure string UUID
+
+    if any([
+        st.session_state.get("autoc_send_st_on_create", False),
+        st.session_state.get("autoc_send_agent_on_create", False),
+        st.session_state.get("autoc_send_players_on_create", False),
+    ]):
+        guard_key = f"autosend_guard__{gig_id_str}"
+        if not st.session_state.get(guard_key, False):
+            if gig_id_str not in st.session_state["autosend_queue"]:
+                st.session_state["autosend_queue"].append(gig_id_str)
+
+            # Safe rerun to trigger autosend runner
+            try:
+                st.rerun()
+            except Exception:
+                pass
+        
+        
     # Success summary
     def _fmt12(t: time) -> str:
         dt0 = datetime(2000, 1, 1, t.hour, t.minute)
