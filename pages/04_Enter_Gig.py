@@ -823,154 +823,91 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
     # -----------------------------
-    # Auto-sends (run once, right after save)
+    # Stable post-save actions
     # -----------------------------
-    sent_key = f"sent_autos_for_{gig_id}"
 
-    # Always compute/print debug FIRST so we can see it even if sent_key is already set
-    st.cache_data.clear()
-    _gig_row = _load_gig_for_email(gig_id, tries=5)  # short retry
+    # 1) Sound Tech: still auto-send (with per-gig de-dupe)
+    try:
+        _sound_sel = st.session_state.get("sound_sel")
+        _sound_id  = None if st.session_state.get("sound_by_venue_in", False) else (
+            _sound_sel if _sound_sel not in ("", "__ADD_SOUND__") else None
+        )
+        sent_st_key = f"sent_st_for_{gig_id}"
+        if (
+            IS_ADMIN
+            and st.session_state.get("autoc_send_st_on_create", False)
+            and _sound_id
+            and not st.session_state.get(sent_st_key)
+        ):
+            from tools.send_soundtech_confirm import send_soundtech_confirm
+            with st.status("Sending sound-tech confirmation…", state="running") as s:
+                send_soundtech_confirm(gig_id)
+                s.update(label="Sound-tech confirmation sent", state="complete")
+            st.toast("📧 Sound-tech emailed.", icon="📧")
+            st.session_state[sent_st_key] = True
+    except Exception as e:
+        st.warning(f"Sound-tech auto-send failed: {e}")
 
-    # Re-resolve selected IDs safely from session
-    _agent_sel = st.session_state.get("agent_sel")
-    _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
-
-    _sound_sel = st.session_state.get("sound_sel")
-    _sound_id  = None if st.session_state.get("sound_by_venue_in", False) else (
-        _sound_sel if _sound_sel not in ("", "__ADD_SOUND__") else None
-    )
-
-    def _any_players_assigned_now() -> bool:
-        for _role in ROLE_CHOICES:
-            sel = st.session_state.get(f"mus_sel_{_role}", "")
-            if sel and not sel.startswith("__ADD_MUS__"):
+    # 2) Helper for Agent/Players with retry to beat 'No gig found' lag
+    def _retry_sender(label: str, fn, *args, **kwargs) -> bool:
+        import time, json
+        max_tries, delay = 8, 0.25  # ~2s
+        for i in range(1, max_tries + 1):
+            try:
+                res = fn(*args, **kwargs)
+                st.success(f"{label}: sent (try {i}/{max_tries})")
+                print(f"AUTOSEND {label} OK (try {i}):", json.dumps({"result": str(res)}, indent=2))
                 return True
+            except Exception as e:
+                msg = str(e)
+                print(f"AUTOSEND {label} ERR (try {i}): {msg}")
+                if "No gig found:" in msg and i < max_tries:
+                    time.sleep(delay)
+                    continue
+                st.error(f"{label} failed: {e}")
+                return False
         return False
 
-    # ---- DEBUG PANEL (always rendered) ----
-    with st.expander("🔎 Auto-send debug (temporary)", expanded=True):
-        debug_payload = {
-            "sent_key_value": st.session_state.get(sent_key),  # shows if guard will skip
-            "IS_ADMIN": IS_ADMIN,
-            "_gig_row_found": bool(_gig_row),
-            "_agent_id": _agent_id,
-            "_sound_id": _sound_id,
-            "autoc_send_agent_on_create": st.session_state.get("autoc_send_agent_on_create", None),
-            "autoc_send_st_on_create": st.session_state.get("autoc_send_st_on_create", None),
-            "autoc_send_players_on_create": st.session_state.get("autoc_send_players_on_create", None),
-            "any_players_now": _any_players_assigned_now(),
-            "sound_by_venue": st.session_state.get("sound_by_venue_in", False),
-        }
-        st.write(debug_payload)
-        st.session_state["autosend_debug_dict"] = debug_payload
+    # 3) Explicit post-save controls for Agent & Players (always visible after save)
+    with st.expander("✉️ After-save email actions", expanded=True):
+        st.caption("Sound tech was sent automatically (if toggled). Send agent/players from here to avoid DB propagation timing issues.")
 
-        import json
-        print("AUTO-SEND DEBUG:", json.dumps(debug_payload, indent=2))
-
-    # If guard says we already sent on this gig_id, show why and stop here
-    if st.session_state.get(sent_key):
-        st.caption("Auto-sends already marked complete for this gig_id; no re-send on rerun.")
-    else:
-        # --- debug helper with retry for "No gig found" timing ---
-        def _call_and_report(label: str, fn, *args, **kwargs):
-            import json, time
-            max_tries = 8         # ~2s total at 250ms each
-            delay_s   = 0.25
-
-            st.write(f"🔔 DEBUG: invoking {label} with retry…")
-            last_err = None
-            for i in range(1, max_tries + 1):
-                try:
-                    result = fn(*args, **kwargs)
-                    st.write(f"✅ DEBUG: {label} try {i}/{max_tries} returned:", result)
-                    st.session_state[f"autosend_result_{label}"] = result
-                    print(f"AUTO-SEND CALL {label} RESULT (try {i}):", json.dumps({"result": str(result)}, indent=2))
-                    return True
-                except Exception as e:
-                    msg = str(e)
-                    last_err = e
-                    print(f"AUTO-SEND CALL {label} EXC (try {i}): {msg}")
-                    # only retry on the specific propagation error
-                    if "No gig found:" in msg:
-                        time.sleep(delay_s)
-                        continue
-                    else:
-                        st.error(f"❌ {label} raised: {e}")
-                        st.session_state[f"autosend_result_{label}"] = f"RAISED: {e}"
-                        return False
-
-            # exhausted retries
-            st.error(f"❌ {label} failed after {max_tries} tries: {last_err}")
-            st.session_state[f"autosend_result_{label}"] = f"RETRIES_EXHAUSTED: {last_err}"
-            return False
-
-        # --- Agent ---
-        try:
-            if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_id:
-                ag = None
-                try:
-                    ag = sb.table("agents").select("id,email").eq("id", _agent_id).single().execute().data
-                except Exception:
-                    ag = None
+        # Resolve agent email presence before enabling button
+        _agent_sel = st.session_state.get("agent_sel")
+        _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
+        _agent_ok  = False
+        if _agent_id:
+            try:
+                ag = sb.table("agents").select("id,email").eq("id", _agent_id).single().execute().data
                 ag_email = (ag or {}).get("email") if isinstance(ag, dict) else None
-                if ag_email and str(ag_email).strip():
-                    from tools.send_agent_confirm import send_agent_confirm
-                    with st.status("Emailing agent…", state="running") as s:
-                        ok = _call_and_report("send_agent_confirm", send_agent_confirm, gig_id)
-                        s.update(label=("Agent confirmation sent" if ok else "Agent confirmation failed"), state=("complete" if ok else "error"))
-                    if ok:
-                        st.toast("📧 Agent emailed.", icon="📧")
-                else:
-                    st.info("Agent email skipped: no email on file for the selected agent.", icon="ℹ️")
-            else:
-                reasons = []
-                if not IS_ADMIN: reasons.append("not admin")
-                if not st.session_state.get("autoc_send_agent_on_create", False): reasons.append("toggle off")
-                if not _agent_id: reasons.append("no agent selected")
-                if reasons:
-                    st.caption("Agent auto-send not triggered (" + ", ".join(reasons) + ").")
-        except Exception as e:
-            st.warning(f"Agent auto-send failed: {e}")
+                _agent_ok = bool(ag_email and str(ag_email).strip())
+            except Exception:
+                _agent_ok = False
 
-        # --- Sound Tech ---
-        try:
-            if IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False) and _sound_id:
-                from tools.send_soundtech_confirm import send_soundtech_confirm
-                with st.status("Sending sound-tech confirmation…", state="running") as s:
-                    send_soundtech_confirm(gig_id)
-                    s.update(label="Sound-tech confirmation sent", state="complete")
-                st.toast("📧 Sound-tech emailed.", icon="📧")
-            else:
-                reasons = []
-                if not IS_ADMIN: reasons.append("not admin")
-                if not st.session_state.get("autoc_send_st_on_create", False): reasons.append("toggle off")
-                if not _sound_id: reasons.append("no sound tech selected or sound by venue")
-                if reasons:
-                    st.caption("Sound-tech auto-send not triggered (" + ", ".join(reasons) + ").")
-        except Exception as e:
-            st.warning(f"Sound-tech auto-send failed: {e}")
+        c1, c2 = st.columns(2)
 
-        # --- Players ---
-        try:
-            if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False):
-                if _any_players_assigned_now():
-                    from tools.send_player_confirms import send_player_confirms
-                    with st.status("Emailing players…", state="running") as s:
-                        ok = _call_and_report("send_player_confirms", send_player_confirms, gig_id)
-                        s.update(label=("Player confirmations sent" if ok else "Player confirmations failed"), state=("complete" if ok else "error"))
-                    if ok:
-                        st.toast("📧 Players emailed.", icon="📧")
-                else:
-                    st.info("Player emails skipped: no lineup selected.", icon="ℹ️")
-            else:
-                reasons = []
-                if not IS_ADMIN: reasons.append("not admin")
-                if not st.session_state.get("autoc_send_players_on_create", False): reasons.append("toggle off")
-                if reasons:
-                    st.caption("Player auto-send not triggered (" + ", ".join(reasons) + ").")
-        except Exception as e:
-            st.warning(f"Player auto-send failed: {e}")
+        with c1:
+            st.write("**Agent**")
+            if not _agent_ok:
+                st.caption("No agent email on file or no agent selected.")
+            disabled_agent = not (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_ok)
+            if st.button("Send Agent Now", disabled=disabled_agent, key=f"send_agent_{gig_id}"):
+                from tools.send_agent_confirm import send_agent_confirm
+                _retry_sender("Agent confirmation", send_agent_confirm, gig_id)
 
+        with c2:
+            st.write("**Players**")
+            # Check lineup exists now
+            def _any_players_assigned_now() -> bool:
+                for _role in ROLE_CHOICES:
+                    sel = st.session_state.get(f"mus_sel_{_role}", "")
+                    if sel and not sel.startswith("__ADD_MUS__"):
+                        return True
+                return False
+            disabled_players = not (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and _any_players_assigned_now())
+            if not _any_players_assigned_now():
+                st.caption("No lineup selected.")
+            if st.button("Send Players Now", disabled=disabled_players, key=f"send_players_{gig_id}"):
+                from tools.send_player_confirms import send_player_confirms
+                _retry_sender("Player confirmations", send_player_confirms, gig_id)
 
-        # Mark done to avoid duplicates on rerun
-        st.session_state[sent_key] = True
