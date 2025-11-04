@@ -943,6 +943,17 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         prog[name] = True
         st.session_state[prog_key] = prog  # persist after each channel
 
+    def _need_more() -> bool:
+        return not (prog["st"] and prog["agent"] and prog["players"])
+
+    def _bump_and_rerun(reason: str):
+        _log("system", f"Autosend controlled rerun: {reason}")
+        # Force a clean rerun to continue with the next channels
+        try:
+            st.rerun()           # Streamlit >=1.31+
+        except Exception:
+            st.experimental_rerun()  # fallback for older versions
+
     # ---------- Channel 1: Sound-tech ----------
     _enabled_st = (IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
                    and not st.session_state.get("sound_by_venue_in", False)
@@ -967,6 +978,8 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             st.code(tr)
         finally:
             _mark_done("st")
+            if _need_more():
+                _bump_and_rerun("advance to agent/players")
 
     # ---------- Channel 2: Agent ----------
     _enabled_agent = (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and bool(agent_id_val))
@@ -989,6 +1002,8 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             st.code(tr)
         finally:
             _mark_done("agent")
+            if _need_more():
+                _bump_and_rerun("advance to players")
 
     # ---------- Channel 3: Players ----------
     _enabled_players = (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and bool(has_players_assigned))
@@ -1013,9 +1028,9 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             _mark_done("players")
 
     # Finalize guard only when all channels processed (sent or skipped)
-    if prog["st"] and prog["agent"] and prog["players"]:
+    if not _need_more():
         st.session_state[guard_key] = True
-        # optional: clear progress for this gig to avoid clutter
+        _log("system", "Autosend complete (all channels).")
+        # Optionally clear progress for this gig
         # del st.session_state[prog_key]
-        # Clean end AFTER all three were attempted
         st.stop()
