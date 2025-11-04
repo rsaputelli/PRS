@@ -735,7 +735,10 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     if not new_gig:
         st.stop()
 
-    gig_id = str(new_gig.get("id", ""))
+    gig_id = new_gig.get("id")
+    if gig_id is None:
+        st.error("Save completed but no gig ID was returned; cannot send confirmations.")
+        st.stop()
 
     # Insert lineup → gig_musicians (simple FK rows)
     has_players_assigned = False
@@ -779,7 +782,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
     st.write({
-        "id": gig_id,
+        "id": f"{gig_id}",
         "title": new_gig.get("title"),
         "event_date": new_gig.get("event_date"),
         "start_time (12-hr)": _fmt12(start_time_in),
@@ -796,7 +799,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     # CLEAN AUTO-SEND (single-run, session-guarded)
     # Structure mirrors sound-tech pattern for all three.
     # ============================
-    guard_key = f"autosend_guard__{gig_id}"  # single key prevents duplicates on rerun
+    guard_key = f"autosend_guard__{gig_id!s}" # single key prevents duplicates on rerun
     if not st.session_state.get(guard_key, False):
 
         # Sound Tech (if enabled and a sound tech is selected + venue is not providing sound)
@@ -825,7 +828,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                 st.toast("📧 Agent emailed.", icon="📧")
         except Exception as e:
             st.warning(f"Agent auto-send failed: {e}")
-
+            st.write("Debug hint: If this says 'no gig', confirm the gig exists by ID and that the email function queries the base 'gigs' table or the correct view.")
         # Players (if enabled and any players assigned)
         try:
             if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and has_players_assigned:
@@ -836,7 +839,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                 st.toast("📧 Players emailed.", icon="📧")
         except Exception as e:
             st.warning(f"Player auto-send failed: {e}")
-
+            st.write("Debug hint: If this says 'no gig', confirm the gig exists by ID and that the email function queries the base 'gigs' table or the correct view.")
         # Mark guard so reruns don't re-trigger
         st.session_state[guard_key] = True
 
