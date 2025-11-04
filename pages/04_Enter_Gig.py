@@ -916,32 +916,70 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             # Sticky inline trace so it cannot disappear even if a rerun occurs
             st.code(tr)
 
-    # Execute three channels using the same pattern
-    _autosend_call(
-        label="Sound-tech confirmation",
-        enabled=(IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
-                 and not st.session_state.get("sound_by_venue_in", False)
-                 and bool(sound_tech_id_val)),
-        precond=True,
-        module_path="tools.send_soundtech_confirm",
-        func_name="send_soundtech_confirm",
-    )
+    # ---- Autosend snapshot for strict diagnostics ----
+    snap = {
+        "is_admin": bool(IS_ADMIN),
+        "toggles": {
+            "agent": bool(st.session_state.get("autoc_send_agent_on_create", False)),
+            "soundtech": bool(st.session_state.get("autoc_send_st_on_create", False)),
+            "players": bool(st.session_state.get("autoc_send_players_on_create", False)),
+        },
+        "preconds": {
+            "sound_by_venue": bool(st.session_state.get("sound_by_venue_in", False)),
+            "agent_id_val": bool(agent_id_val),
+            "sound_tech_id_val": bool(sound_tech_id_val),
+            "has_players_assigned": bool(has_players_assigned),
+        },
+        "gig_id_str": gig_id_str,
+    }
+    _log("snapshot", f"{snap}")
 
-    _autosend_call(
-        label="Agent confirmation",
-        enabled=(IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and bool(agent_id_val)),
-        precond=True,
-        module_path="tools.send_agent_confirm",
-        func_name="send_agent_confirm",
-    )
+    # --- Replace the old _autosend_call(...) lines with the block below ---
 
-    _autosend_call(
-        label="Player confirmations",
-        enabled=(IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and bool(has_players_assigned)),
-        precond=True,
-        module_path="tools.send_player_confirms",
-        func_name="send_player_confirms",
-    )
+    # Sound-tech
+    _enabled_st = (IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
+                   and not st.session_state.get("sound_by_venue_in", False)
+                   and bool(sound_tech_id_val))
+    if not _enabled_st:
+        _log("Sound-tech confirmation",
+             f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
+             f"sound_by_venue={st.session_state.get('sound_by_venue_in', False)}, sound_tech_id_val={bool(sound_tech_id_val)}")
+    else:
+        _autosend_call(
+            label="Sound-tech confirmation",
+            enabled=True,
+            precond=True,
+            module_path="tools.send_soundtech_confirm",
+            func_name="send_soundtech_confirm",
+        )
+
+    # Agent
+    _enabled_agent = (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and bool(agent_id_val))
+    if not _enabled_agent:
+        _log("Agent confirmation",
+             f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_agent_on_create', False)}, agent_id_val={bool(agent_id_val)}")
+    else:
+        _autosend_call(
+            label="Agent confirmation",
+            enabled=True,
+            precond=True,
+            module_path="tools.send_agent_confirm",
+            func_name="send_agent_confirm",
+        )
+
+    # Players
+    _enabled_players = (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and bool(has_players_assigned))
+    if not _enabled_players:
+        _log("Player confirmations",
+             f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_players_on_create', False)}, has_players_assigned={bool(has_players_assigned)}")
+    else:
+        _autosend_call(
+            label="Player confirmations",
+            enabled=True,
+            precond=True,
+            module_path="tools.send_player_confirms",
+            func_name="send_player_confirms",
+        )
 
     # Mark guard so reruns won't re-trigger; logs remain visible
     st.session_state[guard_key] = True
