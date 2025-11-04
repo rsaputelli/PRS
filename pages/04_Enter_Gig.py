@@ -206,13 +206,17 @@ def _autosend_run_for(gig_id_str: str):
         _log("Player confirmations",
              f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_players_on_create', False)}")
         _mark_done("players")
-    elif not prog["players"] and _autosend_once("players", gig_id_str):
-        _log("Player confirmations", "Calling sender...")
+    elif not prog["players"]:
         try:
-            from tools.send_player_confirms import send_player_confirms
-            send_player_confirms(gig_id_str)
-            st.toast("📧 Players emailed.", icon="📧")
-            _log("Player confirmations", "Sent OK.")
+            # Take the guard here so log+send happen in the same rerun
+            if not _autosend_once("players", gig_id_str):
+                _log("Player confirmations", "Skipped by guard (already handled this session).")
+            else:
+                _log("Player confirmations", "Calling sender...")
+                from tools.send_player_confirms import send_player_confirms
+                send_player_confirms(gig_id_str)
+                st.toast("📧 Players emailed.", icon="📧")
+                _log("Player confirmations", "Sent OK.")
         except Exception:
             tr = traceback.format_exc()
             _log("Player confirmations", "Send failed", tr)
@@ -220,6 +224,10 @@ def _autosend_run_for(gig_id_str: str):
             st.code(tr)
         finally:
             _mark_done("players")
+            if _need_more():
+                _bump_and_rerun("advance to done")
+                return
+
 
     # Done: pop from queue and set a guard for this gig (prevents dupes)
     if not _need_more():
