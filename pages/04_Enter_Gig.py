@@ -34,6 +34,12 @@ for _k, _default in [
     if _k not in st.session_state:
         st.session_state[_k] = _default
 
+# --- Safe admin accessor (must exist before any calls) ---
+def _IS_ADMIN() -> bool:
+    import streamlit as st
+    return bool(
+        st.session_state.get("IS_ADMIN", st.session_state.get("is_admin", False))
+    )
 # === Email autosend toggles UI (admin-only) ===
 if _IS_ADMIN():
     st.markdown("### Auto-send on Save")
