@@ -1,11 +1,8 @@
 # pages/04_Enter_Gig.py
 from __future__ import annotations
-
-import os
-from pathlib import Path
+import os, re
 from typing import Dict, List, Optional, Set, Tuple
 from datetime import date, time, datetime, timedelta
-import re
 
 import pandas as pd
 import streamlit as st
@@ -14,11 +11,10 @@ from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency  # kept for parity / future use
 
-# -----------------------------
+# ============================
 # Page config + Auth gate
-# -----------------------------
+# ============================
 st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
-
 if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
     st.stop()
@@ -26,9 +22,9 @@ if "user" not in st.session_state or not st.session_state["user"]:
 render_header(title="Enter Gig", emoji="")
 st.markdown("---")
 
-# -----------------------------
+# ============================
 # Secrets / Supabase
-# -----------------------------
+# ============================
 def _get_secret(name: str, default=None, required: bool = False):
     if hasattr(st, "secrets") and name in st.secrets:
         val = st.secrets[name]
@@ -53,9 +49,9 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
     except Exception as e:
         st.warning(f"Could not attach session; proceeding with limited access. ({e})")
 
-# -----------------------------
+# ============================
 # Cached DB helpers
-# -----------------------------
+# ============================
 @st.cache_data(ttl=60)
 def _select_df(table: str, select: str = "*", where_eq: Optional[Dict] = None, limit: Optional[int] = None) -> pd.DataFrame:
     try:
@@ -133,9 +129,9 @@ def _name_for_mus_row(r: pd.Series) -> str:
     full = " ".join([_opt_label(r.get("first_name"), ""), _opt_label(r.get("last_name"), "")]).strip()
     return full or _opt_label(r.get("display_name"), "") or "Unnamed Musician"
 
-# -----------------------------
+# ============================
 # Reference data (dropdowns)
-# -----------------------------
+# ============================
 venues_df = _select_df("venues", "*")
 sound_df  = _select_df("sound_techs", "*")
 mus_df    = _select_df("musicians", "*")
@@ -172,7 +168,7 @@ if not sound_df.empty and "id" in sound_df.columns:
         lbl = f"{dn} ({co})".strip().rstrip("()") if co else dn
         sound_labels[str(r["id"])] = lbl
 
-# Musician master labels (fallbacks)
+# Musician master labels (fallback)
 mus_labels: Dict[str, str] = {}
 if not mus_df.empty and "id" in mus_df.columns:
     if "active" in mus_df.columns:
@@ -194,17 +190,17 @@ ROLE_CHOICES: List[str] = [
 
 IS_ADMIN = bool(st.session_state.get("is_admin", True))
 
-# -----------------------------
-# Session defaults (pending-select pattern)
-# -----------------------------
+# ============================
+# Session defaults (pending-select)
+# ============================
 st.session_state.setdefault("agent_sel_pending", None)
 st.session_state.setdefault("venue_sel_pending", None)
 st.session_state.setdefault("sound_sel_pending", None)
 st.session_state.setdefault("preselect_role_ids", {})  # role -> musician_id
 
-# -----------------------------
-# Role filters
-# -----------------------------
+# ============================
+# Role filtering helpers
+# ============================
 ROLE_INSTRUMENT_MAP = {
     "Keyboard":  {"substr": ["keyboard", "keys", "piano", "pianist", "synth"]},
     "Drums":     {"substr": ["drums", "drummer", "percussion"]},
@@ -250,208 +246,219 @@ def _role_labels_for(role: str) -> Dict[str, str]:
             labels[str(r["id"])] = _name_for_mus_row(r)
     return labels
 
-# -----------------------------
-# Main form
-# -----------------------------
-with st.form("enter_gig_form"):
-    st.subheader("Event Basics")
-    eb1, eb2, eb3 = st.columns([1, 1, 1])
+# ============================
+# Event basics (no form)
+# ============================
+st.subheader("Event Basics")
+eb1, eb2, eb3 = st.columns([1, 1, 1])
 
-    with eb1:
-        title = st.text_input("Title (optional)", placeholder="e.g., Spring Gala", key="title_in")
-        event_date = st.date_input("Date of Performance", value=date.today(), key="event_date_in")
+with eb1:
+    title = st.text_input("Title (optional)", placeholder="e.g., Spring Gala", key="title_in")
+    event_date = st.date_input("Date of Performance", value=date.today(), key="event_date_in")
 
-    def _ampm_time_input(label: str, default_hour: int, default_min: int, key_prefix: str) -> time:
-        c1, c2, c3 = st.columns([1, 1, 1])
-        with c1:
-            hr12 = st.selectbox(f"{label} Hour", list(range(1, 13)), index=(default_hour % 12) - 1, key=f"{key_prefix}_hr")
-        with c2:
-            minute = st.selectbox(f"{label} Min", [0, 15, 30, 45], index=default_min // 15, key=f"{key_prefix}_min")
-        with c3:
-            ampm = st.selectbox("AM/PM", ["AM", "PM"], index=0 if default_hour < 12 else 1, key=f"{key_prefix}_ampm")
-        hour24 = (hr12 % 12) + (12 if ampm == "PM" else 0)
-        return time(hour24, minute)
+def _ampm_time_input(label: str, default_hour: int, default_min: int, key_prefix: str) -> time:
+    c1, c2, c3 = st.columns([1, 1, 1])
+    with c1:
+        # map 12-> index 11; 1-> index 0
+        default_index = (default_hour % 12) - 1
+        if default_index < 0:
+            default_index = 11
+        hr12 = st.selectbox(f"{label} Hour", list(range(1, 13)), index=default_index, key=f"{key_prefix}_hr")
+    with c2:
+        minute = st.selectbox(f"{label} Min", [0, 15, 30, 45], index=default_min // 15, key=f"{key_prefix}_min")
+    with c3:
+        ampm = st.selectbox("AM/PM", ["AM", "PM"], index=0 if default_hour < 12 else 1, key=f"{key_prefix}_ampm")
+    hour24 = (hr12 % 12) + (12 if ampm == "PM" else 0)
+    return time(hour24, minute)
 
-    with eb2:
-        contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0, key="status_in")
-        fee = st.number_input("Contracted Fee ($)", min_value=0.0, step=50.0, format="%.2f", key="fee_in")
-        start_time_in = _ampm_time_input("Start", 9, 0, key_prefix="start_time_in")
-        end_time_in   = _ampm_time_input("End",   1, 0, key_prefix="end_time_in")
+with eb2:
+    contract_status = st.selectbox("Status", ["Pending", "Hold", "Confirmed"], index=0, key="status_in")
+    fee = st.number_input("Contracted Fee ($)", min_value=0.0, step=50.0, format="%.2f", key="fee_in")
+    start_time_in = _ampm_time_input("Start", 9, 0, key_prefix="start_time_in")
+    end_time_in   = _ampm_time_input("End",   1, 0, key_prefix="end_time_in")
 
-    with eb3:
-        band_name = st.text_input("Band (optional)", placeholder="PRS", key="band_in")  # not stored today
+with eb3:
+    band_name = st.text_input("Band (optional)", placeholder="PRS", key="band_in")  # not stored today
 
-    # Agent (with sentinel + pending select)
-    AGENT_ADD = "__ADD_AGENT__"
-    agent_options = [""] + list(agent_labels.keys()) + [AGENT_ADD]
+# Agent select with sentinel + pending
+AGENT_ADD = "__ADD_AGENT__"
+agent_options = [""] + list(agent_labels.keys()) + [AGENT_ADD]
+def agent_fmt(x: str) -> str:
+    if x == "": return "(none)"
+    if x == AGENT_ADD: return "(+ Add New Agent)"
+    return agent_labels.get(x, x)
 
-    def agent_fmt(x: str) -> str:
+_pending_agent = st.session_state.pop("agent_sel_pending", None)
+if _pending_agent:
+    st.session_state["agent_sel"] = _pending_agent
+
+agent_id_sel = st.selectbox(
+    "Agent",
+    options=agent_options,
+    format_func=agent_fmt,
+    key="agent_sel",
+)
+
+# ============================
+# Venue & Sound
+# ============================
+st.markdown("---")
+st.subheader("Venue & Sound")
+
+vs1, vs2 = st.columns([1, 1])
+with vs1:
+    VENUE_ADD = "__ADD_VENUE__"
+    venue_options_ids = [""] + list(venue_labels.keys()) + [VENUE_ADD]
+    def venue_fmt(x: str) -> str:
+        if x == "": return "(select venue)"
+        if x == VENUE_ADD: return "(+ Add New Venue)"
+        return venue_labels.get(x, x)
+
+    _pending_venue = st.session_state.pop("venue_sel_pending", None)
+    if _pending_venue:
+        st.session_state["venue_sel"] = _pending_venue
+
+    venue_id_sel = st.selectbox(
+        "Venue",
+        options=venue_options_ids,
+        format_func=venue_fmt,
+        key="venue_sel",
+    )
+
+    is_private = st.checkbox("Private Event?", value=False, key="is_private_in")
+    eligible_1099 = st.checkbox("1099 Eligible", value=False, key="eligible_1099_in")
+
+with vs2:
+    SOUND_ADD = "__ADD_SOUND__"
+    sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]
+    def sound_fmt(x: str) -> str:
         if x == "": return "(none)"
-        if x == AGENT_ADD: return "(+ Add New Agent)"
-        return agent_labels.get(x, x)
+        if x == SOUND_ADD: return "(+ Add New Sound Tech)"
+        return sound_labels.get(x, x)
 
-    _pending_agent = st.session_state.pop("agent_sel_pending", None)
-    if _pending_agent:
-        st.session_state["agent_sel"] = _pending_agent
+    _pending_sound = st.session_state.pop("sound_sel_pending", None)
+    if _pending_sound:
+        st.session_state["sound_sel"] = _pending_sound
 
-    agent_id_sel = st.selectbox(
-        "Agent",
-        options=agent_options,
-        format_func=agent_fmt,
-        key="agent_sel",
+    sound_id_sel = st.selectbox(
+        "Confirmed Sound Tech",
+        options=sound_options_ids,
+        format_func=sound_fmt,
+        key="sound_sel",
     )
+    sound_by_venue = st.checkbox("Sound provided by venue?", value=False, key="sound_by_venue_in")
 
-    # Venue & Sound
+# Optional venue-provided sound contact fields
+if sound_by_venue:
+    sv1, sv2 = st.columns([1, 1])
+    with sv1:
+        sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)", key="sv_name_in")
+    with sv2:
+        sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)", key="sv_phone_in")
+    # PRS not providing; no sound fee relevant
+    sound_fee_val = None
+else:
+    sound_by_venue_name = ""
+    sound_by_venue_phone = ""
+    # Add a sound fee field when PRS provides sound; guard NaN → None
+    _sfee = st.number_input("Sound Fee ($, optional)", min_value=0.0, step=25.0, format="%.2f", key="sound_fee_in")
+    sound_fee_val = float(_sfee) if pd.notna(_sfee) else None
+
+# ============================
+# Lineup (Role Assignments)
+# ============================
+st.markdown("---")
+st.subheader("Lineup (Role Assignments)")
+lineup_cols = st.columns(3)
+preselect_roles: Dict[str, Optional[str]] = st.session_state.get("preselect_role_ids", {})
+
+for idx, role in enumerate(ROLE_CHOICES):
+    with lineup_cols[idx % 3]:
+        sentinel = f"__ADD_MUS__:{role}"
+        role_labels = _role_labels_for(role)
+        mus_options_ids = [""] + list(role_labels.keys()) + [sentinel]
+
+        def mus_fmt(x: str, _role=role):
+            if x == "": return "(unassigned)"
+            if x.startswith("__ADD_MUS__"): return "(+ Add New Musician)"
+            return role_labels.get(x, mus_labels.get(x, x))
+
+        pre_id = preselect_roles.get(role) or ""
+        sel_index = mus_options_ids.index(pre_id) if pre_id in mus_options_ids else 0
+        st.selectbox(role, options=mus_options_ids, index=sel_index,
+                     format_func=mus_fmt, key=f"mus_sel_{role}")
+
+# ============================
+# Notes & Private details
+# ============================
+st.markdown("---")
+st.subheader("Notes")
+st.text_area(
+    "Notes / Special Instructions (optional)",
+    height=100,
+    placeholder="Load-in details, parking, dress code, etc.",
+    key="notes_in",
+)
+
+if is_private:
+    st.markdown("#### Private Event Details")
+    p1, p2 = st.columns([1, 1])
+    with p1:
+        st.text_input("Type of Event (e.g., Wedding, Corporate, Birthday)", key="priv_type_in")
+        st.text_input("Organizer / Company", key="priv_org_in")
+        st.text_input("Guest(s) of Honor / Bride/Groom", key="priv_gh_in")
+    with p2:
+        st.text_input("Primary Contact (name)", key="priv_contact_in")
+        st.text_input("Contact Info (email/phone)", key="priv_contact_info_in")
+        st.text_input("Additional Musicians/Services (optional)", key="priv_addsvc_in")
+
+# ============================
+# Finance (Admin Only)
+# ============================
+deposit_rows: List[Dict] = []
+if IS_ADMIN:
     st.markdown("---")
-    st.subheader("Venue & Sound")
-    vs1, vs2 = st.columns([1, 1])
-
-    with vs1:
-        VENUE_ADD = "__ADD_VENUE__"
-        venue_options_ids = [""] + list(venue_labels.keys()) + [VENUE_ADD]
-
-        def venue_fmt(x: str) -> str:
-            if x == "": return "(select venue)"
-            if x == VENUE_ADD: return "(+ Add New Venue)"
-            return venue_labels.get(x, x)
-
-        _pending_venue = st.session_state.pop("venue_sel_pending", None)
-        if _pending_venue:
-            st.session_state["venue_sel"] = _pending_venue
-
-        venue_id_sel = st.selectbox(
-            "Venue",
-            options=venue_options_ids,
-            format_func=venue_fmt,
-            key="venue_sel",
-        )
-
-        is_private = st.checkbox("Private Event?", value=False, key="is_private_in")
-        eligible_1099 = st.checkbox("1099 Eligible", value=False, key="eligible_1099_in")
-
-    with vs2:
-        SOUND_ADD = "__ADD_SOUND__"
-        sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]
-
-        def sound_fmt(x: str) -> str:
-            if x == "": return "(none)"
-            if x == SOUND_ADD: return "(+ Add New Sound Tech)"
-            return sound_labels.get(x, x)
-
-        _pending_sound = st.session_state.pop("sound_sel_pending", None)
-        if _pending_sound:
-            st.session_state["sound_sel"] = _pending_sound
-
-        sound_id_sel = st.selectbox(
-            "Confirmed Sound Tech",
-            options=sound_options_ids,
-            format_func=sound_fmt,
-            key="sound_sel",
-        )
-
-        sound_by_venue = st.checkbox("Sound provided by venue?", value=False, key="sound_by_venue_in")
-
-    if sound_by_venue:
-        sv1, sv2 = st.columns([1, 1])
-        with sv1:
-            sound_by_venue_name = st.text_input("Venue Sound Company/Contact (optional)", key="sv_name_in")
-        with sv2:
-            sound_by_venue_phone = st.text_input("Venue Sound Phone/Email (optional)", key="sv_phone_in")
-    else:
-        sound_by_venue_name = ""
-        sound_by_venue_phone = ""
-
-    # Lineup
-    st.markdown("---")
-    st.subheader("Lineup (Role Assignments)")
-    lineup_cols = st.columns(3)
-    preselect_roles: Dict[str, Optional[str]] = st.session_state.get("preselect_role_ids", {})
-
-    for idx, role in enumerate(ROLE_CHOICES):
-        with lineup_cols[idx % 3]:
-            sentinel = f"__ADD_MUS__:{role}"
-            role_labels = _role_labels_for(role)
-            mus_options_ids = [""] + list(role_labels.keys()) + [sentinel]
-
-            def mus_fmt(x: str, _role=role):
-                if x == "": return "(unassigned)"
-                if x.startswith("__ADD_MUS__"): return "(+ Add New Musician)"
-                return role_labels.get(x, mus_labels.get(x, x))
-
-            pre_id = preselect_roles.get(role) or ""
-            sel_index = mus_options_ids.index(pre_id) if pre_id in mus_options_ids else 0
-            st.selectbox(role, options=mus_options_ids, index=sel_index,
-                         format_func=mus_fmt, key=f"mus_sel_{role}")
-
-    # Notes & Private details
-    st.markdown("---")
-    st.subheader("Notes")
-    st.text_area(
-        "Notes / Special Instructions (optional)",
-        height=100,
-        placeholder="Load-in details, parking, dress code, etc.",
-        key="notes_in",
+    st.subheader("Finance (Admin Only)")
+    add_deps = st.number_input(
+        "Number of deposits (0–4)", min_value=0, max_value=4, step=1,
+        value=int(st.session_state.get("num_deposits", 0)), key="num_deposits"
     )
+    for i in range(int(add_deps)):
+        cdl, cda, cdm = st.columns([1, 1, 1])
+        with cdl:
+            st.date_input(f"Deposit {i+1} due", value=date.today(), key=f"dep_due_{i}")
+        with cda:
+            st.number_input(f"Deposit {i+1} amount", min_value=0.0, step=50.0, format="%.2f", key=f"dep_amt_{i}")
+        with cdm:
+            st.checkbox(f"Deposit {i+1} is % of fee", value=False, key=f"dep_pct_{i}")
 
-    if is_private:
-        st.markdown("#### Private Event Details")
-        p1, p2 = st.columns([1, 1])
-        with p1:
-            st.text_input("Type of Event (e.g., Wedding, Corporate, Birthday)", key="priv_type_in")
-            st.text_input("Organizer / Company", key="priv_org_in")
-            st.text_input("Guest(s) of Honor / Bride/Groom", key="priv_gh_in")
-        with p2:
-            st.text_input("Primary Contact (name)", key="priv_contact_in")
-            st.text_input("Contact Info (email/phone)", key="priv_contact_info_in")
-            st.text_input("Additional Musicians/Services (optional)", key="priv_addsvc_in")
+    st.markdown("##### Auto-send on Save")
+    st.checkbox(
+        "Agent Confirmation",
+        value=True,
+        key="autoc_send_agent_on_create",
+        help="Sends an email to the agent after saving the gig.",
+    )
+    st.checkbox(
+        "Sound Tech Confirmation",
+        value=True,
+        key="autoc_send_st_on_create",
+        help="Sends an email to the sound tech after saving the gig.",
+    )
+    st.checkbox(
+        "Player Confirmations",
+        value=False,
+        key="autoc_send_players_on_create",
+        help="Emails players after saving the gig.",
+    )
+else:
+    st.session_state["autoc_send_agent_on_create"] = False
+    st.session_state["autoc_send_st_on_create"] = False
+    st.session_state["autoc_send_players_on_create"] = False
 
-    # Finance (Admin Only)
-    if IS_ADMIN:
-        st.markdown("---")
-        st.subheader("Finance (Admin Only)")
-        add_deps = st.number_input(
-            "Number of deposits (0–4)", min_value=0, max_value=4, step=1,
-            value=int(st.session_state.get("num_deposits", 0)), key="num_deposits"
-        )
-        for i in range(int(add_deps)):
-            cdl, cda, cdm = st.columns([1, 1, 1])
-            with cdl:
-                st.date_input(f"Deposit {i+1} due", value=date.today(), key=f"dep_due_{i}")
-            with cda:
-                st.number_input(f"Deposit {i+1} amount", min_value=0.0, step=50.0, format="%.2f", key=f"dep_amt_{i}")
-            with cdm:
-                st.checkbox(f"Deposit {i+1} is % of fee", value=False, key=f"dep_pct_{i}")
-
-        st.markdown("##### Auto-send on Save")
-        st.checkbox(
-            "Agent Confirmation",
-            value=True,
-            key="autoc_send_agent_on_create",
-            help="Sends an email to the agent after saving the gig.",
-        )
-        st.checkbox(
-            "Sound Tech Confirmation",
-            value=True,
-            key="autoc_send_st_on_create",
-            help="Sends an email to the sound tech after saving the gig.",
-        )
-        st.checkbox(
-            "Player Confirmations",
-            value=False,
-            key="autoc_send_players_on_create",
-            help="Emails players after saving the gig.",
-        )
-    else:
-        st.session_state["autoc_send_agent_on_create"] = False
-        st.session_state["autoc_send_st_on_create"] = False
-        st.session_state["autoc_send_players_on_create"] = False
-
-    # One submit button
-    submit = st.form_submit_button("💾 Save Gig", key="enter_save_gig_btn")
-
-# =============================
-# POST-FORM: Add-New sub-forms (sentinel-driven)
-# =============================
+# ============================
+# Add-New sub-forms (sentinel-driven)
+# ============================
 
 # Agent add
 if st.session_state.get("agent_sel") == "__ADD_AGENT__":
@@ -475,7 +482,6 @@ if st.session_state.get("agent_sel") == "__ADD_AGENT__":
             st.session_state["agent_sel_pending"] = str(row["id"])
             st.success("Agent created ✅")
             st.rerun()
-
     if st.button("Cancel", key="cancel_agent_btn"):
         st.session_state["agent_sel"] = ""
         st.rerun()
@@ -510,7 +516,6 @@ if st.session_state.get("venue_sel") == "__ADD_VENUE__":
             st.session_state["venue_sel_pending"] = str(row["id"])
             st.success("Venue created ✅")
             st.rerun()
-
     if st.button("Cancel", key="cancel_venue_btn"):
         st.session_state["venue_sel"] = ""
         st.rerun()
@@ -539,12 +544,11 @@ if st.session_state.get("sound_sel") == "__ADD_SOUND__":
             st.session_state["sound_sel_pending"] = str(row["id"])
             st.success("Sound Tech created ✅")
             st.rerun()
-
     if st.button("Cancel", key="cancel_sound_btn"):
         st.session_state["sound_sel"] = ""
         st.rerun()
 
-# Musician add per role (sentinel already chosen in form)
+# Musician add per role
 for role in ROLE_CHOICES:
     sel_id = st.session_state.get(f"mus_sel_{role}", "")
     sentinel = f"__ADD_MUS__:{role}"
@@ -578,40 +582,38 @@ for role in ROLE_CHOICES:
                 st.session_state["preselect_role_ids"] = pre
                 st.success(f"Musician created and preselected for {role} ✅")
                 st.rerun()
-
         if c2.button("Cancel", key=f"cancel_mus_btn_{role}"):
             st.session_state[f"mus_sel_{role}"] = ""
             st.rerun()
 
-# =============================
-# SAVE PATH (after submit)
-# =============================
-if submit:
-    # Disallow save while sentinel is selected for Sound (unless venue provides sound)
+# ============================
+# SAVE button (single path)
+# ============================
+def _compose_datetimes(event_dt: date, start_t: time, end_t: time) -> Tuple[datetime, datetime]:
+    start_dt = datetime.combine(event_dt, start_t)
+    end_dt = datetime.combine(event_dt, end_t)
+    if end_dt <= start_dt:
+        end_dt += timedelta(days=1)
+    return start_dt, end_dt
+
+if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
+    # Guard: if PRS provides sound but sentinel selected, block save
     if (not st.session_state.get("sound_by_venue_in", False)) and st.session_state.get("sound_sel") == "__ADD_SOUND__":
         st.error("Finish creating the new sound tech (click “Create Sound Tech”) or choose an existing one before saving.")
         st.stop()
-
-    def _compose_datetimes(event_dt: date, start_t: time, end_t: time) -> Tuple[datetime, datetime]:
-        start_dt = datetime.combine(event_dt, start_t)
-        end_dt = datetime.combine(event_dt, end_t)
-        if end_dt <= start_dt:
-            end_dt += timedelta(days=1)
-        return start_dt, end_dt
 
     start_dt, end_dt = _compose_datetimes(
         st.session_state.get("event_date_in", date.today()),
         st.session_state.get("start_time_in"),
         st.session_state.get("end_time_in"),
     )
-
     if end_dt.date() > start_dt.date():
         st.info(
             f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). "
             "We’ll save event_date as the start date and keep your end time as entered."
         )
 
-    # Resolve IDs (ignore sentinel)
+    # Resolve IDs
     agent_sel = st.session_state.get("agent_sel")
     agent_id_val = agent_sel if agent_sel not in ("", "__ADD_AGENT__") else None
 
@@ -624,10 +626,10 @@ if submit:
         else (sound_sel if sound_sel not in ("", "__ADD_SOUND__") else None)
     )
 
-    # Build payload
-    def _format_12h(t: time) -> str:
-        dt0 = datetime(2000, 1, 1, t.hour, t.minute)
-        return dt0.strftime("%I:%M %p").lstrip("0")
+    # Build payload (sound_fee guard NaN→None already handled; may be absent in schema)
+    _sfee_val = st.session_state.get("sound_fee_in", None)
+    if _sfee_val is not None and pd.isna(_sfee_val):
+        _sfee_val = None
 
     gig_payload = {
         "title": st.session_state.get("title_in") or None,
@@ -643,7 +645,8 @@ if submit:
         "notes": st.session_state.get("notes_in") or None,
         "sound_by_venue_name": st.session_state.get("sv_name_in") or None,
         "sound_by_venue_phone": st.session_state.get("sv_phone_in") or None,
-        # private block:
+        "sound_fee": float(_sfee_val) if (_sfee_val is not None and _sfee_val != 0.0) else None,
+        # private block (only if is_private)
         "private_event_type": st.session_state.get("priv_type_in") or None if st.session_state.get("is_private_in") else None,
         "organizer": st.session_state.get("priv_org_in") or None if st.session_state.get("is_private_in") else None,
         "guest_of_honor": st.session_state.get("priv_gh_in") or None if st.session_state.get("is_private_in") else None,
@@ -653,6 +656,7 @@ if submit:
     }
     gig_payload = _filter_to_schema("gigs", gig_payload)
 
+    # Insert gig
     new_gig = _robust_insert("gigs", gig_payload)
     if not new_gig:
         st.stop()
@@ -660,17 +664,18 @@ if submit:
     gig_id = str(new_gig.get("id", ""))
 
     # gig_musicians
-    gm_rows: List[Dict] = []
-    for role in ROLE_CHOICES:
-        sel = st.session_state.get(f"mus_sel_{role}", "")
-        if sel and not sel.startswith("__ADD_MUS__"):
-            gm_rows.append(_filter_to_schema("gig_musicians", {
-                "gig_id": gig_id,
-                "role": role,
-                "musician_id": sel,
-            }))
-    if _table_exists("gig_musicians") and gm_rows:
-        _insert_rows("gig_musicians", gm_rows)
+    if _table_exists("gig_musicians"):
+        gm_rows: List[Dict] = []
+        for role in ROLE_CHOICES:
+            sel = st.session_state.get(f"mus_sel_{role}", "")
+            if sel and not sel.startswith("__ADD_MUS__"):
+                gm_rows.append(_filter_to_schema("gig_musicians", {
+                    "gig_id": gig_id,
+                    "role": role,
+                    "musician_id": sel,
+                }))
+        if gm_rows:
+            _insert_rows("gig_musicians", gm_rows)
 
     # gig_deposits
     if IS_ADMIN and _table_exists("gig_deposits"):
@@ -691,20 +696,26 @@ if submit:
             _insert_rows("gig_deposits", rows)
 
     # Success summary
+    def _fmt12(t: time) -> str:
+        dt0 = datetime(2000, 1, 1, t.hour, t.minute)
+        return dt0.strftime("%I:%M %p").lstrip("0")
+
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
     st.write({
         "id": gig_id,
         "title": new_gig.get("title"),
         "event_date": new_gig.get("event_date"),
-        "start_time (12-hr)": _format_12h(st.session_state.get("start_time_in")),
-        "end_time (12-hr)": _format_12h(st.session_state.get("end_time_in")),
+        "start_time (12-hr)": _fmt12(st.session_state.get("start_time_in")),
+        "end_time (12-hr)": _fmt12(st.session_state.get("end_time_in")),
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
-    # Auto-sends (admin only toggles)
+    # ============================
+    # Auto-sends
+    # ============================
     try:
         if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and agent_id_val:
             from tools.send_agent_confirm import send_agent_confirm
