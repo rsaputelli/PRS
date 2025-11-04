@@ -799,8 +799,33 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     # CLEAN AUTO-SEND (single-run, session-guarded)
     # Structure mirrors sound-tech pattern for all three.
     # ============================
-    guard_key = f"autosend_guard__{gig_id!s}" # single key prevents duplicates on rerun
+    from time import sleep
+
+    gig_id_str = f"{gig_id}"  # ensure string UUID for downstream send_* functions
+    guard_key = f"autosend_guard__{gig_id_str}"  # single key prevents duplicates on rerun
+
     if not st.session_state.get(guard_key, False):
+        # Read-your-writes warm-up: ensure the new gig is queryable before emailing
+        try:
+            found = False
+            for _ in range(6):  # ~1.2s max
+                try:
+                    chk = sb.table("gigs").select("id").eq("id", gig_id_str).limit(1).execute()
+                    if (chk.data or []) and str(chk.data[0].get("id")) == gig_id_str:
+                        found = True
+                        break
+                except Exception:
+                    pass
+                sleep(0.2)
+            if not found:
+                st.warning("Auto-send paused: gig not yet readable after save. Try saving again in a few seconds.")
+                st.session_state[guard_key] = True
+                st.stop()
+        except Exception as e:
+            st.exception(e)
+            st.warning("Auto-send aborted due to a lookup error.")
+            st.session_state[guard_key] = True
+            st.stop()
 
         # Sound Tech (if enabled and a sound tech is selected + venue is not providing sound)
         try:
@@ -812,34 +837,37 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             ):
                 from tools.send_soundtech_confirm import send_soundtech_confirm
                 with st.status("Sending sound-tech confirmation…", state="running") as s:
-                    send_soundtech_confirm(gig_id)
+                    send_soundtech_confirm(gig_id_str)  # pass string UUID
                     s.update(label="Sound-tech confirmation sent", state="complete")
                 st.toast("📧 Sound-tech emailed.", icon="📧")
         except Exception as e:
-            st.warning(f"Sound-tech auto-send failed: {e}")
+            st.exception(e)
+            st.error("Sound-tech auto-send failed (trace above).")
 
         # Agent (if enabled and agent selected)
         try:
             if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and agent_id_val:
                 from tools.send_agent_confirm import send_agent_confirm
                 with st.status("Sending agent confirmation…", state="running") as s:
-                    send_agent_confirm(gig_id)
+                    send_agent_confirm(gig_id_str)  # pass string UUID
                     s.update(label="Agent confirmation sent", state="complete")
                 st.toast("📧 Agent emailed.", icon="📧")
         except Exception as e:
-            st.warning(f"Agent auto-send failed: {e}")
-            st.write("Debug hint: If this says 'no gig', confirm the gig exists by ID and that the email function queries the base 'gigs' table or the correct view.")
+            st.exception(e)
+            st.error("Agent auto-send failed (trace above).")
+
         # Players (if enabled and any players assigned)
         try:
             if IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and has_players_assigned:
                 from tools.send_player_confirms import send_player_confirms
                 with st.status("Sending player confirmations…", state="running") as s:
-                    send_player_confirms(gig_id)
+                    send_player_confirms(gig_id_str)  # pass string UUID
                     s.update(label="Player confirmations sent", state="complete")
                 st.toast("📧 Players emailed.", icon="📧")
         except Exception as e:
-            st.warning(f"Player auto-send failed: {e}")
-            st.write("Debug hint: If this says 'no gig', confirm the gig exists by ID and that the email function queries the base 'gigs' table or the correct view.")
+            st.exception(e)
+            st.error("Player auto-send failed (trace above).")
+
         # Mark guard so reruns don't re-trigger
         st.session_state[guard_key] = True
 
