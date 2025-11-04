@@ -26,6 +26,7 @@ st.markdown("---")
 st.session_state.setdefault("autosend_log", [])      # list[dict]
 st.session_state.setdefault("autosend_last", None)   # last entry dict
 st.session_state.setdefault("__last_trace", "")      # last raw traceback text
+st.session_state.setdefault("autosend_queue", [])    # queue of gig_id strings
 
 def _autosend_log_add(entry: dict):
     try:
@@ -37,6 +38,15 @@ def _autosend_log_add(entry: dict):
             st.session_state["__last_trace"] = entry["trace"]
     except Exception as _e:
         st.write(f"Autosend logger failed: {_e!s}")
+
+def _log(channel: str, msg: str, trace: str | None = None):
+    _autosend_log_add({
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "run_id": f"{random.randint(0, 2**32-1):08x}",
+        "channel": channel,
+        "msg": msg,
+        "trace": trace,
+    })
 
 with st.expander("Auto-send log (persists across reruns)", expanded=True):
     log = st.session_state["autosend_log"]
@@ -51,6 +61,114 @@ with st.expander("Auto-send log (persists across reruns)", expanded=True):
             st.markdown(f"**{i}. {ts} [{rid}] {chan}** — {msg}")
             if e.get("trace"):
                 st.code(e["trace"])
+
+# ===== AUTOSEND RUNTIME (always-on) =====
+def _autosend_run_for(gig_id_str: str):
+    import traceback
+    # Snapshot (minimal)
+    snap = {
+        "is_admin": bool(IS_ADMIN),
+        "toggles": {
+            "agent": bool(st.session_state.get("autoc_send_agent_on_create", False)),
+            "soundtech": bool(st.session_state.get("autoc_send_st_on_create", False)),
+            "players": bool(st.session_state.get("autoc_send_players_on_create", False)),
+        },
+        "gig_id_str": gig_id_str,
+    }
+    _log("snapshot", f"{snap}")
+
+    prog_key = f"autosend_progress__{gig_id_str}"
+    prog = st.session_state.get(prog_key) or {"st": False, "agent": False, "players": False}
+    st.session_state[prog_key] = prog
+
+    def _mark_done(name: str):
+        prog[name] = True
+        st.session_state[prog_key] = prog
+
+    def _need_more() -> bool:
+        return not (prog["st"] and prog["agent"] and prog["players"])
+
+    def _bump_and_rerun(why: str):
+        _log("system", f"Autosend controlled rerun: {why}")
+        try:
+            st.rerun()
+        except Exception:
+            st.experimental_rerun()
+
+    # Sound-tech
+    try:
+        enabled_st = (IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
+                      and not st.session_state.get("sound_by_venue_in", False))
+        if not enabled_st:
+            _log("Sound-tech confirmation", "SKIPPED")
+            _mark_done("st")
+        elif not prog["st"]:
+            _log("Sound-tech confirmation", "Calling sender...")
+            from tools.send_soundtech_confirm import send_soundtech_confirm
+            send_soundtech_confirm(gig_id_str)
+            st.toast("📧 Sound-tech emailed.", icon="📧")
+            _log("Sound-tech confirmation", "Sent OK.")
+            _mark_done("st")
+            if _need_more():
+                _bump_and_rerun("advance to agent/players"); return
+    except Exception:
+        tr = traceback.format_exc()
+        _log("Sound-tech confirmation", "Send failed", tr)
+        st.error("Sound-tech autosend failed — see log above.")
+        st.code(tr)
+        _mark_done("st")
+
+    # Agent
+    try:
+        enabled_agent = (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False))
+        if not enabled_agent:
+            _log("Agent confirmation", "SKIPPED")
+            _mark_done("agent")
+        elif not prog["agent"]:
+            _log("Agent confirmation", "Calling sender...")
+            from tools.send_agent_confirm import send_agent_confirm
+            send_agent_confirm(gig_id_str)
+            st.toast("📧 Agent emailed.", icon="📧")
+            _log("Agent confirmation", "Sent OK.")
+            _mark_done("agent")
+            if _need_more():
+                _bump_and_rerun("advance to players"); return
+    except Exception:
+        tr = traceback.format_exc()
+        _log("Agent confirmation", "Send failed", tr)
+        st.error("Agent autosend failed — see log above.")
+        st.code(tr)
+        _mark_done("agent")
+
+    # Players
+    try:
+        enabled_players = (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False))
+        if not enabled_players:
+            _log("Player confirmations", "SKIPPED")
+            _mark_done("players")
+        elif not prog["players"]:
+            _log("Player confirmations", "Calling sender...")
+            from tools.send_player_confirms import send_player_confirms
+            send_player_confirms(gig_id_str)
+            st.toast("📧 Players emailed.", icon="📧")
+            _log("Player confirmations", "Sent OK.")
+            _mark_done("players")
+    except Exception:
+        tr = traceback.format_exc()
+        _log("Player confirmations", "Send failed", tr)
+        st.error("Player autosend failed — see log above.")
+        st.code(tr)
+        _mark_done("players")
+
+    if not _need_more():
+        _log("system", "Autosend complete (all channels).")
+        st.session_state[f"autosend_guard__{gig_id_str}"] = True
+        if st.session_state["autosend_queue"] and st.session_state["autosend_queue"][0] == gig_id_str:
+            st.session_state["autosend_queue"] = st.session_state["autosend_queue"][1:]
+
+# Kick runner if queue has work
+if st.session_state["autosend_queue"]:
+    _autosend_run_for(st.session_state["autosend_queue"][0])
 
 
 
@@ -527,7 +645,7 @@ else:
 # Add-New sub-forms (rendered in the anchors right below each select)
 # ============================
 
-# --- Agent add (with simple email-based dedupe) ---
+# --- Agent add (now with Email + Phone; dedupe by email, case-insensitive) ---
 if st.session_state.get("agent_is_add"):
     with agent_add_box.container():
         with st.expander("➕ Add New Agent", expanded=True):
@@ -544,9 +662,11 @@ if st.session_state.get("agent_is_add"):
             c1, c2 = st.columns([1, 1])
             if c1.button("Create Agent", key="create_agent_btn"):
                 email_val = (new_agent_email or "").strip()
+                # If email provided, try to find existing (case-insensitive)
                 existing_id: Optional[str] = None
                 if email_val:
                     try:
+                        # ilike is case-insensitive comparison
                         res = sb.table("agents").select("id,email").ilike("email", email_val).limit(1).execute()
                         rows = res.data or []
                         if rows:
@@ -694,6 +814,16 @@ for role in ROLE_CHOICES:
                     st.session_state[f"mus_sel_{role}"] = ""
                     st.rerun()
 
+# ------- persistent debug viewer (always shows last save) -------
+if st.session_state.get("autosend_debug_dict"):
+    with st.expander("🔎 Auto-send debug (last save)", expanded=True):
+        import json
+        st.json(st.session_state["autosend_debug_dict"])
+        # Also mirror to logs every run so it's easy to find in Cloud logs
+        print("AUTO-SEND DEBUG (last save):", json.dumps(st.session_state["autosend_debug_dict"], indent=2))
+# ---------------------------------------------------------------
+
+
 # ============================
 # SAVE button (single path)
 # ============================
@@ -704,21 +834,41 @@ def _compose_datetimes(event_dt: date, start_t: time, end_t: time) -> Tuple[date
         end_dt += timedelta(days=1)
     return start_dt, end_dt
 
+# -------------------------------------------------------------------
+# Helper: resilient gig loader for immediate post-save email lookups
+# -------------------------------------------------------------------
+def _load_gig_for_email(gid: str, tries: int = 3):
+    """Fetches the gig directly from the base table (not joined views),
+    retrying briefly to let related inserts become visible."""
+    import time
+    for _ in range(tries):
+        try:
+            row = sb.table("gigs").select("*").eq("id", gid).limit(1).execute().data
+            if row:
+                return row[0]
+        except Exception:
+            pass
+        time.sleep(0.1)  # short micro-wait
+    return None
+
 if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
-    # If PRS provides sound but "add new" sentinel selected, block save
+    # Guard: if PRS provides sound but sentinel selected, block save
     if (not st.session_state.get("sound_by_venue_in", False)) and st.session_state.get("sound_sel") == "__ADD_SOUND__":
         st.error("Finish creating the new sound tech (click “Create Sound Tech”) or choose an existing one before saving.")
         st.stop()
 
-    # Compose start/end datetimes for UX (store only times in DB as before)
-    start_dt, end_dt = _compose_datetimes(event_date, start_time_in, end_time_in)
+    start_dt, end_dt = _compose_datetimes(
+        event_date,            # local from date_input
+        start_time_in,         # local from _ampm_time_input
+        end_time_in,           # local from _ampm_time_input
+    )
     if end_dt.date() > start_dt.date():
         st.info(
             f"This gig ends next day ({end_dt.strftime('%Y-%m-%d %I:%M %p')}). "
             "We’ll save event_date as the start date and keep your end time as entered."
         )
 
-    # Resolve foreign keys (simple base-table references)
+    # Resolve IDs
     agent_sel = st.session_state.get("agent_sel")
     agent_id_val = agent_sel if agent_sel not in ("", "__ADD_AGENT__") else None
 
@@ -731,12 +881,11 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         else (sound_sel if sound_sel not in ("", "__ADD_SOUND__") else None)
     )
 
-    # Guard NaN → None for optional numeric
+    # Build payload (sound_fee guard NaN→None already handled; may be absent in schema)
     _sfee_val = st.session_state.get("sound_fee_in", None)
     if _sfee_val is not None and pd.isna(_sfee_val):
         _sfee_val = None
 
-    # Build gig payload (base table only)
     gig_payload = {
         "title": st.session_state.get("title_in") or None,
         "event_date": event_date.isoformat(),
@@ -752,7 +901,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "sound_by_venue_name": st.session_state.get("sv_name_in") or None,
         "sound_by_venue_phone": st.session_state.get("sv_phone_in") or None,
         "sound_fee": float(_sfee_val) if (_sfee_val is not None and _sfee_val != 0.0) else None,
-        # private block (only if private)
+        # private block (only if is_private)
         "private_event_type": st.session_state.get("priv_type_in") or None if st.session_state.get("is_private_in") else None,
         "organizer": st.session_state.get("priv_org_in") or None if st.session_state.get("is_private_in") else None,
         "guest_of_honor": st.session_state.get("priv_gh_in") or None if st.session_state.get("is_private_in") else None,
@@ -767,13 +916,9 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     if not new_gig:
         st.stop()
 
-    gig_id = new_gig.get("id")
-    if gig_id is None:
-        st.error("Save completed but no gig ID was returned; cannot send confirmations.")
-        st.stop()
+    gig_id = str(new_gig.get("id", ""))
 
-    # Insert lineup → gig_musicians (simple FK rows)
-    has_players_assigned = False
+    # gig_musicians
     if _table_exists("gig_musicians"):
         gm_rows: List[Dict] = []
         for role in ROLE_CHOICES:
@@ -786,9 +931,8 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                 }))
         if gm_rows:
             _insert_rows("gig_musicians", gm_rows)
-            has_players_assigned = True
 
-    # Insert deposits → gig_deposits (admin only)
+    # gig_deposits
     if IS_ADMIN and _table_exists("gig_deposits"):
         rows: List[Dict] = []
         n = int(st.session_state.get("num_deposits", 0))
@@ -806,7 +950,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         if rows:
             _insert_rows("gig_deposits", rows)
 
-    # Success summary (same UX as before)
+    # Success summary
     def _fmt12(t: time) -> str:
         dt0 = datetime(2000, 1, 1, t.hour, t.minute)
         return dt0.strftime("%I:%M %p").lstrip("0")
@@ -814,7 +958,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
     st.write({
-        "id": f"{gig_id}",
+        "id": gig_id,
         "title": new_gig.get("title"),
         "event_date": new_gig.get("event_date"),
         "start_time (12-hr)": _fmt12(start_time_in),
@@ -822,215 +966,113 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
+    # Optional: store the actual time objects in session for reuse elsewhere
     st.session_state["start_time_in_obj"] = start_time_in
     st.session_state["end_time_in_obj"]   = end_time_in
 
     st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
-    # ============================
-    # CLEAN AUTO-SEND (single-run, persistent logging + sticky trace)
-    # ============================
-    from time import sleep
-    from datetime import datetime as _dt
-    import importlib, traceback, uuid
+    # Enqueue autosend if toggles are on, then rerun so the always-on runner processes it
+    if any([
+        st.session_state.get("autoc_send_st_on_create", False),
+        st.session_state.get("autoc_send_agent_on_create", False),
+        st.session_state.get("autoc_send_players_on_create", False),
+    ]):
+        st.session_state.setdefault("autosend_queue", [])
+        if gig_id not in st.session_state["autosend_queue"]:
+            st.session_state["autosend_queue"].append(gig_id)
+        try:
+            st.rerun()
+        except Exception:
+            st.experimental_rerun()
 
-    gig_id_str = f"{gig_id}"
-    guard_key = f"autosend_guard__{gig_id_str}"
-    run_id = str(uuid.uuid4())[:8]
 
-    def _log(channel: str, msg: str, trace: str = ""):
-        _autosend_log_add({
-            "ts": _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "run_id": run_id,
-            "channel": channel,
-            "msg": msg,
-            "trace": trace,
-        })
+    # -----------------------------
+    # Stable post-save actions
+    # -----------------------------
 
-    # Ensure read-your-writes before attempting email lookups
+    # 1) Sound Tech: still auto-send (with per-gig de-dupe)
     try:
-        found = False
-        for _ in range(8):  # up to ~1.6s
-            try:
-                chk = sb.table("gigs").select("id").eq("id", gig_id_str).limit(1).execute()
-                if (chk.data or []) and str(chk.data[0].get("id")) == gig_id_str:
-                    found = True
-                    break
-            except Exception:
-                pass
-            sleep(0.2)
-        if not found:
-            _log("system", "Gig not readable yet after save; autosend paused.")
-            st.warning("Auto-send paused: gig not yet readable after save. Try again in a few seconds.")
-            st.session_state[guard_key] = True
-            st.stop()
-    except Exception:
-        tr = traceback.format_exc()
-        _log("system", "Lookup error before autosend", tr)
-        st.error("Autosend aborted due to a lookup error. See log above.")
-        st.session_state[guard_key] = True
-        st.stop()
-
-    # Single-run guard
-    if st.session_state.get(guard_key, False):
-        _log("system", "Guard active, skipping duplicate autosend.")
-        st.stop()
-
-    def _autosend_call(label: str, enabled: bool, precond: bool, module_path: str, func_name: str):
-        """
-        Unified call wrapper with persistent logging, import checks, and sticky traceback display.
-        NOTE: Avoid st.status here to prevent losing visible errors on rerun.
-        """
-        if not enabled:
-            _log(label, "Not enabled; skipping.")
-            return
-        if not precond:
-            _log(label, "Precondition failed; skipping.")
-            return
-
-        try:
-            mod = importlib.import_module(module_path)
-        except Exception:
-            tr = traceback.format_exc()
-            _log(label, f"Import failed: {module_path}", tr)
-            st.error(f"{label} autosend import failed — see log above.")
-            st.code(tr)
-            return
-
-        fn = getattr(mod, func_name, None)
-        if fn is None:
-            _log(label, f"Function not found: {module_path}.{func_name}")
-            st.error(f"{label} autosend function missing — see log above.")
-            return
-
-        _log(label, "Calling sender...")
-        try:
-            # Call directly (no st.status wrapper), then surface explicit success.
-            fn(gig_id_str)  # always pass string UUID
-            st.toast(f"📧 {label} emailed.", icon="📧")
-            _log(label, "Sent OK.")
-        except Exception:
-            tr = traceback.format_exc()
-            _log(label, "Send failed", tr)
-            st.error(f"{label} autosend failed — see log above.")
-            # Sticky inline trace so it cannot disappear even if a rerun occurs
-            st.code(tr)
-
-    # ---- Autosend snapshot for strict diagnostics ----
-    snap = {
-        "is_admin": bool(IS_ADMIN),
-        "toggles": {
-            "agent": bool(st.session_state.get("autoc_send_agent_on_create", False)),
-            "soundtech": bool(st.session_state.get("autoc_send_st_on_create", False)),
-            "players": bool(st.session_state.get("autoc_send_players_on_create", False)),
-        },
-        "preconds": {
-            "sound_by_venue": bool(st.session_state.get("sound_by_venue_in", False)),
-            "agent_id_val": bool(agent_id_val),
-            "sound_tech_id_val": bool(sound_tech_id_val),
-            "has_players_assigned": bool(has_players_assigned),
-        },
-        "gig_id_str": gig_id_str,
-    }
-    _log("snapshot", f"{snap}")
-
-    # ---------- Resumable, per-channel progress ----------
-    prog_key = f"autosend_progress__{gig_id_str}"
-    prog = st.session_state.get(prog_key) or {"st": False, "agent": False, "players": False}
-    st.session_state[prog_key] = prog  # persist now
-
-    def _mark_done(name: str):
-        prog[name] = True
-        st.session_state[prog_key] = prog  # persist after each channel
-
-    def _need_more() -> bool:
-        return not (prog["st"] and prog["agent"] and prog["players"])
-
-    def _bump_and_rerun(reason: str):
-        _log("system", f"Autosend controlled rerun: {reason}")
-        # Force a clean rerun to continue with the next channels
-        try:
-            st.rerun()           # Streamlit >=1.31+
-        except Exception:
-            st.experimental_rerun()  # fallback for older versions
-
-    # ---------- Channel 1: Sound-tech ----------
-    _enabled_st = (IS_ADMIN and st.session_state.get("autoc_send_st_on_create", False)
-                   and not st.session_state.get("sound_by_venue_in", False)
-                   and bool(sound_tech_id_val))
-
-    if not _enabled_st:
-        _log("Sound-tech confirmation",
-             f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
-             f"sound_by_venue={st.session_state.get('sound_by_venue_in', False)}, sound_tech_id_val={bool(sound_tech_id_val)}")
-        _mark_done("st")
-    elif not prog["st"]:
-        _log("Sound-tech confirmation", "Calling sender...")
-        try:
+        _sound_sel = st.session_state.get("sound_sel")
+        _sound_id  = None if st.session_state.get("sound_by_venue_in", False) else (
+            _sound_sel if _sound_sel not in ("", "__ADD_SOUND__") else None
+        )
+        sent_st_key = f"sent_st_for_{gig_id}"
+        if (
+            IS_ADMIN
+            and st.session_state.get("autoc_send_st_on_create", False)
+            and _sound_id
+            and not st.session_state.get(sent_st_key)
+        ):
             from tools.send_soundtech_confirm import send_soundtech_confirm
-            send_soundtech_confirm(gig_id_str)
+            with st.status("Sending sound-tech confirmation…", state="running") as s:
+                send_soundtech_confirm(gig_id)
+                s.update(label="Sound-tech confirmation sent", state="complete")
             st.toast("📧 Sound-tech emailed.", icon="📧")
-            _log("Sound-tech confirmation", "Sent OK.")
-        except Exception:
-            tr = traceback.format_exc()
-            _log("Sound-tech confirmation", "Send failed", tr)
-            st.error("Sound-tech autosend failed — see log above.")
-            st.code(tr)
-        finally:
-            _mark_done("st")
-            if _need_more():
-                _bump_and_rerun("advance to agent/players")
+            st.session_state[sent_st_key] = True
+    except Exception as e:
+        st.warning(f"Sound-tech auto-send failed: {e}")
 
-    # ---------- Channel 2: Agent ----------
-    _enabled_agent = (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and bool(agent_id_val))
+    # 2) Helper for Agent/Players with retry to beat 'No gig found' lag
+    def _retry_sender(label: str, fn, *args, **kwargs) -> bool:
+        import time, json
+        max_tries, delay = 8, 0.25  # ~2s
+        for i in range(1, max_tries + 1):
+            try:
+                res = fn(*args, **kwargs)
+                st.success(f"{label}: sent (try {i}/{max_tries})")
+                print(f"AUTOSEND {label} OK (try {i}):", json.dumps({"result": str(res)}, indent=2))
+                return True
+            except Exception as e:
+                msg = str(e)
+                print(f"AUTOSEND {label} ERR (try {i}): {msg}")
+                if "No gig found:" in msg and i < max_tries:
+                    time.sleep(delay)
+                    continue
+                st.error(f"{label} failed: {e}")
+                return False
+        return False
 
-    if not _enabled_agent:
-        _log("Agent confirmation",
-             f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_agent_on_create', False)}, agent_id_val={bool(agent_id_val)}")
-        _mark_done("agent")
-    elif not prog["agent"]:
-        _log("Agent confirmation", "Calling sender...")
-        try:
-            from tools.send_agent_confirm import send_agent_confirm
-            send_agent_confirm(gig_id_str)
-            st.toast("📧 Agent emailed.", icon="📧")
-            _log("Agent confirmation", "Sent OK.")
-        except Exception:
-            tr = traceback.format_exc()
-            _log("Agent confirmation", "Send failed", tr)
-            st.error("Agent autosend failed — see log above.")
-            st.code(tr)
-        finally:
-            _mark_done("agent")
-            if _need_more():
-                _bump_and_rerun("advance to players")
+    # 3) Explicit post-save controls for Agent & Players (always visible after save)
+    with st.expander("✉️ After-save email actions", expanded=True):
+        st.caption("Sound tech was sent automatically (if toggled). Send agent/players from here to avoid DB propagation timing issues.")
 
-    # ---------- Channel 3: Players ----------
-    _enabled_players = (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and bool(has_players_assigned))
+        # Resolve agent email presence before enabling button
+        _agent_sel = st.session_state.get("agent_sel")
+        _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
+        _agent_ok  = False
+        if _agent_id:
+            try:
+                ag = sb.table("agents").select("id,email").eq("id", _agent_id).single().execute().data
+                ag_email = (ag or {}).get("email") if isinstance(ag, dict) else None
+                _agent_ok = bool(ag_email and str(ag_email).strip())
+            except Exception:
+                _agent_ok = False
 
-    if not _enabled_players:
-        _log("Player confirmations",
-             f"SKIPPED: is_admin={IS_ADMIN}, toggle={st.session_state.get('autoc_send_players_on_create', False)}, has_players_assigned={bool(has_players_assigned)}")
-        _mark_done("players")
-    elif not prog["players"]:
-        _log("Player confirmations", "Calling sender...")
-        try:
-            from tools.send_player_confirms import send_player_confirms
-            send_player_confirms(gig_id_str)
-            st.toast("📧 Players emailed.", icon="📧")
-            _log("Player confirmations", "Sent OK.")
-        except Exception:
-            tr = traceback.format_exc()
-            _log("Player confirmations", "Send failed", tr)
-            st.error("Player autosend failed — see log above.")
-            st.code(tr)
-        finally:
-            _mark_done("players")
+        c1, c2 = st.columns(2)
 
-    # Finalize guard only when all channels processed (sent or skipped)
-    if not _need_more():
-        st.session_state[guard_key] = True
-        _log("system", "Autosend complete (all channels).")
-        # Optionally clear progress for this gig
-        # del st.session_state[prog_key]
-        st.stop()
+        with c1:
+            st.write("**Agent**")
+            if not _agent_ok:
+                st.caption("No agent email on file or no agent selected.")
+            disabled_agent = not (IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_ok)
+            if st.button("Send Agent Now", disabled=disabled_agent, key=f"send_agent_{gig_id}"):
+                from tools.send_agent_confirm import send_agent_confirm
+                _retry_sender("Agent confirmation", send_agent_confirm, gig_id)
+
+        with c2:
+            st.write("**Players**")
+            # Check lineup exists now
+            def _any_players_assigned_now() -> bool:
+                for _role in ROLE_CHOICES:
+                    sel = st.session_state.get(f"mus_sel_{_role}", "")
+                    if sel and not sel.startswith("__ADD_MUS__"):
+                        return True
+                return False
+            disabled_players = not (IS_ADMIN and st.session_state.get("autoc_send_players_on_create", False) and _any_players_assigned_now())
+            if not _any_players_assigned_now():
+                st.caption("No lineup selected.")
+            if st.button("Send Players Now", disabled=disabled_players, key=f"send_players_{gig_id}"):
+                from tools.send_player_confirms import send_player_confirms
+                _retry_sender("Player confirmations", send_player_confirms, gig_id)
+
