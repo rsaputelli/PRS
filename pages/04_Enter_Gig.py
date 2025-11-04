@@ -149,7 +149,7 @@ def _autosend_run_for(gig_id_str: str):
              f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
              f"sound_by_venue={st.session_state.get('sound_by_venue_in', False)}")
         _mark_done("st")
-    elif not prog["st"]:
+    elif not prog["st"] and _autosend_once("soundtech", gig_id_str):
         _log("Sound-tech confirmation", "Calling sender...")
         try:
             from tools.send_soundtech_confirm import send_soundtech_confirm
@@ -173,7 +173,7 @@ def _autosend_run_for(gig_id_str: str):
         _log("Agent confirmation",
              f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_agent_on_create', False)}")
         _mark_done("agent")
-    elif not prog["agent"]:
+    elif not prog["agent"] and _autosend_once("agent", gig_id_str):
         _log("Agent confirmation", "Calling sender...")
         try:
             from tools.send_agent_confirm import send_agent_confirm
@@ -197,7 +197,7 @@ def _autosend_run_for(gig_id_str: str):
         _log("Player confirmations",
              f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_players_on_create', False)}")
         _mark_done("players")
-    elif not prog["players"]:
+    elif not prog["players"] and _autosend_once("players", gig_id_str):
         _log("Player confirmations", "Calling sender...")
         try:
             from tools.send_player_confirms import send_player_confirms
@@ -280,6 +280,17 @@ def _table_exists(table: str) -> bool:
         return True
     except Exception:
         return False
+
+# ---------- Autosend session guard ----------
+def _autosend_once(stage: str, gig_id: str) -> bool:
+    """True the first time per (stage,gig) for this session; False thereafter."""
+    import streamlit as st
+    k = f"autosend_once::{stage}::{gig_id}"
+    if st.session_state.get(k):
+        return False
+    st.session_state[k] = True
+    return True
+
 
 def _filter_to_schema(table: str, payload: Dict):
     cols = _table_columns(table)
