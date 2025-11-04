@@ -816,61 +816,51 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     # Auto-sends (run once, right after save)
     # -----------------------------
     sent_key = f"sent_autos_for_{gig_id}"
-    if not st.session_state.get(sent_key):
-        # Ensure fresh read (but do not hard-gate on it)
-        st.cache_data.clear()
-        _gig_row = _load_gig_for_email(gig_id, tries=5)  # short retry
 
-        # Re-resolve selected IDs safely from session
-        _agent_sel = st.session_state.get("agent_sel")
-        _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
+    # Always compute/print debug FIRST so we can see it even if sent_key is already set
+    st.cache_data.clear()
+    _gig_row = _load_gig_for_email(gig_id, tries=5)  # short retry
 
-        _sound_sel = st.session_state.get("sound_sel")
-        _sound_id  = None if st.session_state.get("sound_by_venue_in", False) else (
-            _sound_sel if _sound_sel not in ("", "__ADD_SOUND__") else None
-        )
+    # Re-resolve selected IDs safely from session
+    _agent_sel = st.session_state.get("agent_sel")
+    _agent_id  = _agent_sel if _agent_sel not in ("", "__ADD_AGENT__") else None
 
-        def _any_players_assigned_now() -> bool:
-            for _role in ROLE_CHOICES:
-                sel = st.session_state.get(f"mus_sel_{_role}", "")
-                if sel and not sel.startswith("__ADD_MUS__"):
-                    return True
-            return False
-        # ---- DEBUG PANEL (temporary; remove after we confirm) ----
-        with st.expander("🔎 Auto-send debug (temporary)", expanded=True):
-            st.write({
-                "sent_key_already_set": bool(st.session_state.get(sent_key)),
-                "IS_ADMIN": IS_ADMIN,
-                "_gig_row_found": bool(_gig_row),
-                "_agent_id": _agent_id,
-                "_sound_id": _sound_id,
-                "autoc_send_agent_on_create": st.session_state.get("autoc_send_agent_on_create", None),
-                "autoc_send_st_on_create": st.session_state.get("autoc_send_st_on_create", None),
-                "autoc_send_players_on_create": st.session_state.get("autoc_send_players_on_create", None),
-                "any_players_now": _any_players_assigned_now(),
-                "sound_by_venue": st.session_state.get("sound_by_venue_in", False),
-            })
+    _sound_sel = st.session_state.get("sound_sel")
+    _sound_id  = None if st.session_state.get("sound_by_venue_in", False) else (
+        _sound_sel if _sound_sel not in ("", "__ADD_SOUND__") else None
+    )
 
-            # Persist debug info for later inspection
-            st.session_state["autosend_debug_dict"] = {
-                "sent_key_already_set": bool(st.session_state.get(sent_key)),
-                "IS_ADMIN": IS_ADMIN,
-                "_gig_row_found": bool(_gig_row),
-                "_agent_id": _agent_id,
-                "_sound_id": _sound_id,
-                "autoc_send_agent_on_create": st.session_state.get("autoc_send_agent_on_create", None),
-                "autoc_send_st_on_create": st.session_state.get("autoc_send_st_on_create", None),
-                "autoc_send_players_on_create": st.session_state.get("autoc_send_players_on_create", None),
-                "any_players_now": _any_players_assigned_now(),
-                "sound_by_venue": st.session_state.get("sound_by_venue_in", False),
-            }
+    def _any_players_assigned_now() -> bool:
+        for _role in ROLE_CHOICES:
+            sel = st.session_state.get(f"mus_sel_{_role}", "")
+            if sel and not sel.startswith("__ADD_MUS__"):
+                return True
+        return False
 
-            # Also log to console for retrieval in Streamlit Cloud logs
-            import json
-            print("AUTO-SEND DEBUG:", json.dumps(st.session_state["autosend_debug_dict"], indent=2))
+    # ---- DEBUG PANEL (always rendered) ----
+    with st.expander("🔎 Auto-send debug (temporary)", expanded=True):
+        debug_payload = {
+            "sent_key_value": st.session_state.get(sent_key),  # shows if guard will skip
+            "IS_ADMIN": IS_ADMIN,
+            "_gig_row_found": bool(_gig_row),
+            "_agent_id": _agent_id,
+            "_sound_id": _sound_id,
+            "autoc_send_agent_on_create": st.session_state.get("autoc_send_agent_on_create", None),
+            "autoc_send_st_on_create": st.session_state.get("autoc_send_st_on_create", None),
+            "autoc_send_players_on_create": st.session_state.get("autoc_send_players_on_create", None),
+            "any_players_now": _any_players_assigned_now(),
+            "sound_by_venue": st.session_state.get("sound_by_venue_in", False),
+        }
+        st.write(debug_payload)
+        st.session_state["autosend_debug_dict"] = debug_payload
 
-        if not _gig_row:
-            st.info("Gig not yet visible for agent/player emails; those sends will be skipped this run.", icon="ℹ️")
+        import json
+        print("AUTO-SEND DEBUG:", json.dumps(debug_payload, indent=2))
+
+    # If guard says we already sent on this gig_id, show why and stop here
+    if st.session_state.get(sent_key):
+        st.caption("Auto-sends already marked complete for this gig_id; no re-send on rerun.")
+    else:
         # --- Agent ---
         try:
             if IS_ADMIN and st.session_state.get("autoc_send_agent_on_create", False) and _agent_id:
@@ -888,13 +878,16 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                             s.update(label="Agent confirmation sent", state="complete")
                             st.toast("📧 Agent emailed.", icon="📧")
                         except Exception as e:
-                            # If helper re-query fails inside sender, surface a helpful note
                             st.info(f"Agent email skipped due to lookup timing ({e}). Try resend from Edit Gig.", icon="ℹ️")
                 else:
                     st.info("Agent email skipped: no email on file for the selected agent.", icon="ℹ️")
             else:
-                # Optional: quick reason line
-                pass
+                reasons = []
+                if not IS_ADMIN: reasons.append("not admin")
+                if not st.session_state.get("autoc_send_agent_on_create", False): reasons.append("toggle off")
+                if not _agent_id: reasons.append("no agent selected")
+                if reasons:
+                    st.caption("Agent auto-send not triggered (" + ", ".join(reasons) + ").")
         except Exception as e:
             st.warning(f"Agent auto-send failed: {e}")
 
@@ -906,6 +899,13 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                     send_soundtech_confirm(gig_id)
                     s.update(label="Sound-tech confirmation sent", state="complete")
                 st.toast("📧 Sound-tech emailed.", icon="📧")
+            else:
+                reasons = []
+                if not IS_ADMIN: reasons.append("not admin")
+                if not st.session_state.get("autoc_send_st_on_create", False): reasons.append("toggle off")
+                if not _sound_id: reasons.append("no sound tech selected or sound by venue")
+                if reasons:
+                    st.caption("Sound-tech auto-send not triggered (" + ", ".join(reasons) + ").")
         except Exception as e:
             st.warning(f"Sound-tech auto-send failed: {e}")
 
@@ -924,9 +924,11 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                 else:
                     st.info("Player emails skipped: no lineup selected.", icon="ℹ️")
             else:
-                # Reminder: players toggle defaults to False; turn it on in Finance (Admin Only)
-                if IS_ADMIN and not st.session_state.get("autoc_send_players_on_create", False):
-                    st.caption("Player auto-send is off (toggle in Finance > Auto-send on Save).")
+                reasons = []
+                if not IS_ADMIN: reasons.append("not admin")
+                if not st.session_state.get("autoc_send_players_on_create", False): reasons.append("toggle off")
+                if reasons:
+                    st.caption("Player auto-send not triggered (" + ", ".join(reasons) + ").")
         except Exception as e:
             st.warning(f"Player auto-send failed: {e}")
 
