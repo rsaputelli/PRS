@@ -26,9 +26,23 @@ from supabase import create_client, Client
 
 # ---------- Supabase client ----------
 def _sb() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
+    # Try multiple common key names; raise a clear error if none provided
+    url = st.secrets.get("SUPABASE_URL")
+    key = (
+        st.secrets.get("SUPABASE_KEY")
+        or st.secrets.get("SUPABASE_ANON_KEY")
+        or st.secrets.get("SUPABASE_SERVICE_KEY")
+    )
+
+    if not url or not key:
+        st.error(
+            "Supabase is not configured. Please set SUPABASE_URL and one of "
+            "SUPABASE_KEY / SUPABASE_ANON_KEY / SUPABASE_SERVICE_KEY in secrets."
+        )
+        st.stop()
+
     return create_client(url, key)
+
 
 
 # ---------- Small utils ----------

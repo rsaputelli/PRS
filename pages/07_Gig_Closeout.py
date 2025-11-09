@@ -5,6 +5,13 @@ from lib.closeout_utils import (
 )
 
 st.set_page_config(page_title="Gig Closeout", layout="wide")
+missing = []
+if not st.secrets.get("SUPABASE_URL"): missing.append("SUPABASE_URL")
+if not (st.secrets.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_SERVICE_KEY")):
+    missing.append("SUPABASE_KEY (or ANON/SERVICE)")
+if missing:
+    st.error("Missing secrets: " + ", ".join(missing))
+    st.stop()
 
 st.title("Gig Closeout")
 
