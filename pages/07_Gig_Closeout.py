@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from lib.closeout_utils import (
     fetch_open_or_draft_gigs, fetch_closeout_bundle, upsert_payment_row,
     delete_payment_row, mark_closeout_status, money_fmt,
@@ -6,16 +7,20 @@ from lib.closeout_utils import (
 
 st.set_page_config(page_title="Gig Closeout", layout="wide")
 missing = []
-if not st.secrets.get("SUPABASE_URL"): missing.append("SUPABASE_URL")
-if not (st.secrets.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_SERVICE_KEY")):
-    missing.append("SUPABASE_KEY (or ANON/SERVICE)")
+if not (st.secrets.get("SUPABASE_URL", None) if hasattr(st, "secrets") else None) and not os.environ.get("SUPABASE_URL"):
+    missing.append("SUPABASE_URL")
+if not (
+    (hasattr(st, "secrets") and (st.secrets.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_SERVICE_KEY")))
+    or os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_SERVICE_KEY")
+):
+    missing.append("SUPABASE_KEY/ANON/SERVICE")
 if missing:
-    st.error("Missing secrets: " + ", ".join(missing))
+    st.error("Missing configuration: " + ", ".join(missing))
     st.stop()
 
 st.title("Gig Closeout")
 
-mode = st.radio("Mode", ["Draft", "Closed"], horizontal=True, label_visibility="collapsed")
+mode = st.radio("Mode", ["Draft", "Closed"], horizontal=True, label_visibility="collapsed", key="closeout_mode")
 status_target = "draft" if mode == "Draft" else "closed"
 
 gigs = fetch_open_or_draft_gigs()

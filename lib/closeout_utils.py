@@ -26,23 +26,45 @@ from supabase import create_client, Client
 
 # ---------- Supabase client ----------
 def _sb() -> Client:
-    # Try multiple common key names; raise a clear error if none provided
-    url = st.secrets.get("SUPABASE_URL")
+    """
+    Robust Secrets/ENV loader:
+      - tries SUPABASE_URL from secrets, then env
+      - tries SUPABASE_KEY, then SUPABASE_ANON_KEY, then SUPABASE_SERVICE_KEY (secrets/env)
+      - never throws KeyError; shows a clean Streamlit error instead
+    """
+    import os
+
+    # Safely read from st.secrets (its .get may raise if secrets not configured at all on some runners)
+    def _safe_secret(name: str):
+        try:
+            # st.secrets may not exist or may raise on get; guard both
+            if hasattr(st, "secrets"):
+                obj = getattr(st, "secrets")
+                if hasattr(obj, "get"):
+                    return obj.get(name)  # returns None if missing
+        except Exception:
+            return None
+        return None
+
+    url = _safe_secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
     key = (
-        st.secrets.get("SUPABASE_KEY")
-        or st.secrets.get("SUPABASE_ANON_KEY")
-        or st.secrets.get("SUPABASE_SERVICE_KEY")
+        _safe_secret("SUPABASE_KEY")
+        or _safe_secret("SUPABASE_ANON_KEY")
+        or _safe_secret("SUPABASE_SERVICE_KEY")
+        or os.environ.get("SUPABASE_KEY")
+        or os.environ.get("SUPABASE_ANON_KEY")
+        or os.environ.get("SUPABASE_SERVICE_KEY")
     )
 
     if not url or not key:
-        st.error(
-            "Supabase is not configured. Please set SUPABASE_URL and one of "
-            "SUPABASE_KEY / SUPABASE_ANON_KEY / SUPABASE_SERVICE_KEY in secrets."
-        )
+        missing = []
+        if not url: missing.append("SUPABASE_URL")
+        if not key: missing.append("SUPABASE_KEY/ANON/SERVICE")
+        st.error("Missing configuration: " + ", ".join(missing) +
+                 ". Set them in Streamlit secrets or environment variables.")
         st.stop()
 
     return create_client(url, key)
-
 
 
 # ---------- Small utils ----------
