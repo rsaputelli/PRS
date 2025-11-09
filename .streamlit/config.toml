@@ -1,0 +1,2 @@
+[server]
+fileWatcherType = "none"   # or "poll" if you still want reloading
