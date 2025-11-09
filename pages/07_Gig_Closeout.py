@@ -32,7 +32,7 @@ if missing:
 
 # Import AFTER env is populated so utils can read it
 from lib.closeout_utils import (
-    fetch_gigs_by_status,          # <-- use status-aware fetch
+    fetch_gigs_by_status,          # status-aware fetch
     fetch_closeout_bundle,
     upsert_payment_row,
     delete_payment_row,
@@ -40,26 +40,14 @@ from lib.closeout_utils import (
     money_fmt,
 )
 
-if st.sidebar.checkbox("Show secrets debug", value=False):
-    def _present(k: str) -> bool: return bool(os.environ.get(k) or _sec(k))
-    st.sidebar.write({
-        "SUPABASE_URL": _present("SUPABASE_URL"),
-        "USING_KEY": (
-            "SERVICE" if os.environ.get("SUPABASE_SERVICE_KEY") else
-            "KEY"     if os.environ.get("SUPABASE_KEY") else
-            "ANON"    if os.environ.get("SUPABASE_ANON_KEY") else
-            "NONE"
-        )
-    })
-
 st.title("Gig Closeout")
 
-mode = st.radio("Mode", ["Draft", "Closed"], horizontal=True, label_visibility="collapsed", key="closeout_mode")
-status_target = "draft" if mode == "Draft" else "closed"
+# Radio uses Open/Closed; Open shows only closeout_status='open'
+mode = st.radio("Mode", ["Open", "Closed"], horizontal=True, label_visibility="collapsed", key="closeout_mode")
+status_target = "open" if mode == "Open" else "closed"
 
-# --- Use status-aware fetch so the radio actually filters the list
-gigs = fetch_gigs_by_status("closed") if status_target == "closed" else fetch_gigs_by_status("open", "draft")
-st.caption(f"Loaded gigs: {len(gigs)} for mode={status_target}")
+# Fetch by selected status
+gigs = fetch_gigs_by_status(status_target)
 
 gig_opt = st.selectbox(
     "Select gig",
@@ -68,7 +56,7 @@ gig_opt = st.selectbox(
 )
 
 if not gig_opt:
-    st.info("Choose a gig to begin.")
+    st.info(f"No gigs in {status_target.upper()} status.")
     st.stop()
 
 gig, roster, payments = fetch_closeout_bundle(gig_opt["id"])
@@ -84,13 +72,17 @@ with colL:
         except Exception:
             _default_paid = None
     with st.form("venue_receipt"):
-        venue_paid = st.number_input("Final Gross Received from Venue", min_value=0.0, step=50.0, value=float(gig.get("final_venue_gross") or 0))
+        venue_paid = st.number_input(
+            "Final Gross Received from Venue",
+            min_value=0.0, step=50.0, value=float(gig.get("final_venue_gross") or 0)
+        )
         venue_date = st.date_input("Venue Paid Date", value=_default_paid or date.today())
         notes = st.text_area("Closeout Notes", value=gig.get("closeout_notes") or "")
         if st.form_submit_button("Save Venue Closeout"):
+            # Keep status OPEN on save; only the Mark Closed button will flip it
             mark_closeout_status(
                 gig["id"],
-                status="draft",
+                status="open",
                 final_venue_gross=venue_paid,
                 final_venue_paid_date=venue_date,
                 closeout_notes=notes
@@ -121,7 +113,7 @@ with colL:
                     st.success("Added.")
                     st.rerun()
 
-    # Optional: manual payment (lets you enter Agent/Sound/Musician/Other even if not linked)
+    # Manual payment (agent/musician/sound/other) even if not linked on the gig
     with st.expander("Add manual payment (agent/musician/sound/other)"):
         with st.form("manual_pay"):
             manual_kind = st.selectbox("Payee type", ["agent", "musician", "sound", "other"])
@@ -166,9 +158,9 @@ with colR:
 
 st.divider()
 left, right = st.columns(2)
-if left.button("Save as Draft"):
-    mark_closeout_status(gig["id"], status="draft")
-    st.success("Saved as Draft")
+if left.button("Save (keep Open)"):
+    mark_closeout_status(gig["id"], status="open")
+    st.success("Saved (status remains Open).")
 
 if right.button("Mark Closed"):
     mark_closeout_status(gig["id"], status="closed")
