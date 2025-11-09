@@ -37,13 +37,15 @@ from lib.closeout_utils import (
 )
 
 if st.sidebar.checkbox("Show secrets debug", value=False):
-    def _present(k: str) -> bool:
-        return bool(os.environ.get(k) or _sec(k))
+    def _present(k: str) -> bool: return bool(os.environ.get(k) or _sec(k))
     st.sidebar.write({
         "SUPABASE_URL": _present("SUPABASE_URL"),
-        "SUPABASE_KEY": _present("SUPABASE_KEY"),
-        "SUPABASE_ANON_KEY": _present("SUPABASE_ANON_KEY"),
-        "SUPABASE_SERVICE_KEY": _present("SUPABASE_SERVICE_KEY"),
+        "USING_KEY": (
+            "SERVICE" if os.environ.get("SUPABASE_SERVICE_KEY") else
+            "KEY" if os.environ.get("SUPABASE_KEY") else
+            "ANON" if os.environ.get("SUPABASE_ANON_KEY") else
+            "NONE"
+        )
     })
 
 st.title("Gig Closeout")
