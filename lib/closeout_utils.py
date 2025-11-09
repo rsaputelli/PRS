@@ -1,50 +1,34 @@
 # lib/closeout_utils.py
 # PRS – Gig Closeout helpers (uses existing public.gig_payments)
-# - Reads roster from: gigs, gig_musicians -> musicians, agents, sound_techs
-# - Writes closeout rows into: public.gig_payments (additive to your current schema)
-# - Adds/updates gigs.closeout_* fields
-#
-# Assumptions (match your schema screenshot):
-#   gigs.id (UUID), gigs.agent_id (UUID, optional), gigs.sound_tech_id (UUID, optional)
-#   gig_musicians: id, gig_id, musician_id, role
-#   musicians/agents/sound_techs: id, display_name
-#
-# Columns used in public.gig_payments (existing):
-#   id, gig_id, kind, due_on, amount, paid_on, method, reference, created_at
-# Additive columns expected (run the ALTERs I sent): payee_id, payee_name, role,
-#   fee_withheld, eligible_1099, net_amount (generated)
-#
-# Closeout "kind" values we will write: 'venue_receipt' | 'musician' | 'sound' | 'agent'
-
 from __future__ import annotations
+
 from typing import List, Dict, Any, Optional
 from datetime import date, datetime, timezone
+import os
 
 import streamlit as st
 from supabase import create_client, Client
 
-
-# ---------- Supabase client ----------
+# ---------- Supabase client (robust, no KeyError) ----------
 def _sb() -> Client:
     """
     Robust Secrets/ENV loader:
       - tries SUPABASE_URL from secrets, then env
-      - tries SUPABASE_KEY, then SUPABASE_ANON_KEY, then SUPABASE_SERVICE_KEY (secrets/env)
-      - never throws KeyError; shows a clean Streamlit error instead
+      - tries SUPABASE_KEY, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY (secrets/env)
+      - never uses st.secrets[...] and never propagates KeyError
     """
-    import os
-
-    # Safely read from st.secrets (its .get may raise if secrets not configured at all on some runners)
-    def _safe_secret(name: str):
+    def _safe_secret(name: str) -> Optional[str]:
         try:
-            # st.secrets may not exist or may raise on get; guard both
-            if hasattr(st, "secrets"):
-                obj = getattr(st, "secrets")
-                if hasattr(obj, "get"):
-                    return obj.get(name)  # returns None if missing
+            s = getattr(st, "secrets", None)
+            if s is None:
+                return None
+            # Some Streamlit builds implement .get; guard access
+            if hasattr(s, "get"):
+                return s.get(name)
+            # If not, bail out cleanly
+            return None
         except Exception:
             return None
-        return None
 
     url = _safe_secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
     key = (
@@ -66,7 +50,6 @@ def _sb() -> Client:
 
     return create_client(url, key)
 
-
 # ---------- Small utils ----------
 def money_fmt(x: Optional[float]) -> str:
     if x is None:
@@ -76,14 +59,11 @@ def money_fmt(x: Optional[float]) -> str:
     except Exception:
         return str(x)
 
-
 def _iso_date(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if isinstance(d, date) else None
 
-
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
 
 # ---------- Gig lists / roster bundles ----------
 def fetch_open_or_draft_gigs() -> List[Dict[str, Any]]:
@@ -99,7 +79,6 @@ def fetch_open_or_draft_gigs() -> List[Dict[str, Any]]:
         .execute()
     )
     return res.data or []
-
 
 def fetch_closeout_bundle(gig_id: str):
     """
@@ -126,9 +105,7 @@ def fetch_closeout_bundle(gig_id: str):
     # Musicians via join table -> people table
     mus_rows = (
         sb.table("gig_musicians")
-        .select(
-            "musician_id, role, musicians:musician_id(id, display_name)"
-        )
+        .select("musician_id, role, musicians:musician_id(id, display_name)")
         .eq("gig_id", gig_id)
         .execute()
         .data
@@ -136,15 +113,13 @@ def fetch_closeout_bundle(gig_id: str):
     )
     for r in mus_rows:
         m = r.get("musicians") or {}
-        roster.append(
-            {
-                "type": "musician",
-                "id": m.get("id"),
-                "name": m.get("display_name"),
-                "role": r.get("role"),
-                "label": f"Musician — {m.get('display_name')} ({r.get('role') or ''})".strip(),
-            }
-        )
+        roster.append({
+            "type": "musician",
+            "id": m.get("id"),
+            "name": m.get("display_name"),
+            "role": r.get("role"),
+            "label": f"Musician — {m.get('display_name')} ({r.get('role') or ''})".strip(),
+        })
 
     # Agent (optional one-to-one on gigs.agent_id)
     agent_id = gig.get("agent_id")
@@ -158,14 +133,12 @@ def fetch_closeout_bundle(gig_id: str):
             .data
         )
         if a:
-            roster.append(
-                {
-                    "type": "agent",
-                    "id": a["id"],
-                    "name": a["display_name"],
-                    "label": f"Agent — {a['display_name']}",
-                }
-            )
+            roster.append({
+                "type": "agent",
+                "id": a["id"],
+                "name": a["display_name"],
+                "label": f"Agent — {a['display_name']}",
+            })
 
     # Sound tech (optional one-to-one on gigs.sound_tech_id)
     sound_id = gig.get("sound_tech_id")
@@ -179,20 +152,15 @@ def fetch_closeout_bundle(gig_id: str):
             .data
         )
         if s:
-            roster.append(
-                {
-                    "type": "sound",
-                    "id": s["id"],
-                    "name": s["display_name"],
-                    "label": f"Sound — {s['display_name']}",
-                }
-            )
+            roster.append({
+                "type": "sound",
+                "id": s["id"],
+                "name": s["display_name"],
+                "label": f"Sound — {s['display_name']}",
+            })
 
-    # Existing payments (ledger lines)
     payments = _payments_for(gig_id)
-
     return gig, roster, payments
-
 
 def _payments_for(gig_id: str) -> List[Dict[str, Any]]:
     sb = _sb()
@@ -204,7 +172,6 @@ def _payments_for(gig_id: str) -> List[Dict[str, Any]]:
         .execute()
     )
     return res.data or []
-
 
 # ---------- Mutations ----------
 def upsert_payment_row(
@@ -222,22 +189,18 @@ def upsert_payment_row(
     notes: Optional[str] = None,
 ) -> None:
     """
-    Insert a closeout ledger row into public.gig_payments using your existing schema.
-    - amount is the gross paid
-    - fee_withheld reduces net_amount (generated column if you ran the ALTERs)
-    - due_on is set to paid_date (same-day ledger); you can change this if you defer payments
-    - reference stores freeform notes
+    Insert a closeout ledger row into public.gig_payments (existing schema).
     """
     sb = _sb()
     payload = {
         "gig_id": gig_id,
-        "kind": payee_type,               # aligns with your existing 'kind' column
+        "kind": payee_type,
         "due_on": _iso_date(paid_date) or _iso_date(date.today()),
         "amount": float(gross or 0),
         "paid_on": _iso_date(paid_date),
         "method": (method or None),
         "reference": (notes or None),
-        # Additive detail columns (safe if you've run the ALTERs):
+        # Additive detail columns (safe if ALTERs applied):
         "payee_id": payee_id,
         "payee_name": payee_name,
         "role": role,
@@ -246,10 +209,8 @@ def upsert_payment_row(
     }
     sb.table("gig_payments").insert(payload).execute()
 
-
 def delete_payment_row(payment_id: str) -> None:
     _sb().table("gig_payments").delete().eq("id", payment_id).execute()
-
 
 def mark_closeout_status(
     gig_id: str,
@@ -261,17 +222,13 @@ def mark_closeout_status(
 ) -> None:
     assert status in ("open", "draft", "closed")
     sb = _sb()
-    patch: Dict[str, Any] = {
-        "closeout_status": status,
-    }
+    patch: Dict[str, Any] = {"closeout_status": status}
     if final_venue_gross is not None:
         patch["final_venue_gross"] = float(final_venue_gross)
     if final_venue_paid_date is not None:
         patch["final_venue_paid_date"] = _iso_date(final_venue_paid_date)
     if closeout_notes is not None:
         patch["closeout_notes"] = closeout_notes
-
     if status == "closed":
-        patch["closeout_at"] = _iso_now()
-
+        patch["closeout_at"] = datetime.now(timezone.utc).isoformat()
     sb.table("gigs").update(patch).eq("id", gig_id).execute()
