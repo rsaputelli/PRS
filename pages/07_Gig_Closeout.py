@@ -1,31 +1,44 @@
-import streamlit as st
 import os
-from lib.closeout_utils import (
-    fetch_open_or_draft_gigs, fetch_closeout_bundle, upsert_payment_row,
-    delete_payment_row, mark_closeout_status, money_fmt,
-)
+import streamlit as st
+from datetime import date
+
+# --- Bootstrap Streamlit secrets into environment variables (safe per-key) ---
+def _sec(name: str):
+    try:
+        return st.secrets[name]   # per-key try/except => no KeyError propagation
+    except Exception:
+        return None
+
+for k in ("SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_KEY"):
+    v = _sec(k)
+    if v and not os.environ.get(k):
+        os.environ[k] = str(v)
 
 st.set_page_config(page_title="Gig Closeout", layout="wide")
+
+# --- Env-only guard (no st.secrets lookups here) ---
 missing = []
-if not (st.secrets.get("SUPABASE_URL", None) if hasattr(st, "secrets") else None) and not os.environ.get("SUPABASE_URL"):
+if not os.environ.get("SUPABASE_URL"):
     missing.append("SUPABASE_URL")
 if not (
-    (hasattr(st, "secrets") and (st.secrets.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_SERVICE_KEY")))
-    or os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_SERVICE_KEY")
+    os.environ.get("SUPABASE_KEY")
+    or os.environ.get("SUPABASE_ANON_KEY")
+    or os.environ.get("SUPABASE_SERVICE_KEY")
 ):
     missing.append("SUPABASE_KEY/ANON/SERVICE")
 if missing:
     st.error("Missing configuration: " + ", ".join(missing))
     st.stop()
-def _secret_safe(name: str):
-    try:
-        return st.secrets[name]
-    except Exception:
-        return None
+
+# Import AFTER env is populated so utils can read it
+from lib.closeout_utils import (
+    fetch_open_or_draft_gigs, fetch_closeout_bundle, upsert_payment_row,
+    delete_payment_row, mark_closeout_status, money_fmt,
+)
 
 if st.sidebar.checkbox("Show secrets debug", value=False):
-    import os as _os
-    def _present(k): return bool(_secret_safe(k) or _os.environ.get(k))
+    def _present(k: str) -> bool:
+        return bool(os.environ.get(k) or _sec(k))
     st.sidebar.write({
         "SUPABASE_URL": _present("SUPABASE_URL"),
         "SUPABASE_KEY": _present("SUPABASE_KEY"),
@@ -39,7 +52,11 @@ mode = st.radio("Mode", ["Draft", "Closed"], horizontal=True, label_visibility="
 status_target = "draft" if mode == "Draft" else "closed"
 
 gigs = fetch_open_or_draft_gigs()
-gig_opt = st.selectbox("Select gig", options=gigs, format_func=lambda g: f"{g['event_date']} — {g['title']} @ {g['venue_name']}")
+gig_opt = st.selectbox(
+    "Select gig",
+    options=gigs,
+    format_func=lambda g: f"{g.get('event_date','?')} — {g.get('title','?')}{(' @ '+g.get('venue_name','')) if g.get('venue_name') else ''}"
+)
 
 if not gig_opt:
     st.info("Choose a gig to begin.")
@@ -51,14 +68,21 @@ colL, colR = st.columns([2, 1], gap="large")
 
 with colL:
     st.subheader("Venue Receipt")
+    _default_paid = gig.get("final_venue_paid_date")
+    if isinstance(_default_paid, str):
+        try:
+            _default_paid = date.fromisoformat(_default_paid)
+        except Exception:
+            _default_paid = None
     with st.form("venue_receipt"):
         venue_paid = st.number_input("Final Gross Received from Venue", min_value=0.0, step=50.0, value=float(gig.get("final_venue_gross") or 0))
-        venue_date = st.date_input("Venue Paid Date", value=gig.get("final_venue_paid_date"))
+        venue_date = st.date_input("Venue Paid Date", value=_default_paid or date.today())
         notes = st.text_area("Closeout Notes", value=gig.get("closeout_notes") or "")
         if st.form_submit_button("Save Venue Closeout"):
             mark_closeout_status(gig["id"], status="draft", final_venue_gross=venue_paid, final_venue_paid_date=venue_date, closeout_notes=notes)
             st.success("Saved.")
-
+            st.rerun()
+            
     st.divider()
     st.subheader("Payments to People")
     st.caption("Enter what was actually paid. These figures drive 1099s.")
@@ -80,20 +104,29 @@ with colL:
                         eligible_1099=eligible, notes=note
                     )
                     st.success("Added.")
-
+                    st.rerun()
 with colR:
     st.subheader("Current Payments")
     if not payments:
         st.info("No payments recorded yet.")
     else:
         for p in payments:
-            st.write(f"**{p['payee_type']}** — {p['payee_name']} {('('+p['role']+')') if p.get('role') else ''}")
-            st.write(f"Gross {money_fmt(p['gross_amount'])} | Fee {money_fmt(p['fee_withheld'])} | Net {money_fmt(p['net_amount'])}")
-            st.write(f"{p.get('method') or ''} · Paid {p.get('paid_date') or ''}")
+            kind = p.get("kind") or "payment"
+            name = p.get("payee_name") or ""
+            role = p.get("role") or ""
+            gross = p.get("amount") or 0
+            fee = p.get("fee_withheld") or 0
+            net = p.get("net_amount") if "net_amount" in p else (gross - fee)
+            paid_on = p.get("paid_on") or ""
+
+            st.write(f"**{kind}** — {name} {('('+role+')') if role else ''}")
+            st.write(f"Gross {money_fmt(gross)} | Fee {money_fmt(fee)} | Net {money_fmt(net)}")
+            st.write(f"{p.get('method') or ''} · Paid {paid_on}")
             if st.button("Delete", key=f"del_{p['id']}"):
                 delete_payment_row(p["id"])
                 st.warning("Deleted.")
-
+                st.rerun()  # refresh the list immediately
+                
 st.divider()
 left, right = st.columns(2)
 if left.button("Save as Draft"):
