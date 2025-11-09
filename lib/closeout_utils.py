@@ -1,5 +1,4 @@
-# lib/closeout_utils.py
-# PRS – Gig Closeout helpers (env-only; never touches st.secrets)
+# lib/closeout_env.py
 from __future__ import annotations
 
 from typing import List, Dict, Any, Optional
@@ -8,7 +7,6 @@ import os
 
 from supabase import create_client, Client
 
-# ---------- Supabase client (env-only; no Streamlit/secrets) ----------
 def _sb() -> Client:
     url = os.environ.get("SUPABASE_URL")
     key = (
@@ -17,14 +15,12 @@ def _sb() -> Client:
         or os.environ.get("SUPABASE_SERVICE_KEY")
     )
     if not url or not key:
-        # Raise a plain Python error so we never invoke Streamlit inside this module
         missing = []
         if not url: missing.append("SUPABASE_URL")
         if not key: missing.append("SUPABASE_KEY/ANON/SERVICE")
         raise RuntimeError("Missing configuration: " + ", ".join(missing))
     return create_client(url, key)
 
-# ---------- Small utils ----------
 def money_fmt(x: Optional[float]) -> str:
     if x is None:
         return "$0.00"
@@ -39,7 +35,6 @@ def _iso_date(d: Optional[date]) -> Optional[str]:
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-# ---------- Gig lists / roster bundles ----------
 def fetch_open_or_draft_gigs() -> List[Dict[str, Any]]:
     sb = _sb()
     res = (
@@ -67,7 +62,6 @@ def fetch_closeout_bundle(gig_id: str):
 
     roster: List[Dict[str, Any]] = []
 
-    # Musicians via join table -> people table
     mus_rows = (
         sb.table("gig_musicians")
         .select("musician_id, role, musicians:musician_id(id, display_name)")
@@ -86,7 +80,6 @@ def fetch_closeout_bundle(gig_id: str):
             "label": f"Musician — {m.get('display_name')} ({r.get('role') or ''})".strip(),
         })
 
-    # Agent (optional one-to-one on gigs.agent_id)
     agent_id = gig.get("agent_id")
     if agent_id:
         a = (
@@ -105,7 +98,6 @@ def fetch_closeout_bundle(gig_id: str):
                 "label": f"Agent — {a['display_name']}",
             })
 
-    # Sound tech (optional one-to-one on gigs.sound_tech_id)
     sound_id = gig.get("sound_tech_id")
     if sound_id:
         s = (
@@ -138,11 +130,10 @@ def _payments_for(gig_id: str) -> List[Dict[str, Any]]:
     )
     return res.data or []
 
-# ---------- Mutations ----------
 def upsert_payment_row(
     *,
     gig_id: str,
-    payee_type: str,             # 'musician' | 'sound' | 'agent' | 'venue_receipt'
+    payee_type: str,   # 'musician' | 'sound' | 'agent' | 'venue_receipt'
     payee_id: Optional[str],
     payee_name: Optional[str],
     role: Optional[str],
@@ -162,7 +153,6 @@ def upsert_payment_row(
         "paid_on": _iso_date(paid_date),
         "method": (method or None),
         "reference": (notes or None),
-        # Additive detail columns (safe if ALTERs applied):
         "payee_id": payee_id,
         "payee_name": payee_name,
         "role": role,
@@ -177,7 +167,7 @@ def delete_payment_row(payment_id: str) -> None:
 def mark_closeout_status(
     gig_id: str,
     *,
-    status: str,                  # 'open' | 'draft' | 'closed'
+    status: str,   # 'open' | 'draft' | 'closed'
     final_venue_gross: Optional[float] = None,
     final_venue_paid_date: Optional[date] = None,
     closeout_notes: Optional[str] = None,
