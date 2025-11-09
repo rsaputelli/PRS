@@ -1,44 +1,27 @@
 # lib/closeout_utils.py
-# PRS – Gig Closeout helpers (uses existing public.gig_payments)
+# PRS – Gig Closeout helpers (env-only; never touches st.secrets)
 from __future__ import annotations
 
 from typing import List, Dict, Any, Optional
 from datetime import date, datetime, timezone
 import os
 
-import streamlit as st
 from supabase import create_client, Client
 
-# ---------- Supabase client (bullet-proof) ----------
+# ---------- Supabase client (env-only; no Streamlit/secrets) ----------
 def _sb() -> Client:
-    import os
-    from supabase import create_client
-
-    def _secret(name: str):
-        try:
-            return st.secrets[name]  # may raise KeyError; we catch per-key
-        except Exception:
-            return None
-
-    # Read secrets safely, then fall back to env
-    url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+    url = os.environ.get("SUPABASE_URL")
     key = (
-        _secret("SUPABASE_KEY")
-        or _secret("SUPABASE_ANON_KEY")
-        or _secret("SUPABASE_SERVICE_KEY")
-        or os.environ.get("SUPABASE_KEY")
+        os.environ.get("SUPABASE_KEY")
         or os.environ.get("SUPABASE_ANON_KEY")
         or os.environ.get("SUPABASE_SERVICE_KEY")
     )
-
     if not url or not key:
+        # Raise a plain Python error so we never invoke Streamlit inside this module
         missing = []
         if not url: missing.append("SUPABASE_URL")
         if not key: missing.append("SUPABASE_KEY/ANON/SERVICE")
-        st.error("Missing configuration: " + ", ".join(missing) +
-                 ". Set them in Streamlit secrets (or env).")
-        st.stop()
-
+        raise RuntimeError("Missing configuration: " + ", ".join(missing))
     return create_client(url, key)
 
 # ---------- Small utils ----------
@@ -58,9 +41,6 @@ def _iso_now() -> str:
 
 # ---------- Gig lists / roster bundles ----------
 def fetch_open_or_draft_gigs() -> List[Dict[str, Any]]:
-    """
-    Return gigs with closeout_status in ('open','draft'), ordered by event_date.
-    """
     sb = _sb()
     res = (
         sb.table("gigs")
@@ -72,13 +52,8 @@ def fetch_open_or_draft_gigs() -> List[Dict[str, Any]]:
     return res.data or []
 
 def fetch_closeout_bundle(gig_id: str):
-    """
-    Load a gig record, build a roster (musicians, agent, sound),
-    and load any existing gig_payments for the gig.
-    """
     sb = _sb()
 
-    # Gig
     gig = (
         sb.table("gigs")
         .select("*")
@@ -87,7 +62,6 @@ def fetch_closeout_bundle(gig_id: str):
         .execute()
         .data
     )
-
     if not gig:
         return None, [], []
 
@@ -179,9 +153,6 @@ def upsert_payment_row(
     eligible_1099: bool = True,
     notes: Optional[str] = None,
 ) -> None:
-    """
-    Insert a closeout ledger row into public.gig_payments (existing schema).
-    """
     sb = _sb()
     payload = {
         "gig_id": gig_id,
@@ -221,5 +192,5 @@ def mark_closeout_status(
     if closeout_notes is not None:
         patch["closeout_notes"] = closeout_notes
     if status == "closed":
-        patch["closeout_at"] = datetime.now(timezone.utc).isoformat()
+        patch["closeout_at"] = _iso_now()
     sb.table("gigs").update(patch).eq("id", gig_id).execute()
