@@ -17,6 +17,21 @@ if not (
 if missing:
     st.error("Missing configuration: " + ", ".join(missing))
     st.stop()
+def _secret_safe(name: str):
+    try:
+        return st.secrets[name]
+    except Exception:
+        return None
+
+if st.sidebar.checkbox("Show secrets debug", value=False):
+    import os as _os
+    def _present(k): return bool(_secret_safe(k) or _os.environ.get(k))
+    st.sidebar.write({
+        "SUPABASE_URL": _present("SUPABASE_URL"),
+        "SUPABASE_KEY": _present("SUPABASE_KEY"),
+        "SUPABASE_ANON_KEY": _present("SUPABASE_ANON_KEY"),
+        "SUPABASE_SERVICE_KEY": _present("SUPABASE_SERVICE_KEY"),
+    })
 
 st.title("Gig Closeout")
 

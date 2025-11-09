@@ -9,32 +9,23 @@ import os
 import streamlit as st
 from supabase import create_client, Client
 
-# ---------- Supabase client (robust, no KeyError) ----------
+# ---------- Supabase client (bullet-proof) ----------
 def _sb() -> Client:
-    """
-    Robust Secrets/ENV loader:
-      - tries SUPABASE_URL from secrets, then env
-      - tries SUPABASE_KEY, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY (secrets/env)
-      - never uses st.secrets[...] and never propagates KeyError
-    """
-    def _safe_secret(name: str) -> Optional[str]:
+    import os
+    from supabase import create_client
+
+    def _secret(name: str):
         try:
-            s = getattr(st, "secrets", None)
-            if s is None:
-                return None
-            # Some Streamlit builds implement .get; guard access
-            if hasattr(s, "get"):
-                return s.get(name)
-            # If not, bail out cleanly
-            return None
+            return st.secrets[name]  # may raise KeyError; we catch per-key
         except Exception:
             return None
 
-    url = _safe_secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+    # Read secrets safely, then fall back to env
+    url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
     key = (
-        _safe_secret("SUPABASE_KEY")
-        or _safe_secret("SUPABASE_ANON_KEY")
-        or _safe_secret("SUPABASE_SERVICE_KEY")
+        _secret("SUPABASE_KEY")
+        or _secret("SUPABASE_ANON_KEY")
+        or _secret("SUPABASE_SERVICE_KEY")
         or os.environ.get("SUPABASE_KEY")
         or os.environ.get("SUPABASE_ANON_KEY")
         or os.environ.get("SUPABASE_SERVICE_KEY")
@@ -45,7 +36,7 @@ def _sb() -> Client:
         if not url: missing.append("SUPABASE_URL")
         if not key: missing.append("SUPABASE_KEY/ANON/SERVICE")
         st.error("Missing configuration: " + ", ".join(missing) +
-                 ". Set them in Streamlit secrets or environment variables.")
+                 ". Set them in Streamlit secrets (or env).")
         st.stop()
 
     return create_client(url, key)
