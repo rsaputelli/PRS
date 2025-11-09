@@ -9,17 +9,19 @@ from supabase import create_client, Client
 
 def _sb() -> Client:
     url = os.environ.get("SUPABASE_URL")
+    # Prefer SERVICE first, then KEY, then ANON
     key = (
-        os.environ.get("SUPABASE_KEY")
+        os.environ.get("SUPABASE_SERVICE_KEY")
+        or os.environ.get("SUPABASE_KEY")
         or os.environ.get("SUPABASE_ANON_KEY")
-        or os.environ.get("SUPABASE_SERVICE_KEY")
     )
     if not url or not key:
         missing = []
         if not url: missing.append("SUPABASE_URL")
-        if not key: missing.append("SUPABASE_KEY/ANON/SERVICE")
+        if not key: missing.append("SUPABASE_SERVICE_KEY/KEY/ANON")
         raise RuntimeError("Missing configuration: " + ", ".join(missing))
     return create_client(url, key)
+
 
 def money_fmt(x: Optional[float]) -> str:
     if x is None:
@@ -41,6 +43,18 @@ def fetch_open_or_draft_gigs() -> List[Dict[str, Any]]:
         sb.table("gigs")
         .select("*")
         .in_("closeout_status", ["open", "draft"])
+        .order("event_date")
+        .execute()
+    )
+    return res.data or []
+
+def fetch_gigs_by_status(*statuses: str) -> List[Dict[str, Any]]:
+    sb = _sb()
+    sts = list(statuses) if statuses else ["open"]
+    res = (
+        sb.table("gigs")
+        .select("*")
+        .in_("closeout_status", sts)
         .order("event_date")
         .execute()
     )
