@@ -37,4 +37,4 @@ desktop.ini
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml
-
+!.streamlit/
