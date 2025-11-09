@@ -32,8 +32,12 @@ if missing:
 
 # Import AFTER env is populated so utils can read it
 from lib.closeout_utils import (
-    fetch_open_or_draft_gigs, fetch_closeout_bundle, upsert_payment_row,
-    delete_payment_row, mark_closeout_status, money_fmt,
+    fetch_gigs_by_status,          # <-- use status-aware fetch
+    fetch_closeout_bundle,
+    upsert_payment_row,
+    delete_payment_row,
+    mark_closeout_status,
+    money_fmt,
 )
 
 if st.sidebar.checkbox("Show secrets debug", value=False):
@@ -42,8 +46,8 @@ if st.sidebar.checkbox("Show secrets debug", value=False):
         "SUPABASE_URL": _present("SUPABASE_URL"),
         "USING_KEY": (
             "SERVICE" if os.environ.get("SUPABASE_SERVICE_KEY") else
-            "KEY" if os.environ.get("SUPABASE_KEY") else
-            "ANON" if os.environ.get("SUPABASE_ANON_KEY") else
+            "KEY"     if os.environ.get("SUPABASE_KEY") else
+            "ANON"    if os.environ.get("SUPABASE_ANON_KEY") else
             "NONE"
         )
     })
@@ -53,7 +57,10 @@ st.title("Gig Closeout")
 mode = st.radio("Mode", ["Draft", "Closed"], horizontal=True, label_visibility="collapsed", key="closeout_mode")
 status_target = "draft" if mode == "Draft" else "closed"
 
-gigs = fetch_open_or_draft_gigs()
+# --- Use status-aware fetch so the radio actually filters the list
+gigs = fetch_gigs_by_status("closed") if status_target == "closed" else fetch_gigs_by_status("open", "draft")
+st.caption(f"Loaded gigs: {len(gigs)} for mode={status_target}")
+
 gig_opt = st.selectbox(
     "Select gig",
     options=gigs,
@@ -81,15 +88,21 @@ with colL:
         venue_date = st.date_input("Venue Paid Date", value=_default_paid or date.today())
         notes = st.text_area("Closeout Notes", value=gig.get("closeout_notes") or "")
         if st.form_submit_button("Save Venue Closeout"):
-            mark_closeout_status(gig["id"], status="draft", final_venue_gross=venue_paid, final_venue_paid_date=venue_date, closeout_notes=notes)
+            mark_closeout_status(
+                gig["id"],
+                status="draft",
+                final_venue_gross=venue_paid,
+                final_venue_paid_date=venue_date,
+                closeout_notes=notes
+            )
             st.success("Saved.")
             st.rerun()
-            
+
     st.divider()
     st.subheader("Payments to People")
     st.caption("Enter what was actually paid. These figures drive 1099s.")
 
-    # Quick add rows for each roster entry
+    # Quick add rows for each roster entry (musicians, sound, agent if linked on the gig)
     for r in roster:
         with st.expander(f"{r['label']}"):
             with st.form(f"pay_{r['type']}_{r['id']}"):
@@ -107,6 +120,28 @@ with colL:
                     )
                     st.success("Added.")
                     st.rerun()
+
+    # Optional: manual payment (lets you enter Agent/Sound/Musician/Other even if not linked)
+    with st.expander("Add manual payment (agent/musician/sound/other)"):
+        with st.form("manual_pay"):
+            manual_kind = st.selectbox("Payee type", ["agent", "musician", "sound", "other"])
+            manual_name = st.text_input("Payee name")
+            manual_role = st.text_input("Role (optional)")
+            m_gross = st.number_input("Gross Amount", min_value=0.0, step=25.0, key="manual_gross")
+            m_fee = st.number_input("Fee Withheld (if any)", min_value=0.0, step=5.0, key="manual_fee")
+            m_method = st.text_input("Method (check#, ACH, Zelle…)", "", key="manual_method")
+            m_paid_date = st.date_input("Paid Date", key="manual_date")
+            m_eligible = st.checkbox("1099 Eligible", value=True, key="manual_1099")
+            m_note = st.text_input("Notes", "", key="manual_note")
+            if st.form_submit_button("Add Manual Payment"):
+                upsert_payment_row(
+                    gig_id=gig["id"], payee_type=manual_kind, payee_id=None, payee_name=manual_name or None,
+                    role=(manual_role or None), gross=m_gross, fee=m_fee, method=m_method,
+                    paid_date=m_paid_date, eligible_1099=m_eligible, notes=m_note
+                )
+                st.success("Added.")
+                st.rerun()
+
 with colR:
     st.subheader("Current Payments")
     if not payments:
@@ -128,7 +163,7 @@ with colR:
                 delete_payment_row(p["id"])
                 st.warning("Deleted.")
                 st.rerun()  # refresh the list immediately
-                
+
 st.divider()
 left, right = st.columns(2)
 if left.button("Save as Draft"):
