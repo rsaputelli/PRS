@@ -4,8 +4,8 @@ import streamlit as st
 from datetime import date
 
 # === DIAGNOSTIC BANNER — REMOVE AFTER VERIFIED ===
-VERSION_TAG = "Gig Closeout • v2025-11-09.3 (bulk + dropdown)"
-st.markdown(f":red_circle: **{VERSION_TAG}**")
+# VERSION_TAG = "Gig Closeout • v2025-11-09.3 (bulk + dropdown)"
+# st.markdown(f":red_circle: **{VERSION_TAG}**")
 
 # ---------- bootstrap secrets to env (safe per-key) ----------
 def _sec(name: str):
