@@ -265,6 +265,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
         ics_fname, ics_bytes = build_player_ics(
             gig=gig,
+            recipient_email=to_email,
             summary=summary,
             venue_name=venue_name,
             venue_address=venue_addr,
