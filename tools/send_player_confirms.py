@@ -8,7 +8,7 @@ from typing import Dict, Any, Iterable, Optional, List
 
 from supabase import create_client, Client
 from lib.email_utils import gmail_send
-from lib.calendar_utils import make_ics_bytes  
+from lib.calendar_utils import make_ics_bytes
 
 # -----------------------------
 # Secrets / config (mirror sound-tech)
@@ -152,6 +152,19 @@ def _mus_display_name(r: Dict[str, Any]) -> str:
     combo = (fn + " " + ln).strip()
     return combo or "there"
 
+def _mus_stage_display(r: Dict[str, Any]) -> str:
+    """Prefer Stage Name (as in UI), fall back to display_name, then first+last."""
+    v = (r.get("stage_name") or "").strip()
+    if v:
+        return v
+    v = (r.get("display_name") or "").strip()
+    if v:
+        return v
+    fn = (r.get("first_name") or "").strip()
+    ln = (r.get("last_name") or "").strip()
+    combo = (fn + " " + ln).strip()
+    return combo or "Unknown"
+
 def _fmt_addr(v: Dict[str, Any]) -> str:
     parts = []
     l1 = _nz(v.get("address_line1")); l2 = _nz(v.get("address_line2"))
@@ -227,22 +240,37 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
         role = roles.get(mid, "")
         greet = _mus_display_name(mrow)
-        
-        # --- Build dynamic section for extra details (same info as ICS) ---
-        other_player_names = []
-        for _id in target_ids:
-            if _id != mid:
-                _row = mus_map.get(_id) or {}
-                name = _mus_display_name(_row)
-                if name:
-                    other_player_names.append(name)
-        soundtech_name = ""  # populate if available later
 
+        # ---------- Build lineup (Stage Name + Role), sound tech, and counts ----------
+        other_players_list = []
+        for _id in target_ids:
+            if _id == mid:
+                continue
+            _row = mus_map.get(_id) or {}
+            name = _mus_stage_display(_row)  # Stage Name preferred
+            r = (roles.get(_id, "") or "").strip()
+            if name:
+                other_players_list.append(f"{name}{f' ({r})' if r else ''}")
+
+        other_players_count = len(other_players_list)
+
+        soundtech_name = ""
+        try:
+            for _id in target_ids:
+                r = (roles.get(_id, "") or "")
+                if "sound" in r.lower():
+                    _row = mus_map.get(_id) or {}
+                    soundtech_name = _mus_stage_display(_row)
+                    break
+        except Exception:
+            soundtech_name = ""
+
+        # ---------- Build Lineup + Event Details HTML ----------
         extra_html = ""
-        if other_player_names or soundtech_name:
+        if other_players_list or soundtech_name:
             extra_html = "<h4>Lineup</h4><ul>"
-            if other_player_names:
-                extra_html += f"<li><b>Other confirmed players:</b> {', '.join(other_player_names)}</li>"
+            if other_players_list:
+                extra_html += f"<li><b>Other confirmed players:</b> {', '.join(other_players_list)}</li>"
             if soundtech_name:
                 extra_html += f"<li><b>Confirmed sound tech:</b> {soundtech_name}</li>"
             extra_html += "</ul>"
@@ -264,41 +292,21 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         <p>Please reply if anything needs attention.</p>
         """
 
-        # --- Build .ics attachment for the player confirmation ---
+        # ---------- Build .ics attachment ----------
         attachments = None
+        has_ics = False
+        starts_at_built: Optional[str] = None
+        ends_at_built: Optional[str] = None
+
         try:
             summary = title
             location = " | ".join([p for p in [venue_name, venue_addr] if p]).strip()
             base_description = f"You’re confirmed for {title}."
 
-            # Build 'other players' list (exclude current recipient)
-            other_player_names = []
-            for _id in target_ids:
-                if _id == mid:
-                    continue
-                _row = mus_map.get(_id) or {}
-                name = _mus_display_name(_row)
-                if name:
-                    other_player_names.append(name)
-
-            soundtech_name = ""
-            try:
-                # if you have roles/musicians in scope
-                for _id in target_ids:
-                    role_for = roles.get(_id, "").lower() if isinstance(roles, dict) else ""
-                    if "sound" in role_for:
-                        _row = mus_map.get(_id) or {}
-                        n = _mus_display_name(_row)
-                        if n:
-                            soundtech_name = n
-                            break
-            except Exception:
-                pass
-
-            # Compose DESCRIPTION with requested extra fields
+            # DESCRIPTION content with Stage Name + Role list
             extra_lines = []
-            if other_player_names:
-                extra_lines.append("Other confirmed players: " + ", ".join(other_player_names))
+            if other_players_list:
+                extra_lines.append("Other confirmed players: " + ", ".join(other_players_list))
             if soundtech_name:
                 extra_lines.append(f"Confirmed sound tech: {soundtech_name}")
             if venue_name:
@@ -312,44 +320,38 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             if extra_lines:
                 description = (description.rstrip() + "\n\n" + "\n".join(extra_lines)).strip()
 
-            # Build timezone-aware datetimes (required by calendar_utils which calls astimezone)
+            # Build timezone-aware datetimes
             from zoneinfo import ZoneInfo
             _tz = ZoneInfo("America/New_York")
 
             def _mk_dt(date_str, time_str):
                 try:
-                    # --- date parsing ---
                     ds = str(date_str).strip()
-                    if "/" in ds:  # MM/DD/YYYY
+                    # Date: MM/DD/YYYY or YYYY-MM-DD
+                    if "/" in ds:
                         m, d, y = [int(x) for x in ds.split("/")]
-                    else:          # YYYY-MM-DD
+                    else:
                         y, m, d = [int(x) for x in ds.split("-")]
 
-                    # --- time parsing ---
+                    # Time: supports "h:mm AM/PM" or "HH:MM[:SS]"
                     hh, mm = 0, 0
                     ts = (str(time_str) if time_str else "").strip()
-                    is_pm = False
                     if ts:
                         t_upper = ts.upper()
-                        # detect AM/PM
+                        ampm = None
                         if t_upper.endswith("AM") or t_upper.endswith("PM"):
-                            is_pm = t_upper.endswith("PM")
+                            ampm = "PM" if t_upper.endswith("PM") else "AM"
                             ts = t_upper.replace("AM", "").replace("PM", "").strip()
 
-                        # support HH:MM[:SS]
                         parts = [p for p in ts.split(":") if p != ""]
                         if len(parts) >= 2:
                             hh = int(parts[0]); mm = int(parts[1])
 
-                        # convert to 24h if AM/PM was present
-                        if "AM" in t_upper or "PM" in t_upper:
-                            if is_pm and hh < 12:
-                                hh += 12
-                            if not is_pm and hh == 12:
-                                hh = 0
+                        if ampm == "PM" and hh < 12:
+                            hh += 12
+                        if ampm == "AM" and hh == 12:
+                            hh = 0
 
-                    from zoneinfo import ZoneInfo
-                    _tz = ZoneInfo("America/New_York")
                     return dt.datetime(int(y), int(m), int(d), int(hh), int(mm), tzinfo=_tz)
                 except Exception:
                     return None
@@ -357,23 +359,30 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             starts_at = _mk_dt(event_dt, gig.get("start_time"))
             ends_at   = _mk_dt(event_dt, gig.get("end_time"))
 
+            if starts_at:
+                starts_at_built = starts_at.isoformat()
+            if ends_at:
+                ends_at_built = ends_at.isoformat()
+
+            # Only attach if both datetimes are valid
             if starts_at and ends_at:
+                # Pass only safe, commonly supported args
                 ics_bytes = make_ics_bytes(
                     starts_at=starts_at,
                     ends_at=ends_at,
                     summary=summary,
                     location=location,
-                    description=description,   # <- pass the composed DESCRIPTION here
-                    method="REQUEST",
+                    description=description,
                 )
                 attachments = [{
                     "filename": f"{title}-{event_dt}.ics",
                     "mime": "text/calendar; method=REQUEST; charset=UTF-8",
                     "content": ics_bytes,
                 }]
+                has_ics = True
         except Exception:
             attachments = None
-
+            has_ics = False
 
         subject = f"Player Confirmation: {title} ({event_dt})"
         try:
@@ -387,7 +396,15 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                 recipient_email=to_email,
                 kind="player_confirm",
                 status=("dry-run" if _is_dry_run() else "sent"),
-                detail={"to": to_email, "subject": subject, "musician_id": mid},
+                detail={
+                    "to": to_email,
+                    "subject": subject,
+                    "musician_id": mid,
+                    "has_ics": has_ics,
+                    "other_players_count": other_players_count,
+                    "starts_at_built": starts_at_built,
+                    "ends_at_built": ends_at_built,
+                },
             )
         except Exception as e:
             _insert_email_audit(
@@ -396,6 +413,15 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                 recipient_email=to_email,
                 kind="player_confirm",
                 status=f"error: {e}",
-                detail={"to": to_email, "subject": subject, "musician_id": mid, "errors": str(e)},
+                detail={
+                    "to": to_email,
+                    "subject": subject,
+                    "musician_id": mid,
+                    "errors": str(e),
+                    "has_ics": has_ics,
+                    "other_players_count": other_players_count,
+                    "starts_at_built": starts_at_built,
+                    "ends_at_built": ends_at_built,
+                },
             )
             raise
