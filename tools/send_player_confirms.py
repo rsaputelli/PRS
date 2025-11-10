@@ -11,7 +11,7 @@ from lib.email_utils import gmail_send
 from lib.calendar_utils import make_ics_bytes
 
 # -----------------------------
-# Secrets / config (mirror sound-tech)
+# Secrets / config
 # -----------------------------
 def _get_secret(name: str, default: Optional[str] = None):
     try:
@@ -35,10 +35,7 @@ SUPABASE_KEY = (
 CC_RAY = _get_secret("CC_RAY", "ray@lutinemanagement.com")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError(
-        "Missing Supabase credentials: set SUPABASE_URL and one of "
-        "SUPABASE_SERVICE_ROLE / SUPABASE_KEY / SUPABASE_ANON_KEY."
-    )
+    raise RuntimeError("Missing Supabase credentials.")
 
 # -----------------------------
 # Supabase clients
@@ -72,77 +69,47 @@ def _fetch_gig(gig_id: str) -> Dict[str, Any]:
     )
     rows = res.data or []
     if not rows:
-        raise ValueError(f"Gig {gig_id} not found or not accessible (RLS).")
+        raise ValueError(f"Gig {gig_id} not found.")
     return rows[0]
 
 def _fetch_venue(venue_id: str | None) -> Dict[str, Any]:
     if not venue_id:
         return {}
-    res = _sb().table("venues").select(
-        "name, address_line1, address_line2, city, state, postal_code"
-    ).eq("id", venue_id).limit(1).execute()
+    res = (
+        _sb().table("venues")
+        .select("name, address_line1, address_line2, city, state, postal_code")
+        .eq("id", venue_id).limit(1).execute()
+    )
     rows = res.data or []
     return rows[0] if rows else {}
 
-def _gig_musician_ids(gig_id: str) -> List[str]:
-    res = _sb().table("gig_musicians").select("musician_id, role").eq("gig_id", gig_id).execute()
-    rows = res.data or []
-    ids = []
-    for r in rows:
-        mid = r.get("musician_id")
-        if mid:
-            ids.append(str(mid))
-    # unique, preserve order
-    seen = set(); ordered = []
-    for m in ids:
-        if m not in seen:
-            seen.add(m); ordered.append(m)
-    return ordered
+def _gig_musicians(gig_id: str) -> List[Dict[str, Any]]:
+    # We need both musician_id and role
+    res = _sb().table("gig_musicians").select(
+        "musician_id, role"
+    ).eq("gig_id", gig_id).execute()
+    return res.data or []
 
 def _fetch_musicians_map(ids: List[str]) -> Dict[str, Dict[str, Any]]:
     if not ids:
         return {}
-    # Select only columns that exist in your schema
-    res = _sb().table("musicians").select(
-        "id, email, display_name, first_name, last_name, stage_name"
-    ).in_("id", ids).execute()
+    res = (
+        _sb().table("musicians")
+        .select("id, email, display_name, first_name, last_name, stage_name")
+        .in_("id", ids)
+        .execute()
+    )
     rows = res.data or []
-    out = {}
-    for r in rows:
-        mid = r.get("id")
-        if mid is not None:
-            out[str(mid)] = r
-    return out
-
-def _gig_roles_for(gig_id: str) -> Dict[str, str]:
-    res = _sb().table("gig_musicians").select("musician_id, role").eq("gig_id", gig_id).execute()
-    rows = res.data or []
-    m = {}
-    for r in rows:
-        mid = r.get("musician_id")
-        if mid is not None:
-            m[str(mid)] = (r.get("role") or "").strip()
-    return m
+    return {str(r["id"]): r for r in rows if r.get("id") is not None}
 
 # -----------------------------
 # Formatting helpers
 # -----------------------------
-def _fmt_time12(t: Optional[str]) -> str:
-    from datetime import datetime
-    if not t:
-        return ""
-    for fmt in ("%H:%M:%S", "%H:%M"):
-        try:
-            return datetime.strptime(t, fmt).strftime("%I:%M %p").lstrip("0")
-        except ValueError:
-            continue
-    return str(t or "")
-
 def _nz(v) -> str:
     return "" if v is None else str(v).strip()
 
 def _mus_display_name(r: Dict[str, Any]) -> str:
-    # Prefer display/stage; fall back to first + last; then "there"
+    # Gentle greeting preference
     for key in ("display_name", "stage_name"):
         v = (r.get(key) or "").strip()
         if v:
@@ -152,8 +119,7 @@ def _mus_display_name(r: Dict[str, Any]) -> str:
     combo = (fn + " " + ln).strip()
     return combo or "there"
 
-def _mus_stage_display(r: Dict[str, Any]) -> str:
-    """Prefer Stage Name (as in UI), fall back to display_name, then first+last."""
+def _stage_name_pref(r: Dict[str, Any]) -> str:
     v = (r.get("stage_name") or "").strip()
     if v:
         return v
@@ -164,6 +130,18 @@ def _mus_stage_display(r: Dict[str, Any]) -> str:
     ln = (r.get("last_name") or "").strip()
     combo = (fn + " " + ln).strip()
     return combo or "Unknown"
+
+def _fmt_time12(t: Optional[str]) -> str:
+    from datetime import datetime
+    if not t:
+        return ""
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(t, fmt).strftime("%I:%M %p").lstrip("0")
+        except ValueError:
+            continue
+    # Try already-am/pm-ish strings as a last resort
+    return str(t)
 
 def _fmt_addr(v: Dict[str, Any]) -> str:
     parts = []
@@ -176,7 +154,7 @@ def _fmt_addr(v: Dict[str, Any]) -> str:
     return " | ".join(parts)
 
 # -----------------------------
-# Audit
+# Audit helper
 # -----------------------------
 def _insert_email_audit(*, token: str, gig_id: str, recipient_email: str, kind: str, status: str, detail: dict):
     _sb_admin().table("email_audit").insert({
@@ -191,15 +169,65 @@ def _insert_email_audit(*, token: str, gig_id: str, recipient_email: str, kind: 
     }).execute()
 
 # -----------------------------
+# Date/time builder for ICS
+# -----------------------------
+def _mk_dt(date_str: str | None, time_str: str | None, tzname: str = "America/New_York"):
+    """
+    Accepts:
+      - date: YYYY-MM-DD or MM/DD/YYYY
+      - time: 'HH:MM[:SS]' (24h) or 'h:mm AM/PM'
+    Returns timezone-aware datetime or None.
+    """
+    if not date_str:
+        return None
+    ds = str(date_str).strip()
+    try:
+        if "/" in ds:  # MM/DD/YYYY
+            m, d, y = [int(x) for x in ds.split("/")]
+        else:          # YYYY-MM-DD
+            y, m, d = [int(x) for x in ds.split("-")]
+    except Exception:
+        return None
+
+    hh = 0; mm = 0
+    ts = (str(time_str) if time_str else "").strip()
+    if ts:
+        t_upper = ts.upper()
+        ampm = None
+        if t_upper.endswith("AM") or t_upper.endswith("PM"):
+            ampm = "PM" if t_upper.endswith("PM") else "AM"
+            ts = t_upper.replace("AM", "").replace("PM", "").strip()
+        parts = [p for p in ts.split(":") if p != ""]
+        if len(parts) >= 2:
+            try:
+                hh = int(parts[0]); mm = int(parts[1])
+            except Exception:
+                hh, mm = 0, 0
+        if ampm == "PM" and hh < 12:
+            hh += 12
+        if ampm == "AM" and hh == 12:
+            hh = 0
+
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.datetime(y, m, d, hh, mm, tzinfo=ZoneInfo(tzname))
+    except Exception:
+        return None
+
+# -----------------------------
 # Public API
 # -----------------------------
 def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = None, cc: Optional[list[str]] = None) -> None:
     """
-    Send confirmations to the specified musicians. If musician_ids is None,
-    sends to the current lineup for the gig. Audits every outcome.
+    Minimal, surgical edits:
+      - Stage Name + Role lineup
+      - Sound tech detection
+      - ICS generation with tolerant parsing
+      - Added audit fields
     """
     gig_id = str(gig_id)
     gig = _fetch_gig(gig_id)
+
     title = _nz(gig.get("title")) or "Gig"
     event_dt = _nz(gig.get("event_date"))
     start_hhmm = _fmt_time12(gig.get("start_time"))
@@ -209,18 +237,27 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     venue_name = _nz(venue.get("name"))
     venue_addr = _fmt_addr(venue)
 
-    # Build target list
+    # Build the target list (preserve order, unique)
+    gm_rows = _gig_musicians(gig_id)
+    ordered_ids = []
+    roles_by_mid = {}
+    for r in gm_rows:
+        mid = r.get("musician_id")
+        if mid is None:
+            continue
+        smid = str(mid)
+        if smid not in roles_by_mid:
+            ordered_ids.append(smid)
+        roles_by_mid[smid] = (r.get("role") or "").strip()
+
     if musician_ids is None:
-        target_ids = _gig_musician_ids(gig_id)
+        target_ids = ordered_ids[:]
     else:
+        # Only send to requested recipients, but we still need full lineup context
         target_ids = [str(x) for x in musician_ids if x]
 
-    if not target_ids:
-        # Nothing to do; no exception (queue runner should just proceed)
-        return
-
-    roles = _gig_roles_for(gig_id)
-    mus_map = _fetch_musicians_map(target_ids)
+    # Fetch musician rows for *all* ordered_ids (for lineup), but we’ll send to subset if requested
+    mus_map = _fetch_musicians_map(ordered_ids)
 
     for mid in target_ids:
         token = uuid.uuid4().hex
@@ -229,53 +266,47 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
         if not to_email:
             _insert_email_audit(
-                token=token,
-                gig_id=gig_id,
-                recipient_email="",
-                kind="player_confirm",
-                status="skipped-no-email",
+                token=token, gig_id=gig_id, recipient_email="",
+                kind="player_confirm", status="skipped-no-email",
                 detail={"musician_id": mid, "errors": "musician-has-no-email"},
             )
             continue
 
-        role = roles.get(mid, "")
+        role_me = roles_by_mid.get(mid, "")
         greet = _mus_display_name(mrow)
 
-        # ---------- Build lineup (Stage Name + Role), sound tech, and counts ----------
-        other_players_list = []
-        for _id in target_ids:
-            if _id == mid:
+        # ---------- Build Other Players (Stage Name + Role), excluding recipient ----------
+        other_players_list: List[str] = []
+        for oid in ordered_ids:
+            if oid == mid:
                 continue
-            _row = mus_map.get(_id) or {}
-            name = _mus_stage_display(_row)  # Stage Name preferred
-            r = (roles.get(_id, "") or "").strip()
-            if name:
-                other_players_list.append(f"{name}{f' ({r})' if r else ''}")
-
+            orow = mus_map.get(oid) or {}
+            name = _stage_name_pref(orow)
+            r = roles_by_mid.get(oid, "")
+            label = name if not r else f"{name} ({r})"
+            other_players_list.append(label)
         other_players_count = len(other_players_list)
 
+        # ---------- Find Sound Tech (role contains "sound") ----------
         soundtech_name = ""
         try:
-            for _id in target_ids:
-                r = (roles.get(_id, "") or "")
+            for oid in ordered_ids:
+                r = (roles_by_mid.get(oid, "") or "")
                 if "sound" in r.lower():
-                    _row = mus_map.get(_id) or {}
-                    soundtech_name = _mus_stage_display(_row)
+                    soundtech_name = _stage_name_pref(mus_map.get(oid) or {})
                     break
         except Exception:
             soundtech_name = ""
 
-        # ---------- Build Lineup + Event Details HTML ----------
-        extra_html = ""
-        if other_players_list or soundtech_name:
-            extra_html = "<h4>Lineup</h4><ul>"
-            if other_players_list:
-                extra_html += f"<li><b>Other confirmed players:</b> {', '.join(other_players_list)}</li>"
-            if soundtech_name:
-                extra_html += f"<li><b>Confirmed sound tech:</b> {soundtech_name}</li>"
-            extra_html += "</ul>"
+        # ---------- Email body blocks ----------
+        lineup_html = "<h4>Lineup</h4><ul>"
+        if other_players_list:
+            lineup_html += f"<li><b>Other confirmed players:</b> {', '.join(other_players_list)}</li>"
+        if soundtech_name:
+            lineup_html += f"<li><b>Confirmed sound tech:</b> {soundtech_name}</li>"
+        lineup_html += "</ul>"
 
-        extra_html += f"""
+        details_html = f"""
         <h4>Event Details</h4>
         <table border="1" cellpadding="6" cellspacing="0">
           <tr><th align="left">Date</th><td>{event_dt}</td></tr>
@@ -287,75 +318,19 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
         html = f"""
         <p>Hello {greet},</p>
-        <p>You’re confirmed for <b>{title}</b>{f" ({role})" if role else ""}.</p>
-        {extra_html}
+        <p>You’re confirmed for <b>{title}</b>{f" ({role_me})" if role_me else ""}.</p>
+        {lineup_html}
+        {details_html}
         <p>Please reply if anything needs attention.</p>
         """
 
-        # ---------- Build .ics attachment ----------
-        attachments = None
+        # ---------- ICS attachment ----------
         has_ics = False
-        starts_at_built: Optional[str] = None
-        ends_at_built: Optional[str] = None
+        starts_at_built = None
+        ends_at_built = None
+        attachments = None
 
         try:
-            summary = title
-            location = " | ".join([p for p in [venue_name, venue_addr] if p]).strip()
-            base_description = f"You’re confirmed for {title}."
-
-            # DESCRIPTION content with Stage Name + Role list
-            extra_lines = []
-            if other_players_list:
-                extra_lines.append("Other confirmed players: " + ", ".join(other_players_list))
-            if soundtech_name:
-                extra_lines.append(f"Confirmed sound tech: {soundtech_name}")
-            if venue_name:
-                extra_lines.append(f"Venue: {venue_name}")
-            if event_dt:
-                extra_lines.append(f"Event date: {event_dt}")
-            if start_hhmm or end_hhmm:
-                extra_lines.append(f"Start and end times: {start_hhmm or ''} – {end_hhmm or ''}")
-
-            description = base_description
-            if extra_lines:
-                description = (description.rstrip() + "\n\n" + "\n".join(extra_lines)).strip()
-
-            # Build timezone-aware datetimes
-            from zoneinfo import ZoneInfo
-            _tz = ZoneInfo("America/New_York")
-
-            def _mk_dt(date_str, time_str):
-                try:
-                    ds = str(date_str).strip()
-                    # Date: MM/DD/YYYY or YYYY-MM-DD
-                    if "/" in ds:
-                        m, d, y = [int(x) for x in ds.split("/")]
-                    else:
-                        y, m, d = [int(x) for x in ds.split("-")]
-
-                    # Time: supports "h:mm AM/PM" or "HH:MM[:SS]"
-                    hh, mm = 0, 0
-                    ts = (str(time_str) if time_str else "").strip()
-                    if ts:
-                        t_upper = ts.upper()
-                        ampm = None
-                        if t_upper.endswith("AM") or t_upper.endswith("PM"):
-                            ampm = "PM" if t_upper.endswith("PM") else "AM"
-                            ts = t_upper.replace("AM", "").replace("PM", "").strip()
-
-                        parts = [p for p in ts.split(":") if p != ""]
-                        if len(parts) >= 2:
-                            hh = int(parts[0]); mm = int(parts[1])
-
-                        if ampm == "PM" and hh < 12:
-                            hh += 12
-                        if ampm == "AM" and hh == 12:
-                            hh = 0
-
-                    return dt.datetime(int(y), int(m), int(d), int(hh), int(mm), tzinfo=_tz)
-                except Exception:
-                    return None
-
             starts_at = _mk_dt(event_dt, gig.get("start_time"))
             ends_at   = _mk_dt(event_dt, gig.get("end_time"))
 
@@ -364,13 +339,29 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             if ends_at:
                 ends_at_built = ends_at.isoformat()
 
-            # Only attach if both datetimes are valid
             if starts_at and ends_at:
-                # Pass only safe, commonly supported args
+                # DESCRIPTION content per requirements
+                extra_lines = []
+                if other_players_list:
+                    extra_lines.append("Other confirmed players: " + ", ".join(other_players_list))
+                if soundtech_name:
+                    extra_lines.append(f"Confirmed sound tech: {soundtech_name}")
+                if venue_name:
+                    extra_lines.append(f"Venue: {venue_name}")
+                if event_dt:
+                    extra_lines.append(f"Event date: {event_dt}")
+                if _nz(gig.get("start_time")) or _nz(gig.get("end_time")):
+                    extra_lines.append(f"Start and end times: {_nz(gig.get('start_time'))} – {_nz(gig.get('end_time'))}")
+
+                description = ("You’re confirmed for " + title).strip()
+                if extra_lines:
+                    description += "\n\n" + "\n".join(extra_lines)
+
+                location = " | ".join([p for p in [venue_name, venue_addr] if p]).strip()
                 ics_bytes = make_ics_bytes(
                     starts_at=starts_at,
                     ends_at=ends_at,
-                    summary=summary,
+                    summary=title,
                     location=location,
                     description=description,
                 )
@@ -381,21 +372,19 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                 }]
                 has_ics = True
         except Exception:
-            attachments = None
             has_ics = False
+            attachments = None
 
+        # ---------- Send ----------
         subject = f"Player Confirmation: {title} ({event_dt})"
         try:
             if not _is_dry_run():
                 result = gmail_send(subject, to_email, html, cc=(cc or [CC_RAY]), attachments=attachments)
                 if not result:
-                    raise RuntimeError("gmail_send returned a non-success value (None/False)")
+                    raise RuntimeError("gmail_send returned a non-success value")
             _insert_email_audit(
-                token=token,
-                gig_id=gig_id,
-                recipient_email=to_email,
-                kind="player_confirm",
-                status=("dry-run" if _is_dry_run() else "sent"),
+                token=token, gig_id=gig_id, recipient_email=to_email,
+                kind="player_confirm", status=("dry-run" if _is_dry_run() else "sent"),
                 detail={
                     "to": to_email,
                     "subject": subject,
@@ -408,11 +397,8 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             )
         except Exception as e:
             _insert_email_audit(
-                token=token,
-                gig_id=gig_id,
-                recipient_email=to_email,
-                kind="player_confirm",
-                status=f"error: {e}",
+                token=token, gig_id=gig_id, recipient_email=to_email,
+                kind="player_confirm", status=f"error: {e}",
                 detail={
                     "to": to_email,
                     "subject": subject,
