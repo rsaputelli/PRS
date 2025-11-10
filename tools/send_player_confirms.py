@@ -8,6 +8,7 @@ from typing import Dict, Any, Iterable, Optional, List
 
 from supabase import create_client, Client
 from lib.email_utils import gmail_send
+from lib.ics_utils import build_player_ics
 
 # -----------------------------
 # Secrets / config (mirror sound-tech)
@@ -237,11 +238,56 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         </table>
         <p>Please reply if anything needs attention.</p>
         """
+        # Safe defaults if upstream vars aren’t defined in this scope
+        if 'all_confirmed_player_names' in locals() and 'me_name' in locals():
+            other_players = [p_name for p_name in all_confirmed_player_names if p_name != me_name]
+        else:
+            other_players = []
+
+        sound_name = confirmed_sound_name if 'confirmed_sound_name' in locals() else None      
+        
+        # --- Build ICS (only requested fields) ---
+        summary = gig.get("title") or "Gig"
+        venue_name = gig.get("venue_name") or ""
+        venue_address = gig.get("venue_address") or ""
+        event_date = gig.get("event_date")
+        start_time = gig.get("start_time")
+        end_time = gig.get("end_time")
+        
+        # Build names for this email batch and exclude the recipient
+        def _name_for(mid: str) -> str:
+            return _mus_display_name(mus_map.get(mid, {}))
+
+        other_players = [_name_for(x) for x in target_ids if x != mid]
+
+        # If you have a confirmed-sound name, set it; else keep None
+        sound_name = confirmed_sound_name if 'confirmed_sound_name' in locals() else None
+
+        ics_fname, ics_bytes = build_player_ics(
+            gig=gig,
+            summary=summary,
+            venue_name=venue_name,
+            venue_address=venue_addr,
+            event_date=event_date,
+            start_time=start_time,
+            end_time=end_time,
+            confirmed_players=other_players,
+            confirmed_sound=sound_name,
+            organizer_email=ORGANIZER_EMAIL if 'ORGANIZER_EMAIL' in globals() else None,
+            uid_suffix=to_email.replace("@", "_at_"),
+        )
+
+        attachments = [{
+            "filename": ics_fname,
+            "mime_type": "text/calendar; method=REQUEST; charset=UTF-8",
+            "data": ics_bytes,
+        }]
 
         subject = f"Player Confirmation: {title} ({event_dt})"
         try:
             if not _is_dry_run():
-                result = gmail_send(subject, to_email, html, cc=(cc or [CC_RAY]), attachments=None)
+                # ✅ send with the ICS
+                result = gmail_send(subject, to_email, html, cc=(cc or [CC_RAY]), attachments=attachments)
                 if not result:
                     raise RuntimeError("gmail_send returned a non-success value (None/False)")
             _insert_email_audit(
