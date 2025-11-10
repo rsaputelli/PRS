@@ -246,34 +246,30 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
         sound_name = confirmed_sound_name if 'confirmed_sound_name' in locals() else None      
         
-        # --- Build ICS (only requested fields) ---
-        summary = gig.get("title") or "Gig"
-        venue_name = gig.get("venue_name") or ""
-        venue_address = gig.get("venue_address") or ""
+        # --- Build ICS (only the requested extra fields) ---
+        summary    = gig.get("title") or "Gig"
         event_date = gig.get("event_date")
         start_time = gig.get("start_time")
-        end_time = gig.get("end_time")
-        
-        # Build names for this email batch and exclude the recipient
+        end_time   = gig.get("end_time")
+
+        # Build lineup from this send batch, excluding the recipient
         def _name_for(mid: str) -> str:
             return _mus_display_name(mus_map.get(mid, {}))
 
         other_players = [_name_for(x) for x in target_ids if x != mid]
-
-        # If you have a confirmed-sound name, set it; else keep None
         sound_name = confirmed_sound_name if 'confirmed_sound_name' in locals() else None
 
         ics_fname, ics_bytes = build_player_ics(
             gig=gig,
-            recipient_email=to_email,
+            recipient_email=to_email,            # harmless if helper ignores it
             summary=summary,
-            venue_name=venue_name,
-            venue_address=venue_addr,
+            venue_name=venue_name,               # <- use strings from _fetch_venue() above
+            venue_address=venue_addr,            # <- address string you already formatted
             event_date=event_date,
             start_time=start_time,
             end_time=end_time,
-            confirmed_players=other_players,
-            confirmed_sound=sound_name,
+            confirmed_players=other_players,     # <- NEW info
+            confirmed_sound=sound_name,          # <- NEW info
             organizer_email=ORGANIZER_EMAIL if 'ORGANIZER_EMAIL' in globals() else None,
             uid_suffix=to_email.replace("@", "_at_"),
         )
@@ -283,6 +279,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             "mime_type": "text/calendar; method=REQUEST; charset=UTF-8",
             "data": ics_bytes,
         }]
+
 
         subject = f"Player Confirmation: {title} ({event_dt})"
         try:
