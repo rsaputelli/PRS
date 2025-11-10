@@ -238,13 +238,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         </table>
         <p>Please reply if anything needs attention.</p>
         """
-        # Safe defaults if upstream vars aren’t defined in this scope
-        if 'all_confirmed_player_names' in locals() and 'me_name' in locals():
-            other_players = [p_name for p_name in all_confirmed_player_names if p_name != me_name]
-        else:
-            other_players = []
 
-        sound_name = confirmed_sound_name if 'confirmed_sound_name' in locals() else None      
         
         # --- Build ICS (only the requested extra fields) ---
         summary    = gig.get("title") or "Gig"

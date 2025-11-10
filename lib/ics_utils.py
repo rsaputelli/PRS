@@ -1,118 +1,109 @@
 # lib/ics_utils.py
+from __future__ import annotations
 from datetime import datetime, date, time, timezone
 from zoneinfo import ZoneInfo
+from typing import List, Optional
 import uuid
 import re
 
 NY_TZ = ZoneInfo("America/New_York")
 
-def _safe_str(v):
+def _safe_str(v) -> str:
     return "" if v is None else str(v)
 
-def _combine_date_time(d, t, tz=NY_TZ) -> datetime:
-    """
-    Combine a date-like and time-like into a timezone-aware datetime.
-    Accepts strings in common formats (e.g., '2025-11-18', '19:30', '7:30 PM').
-    """
-    # date
+def _combine_date_time(d, t, tz: ZoneInfo = NY_TZ) -> datetime:
+    """Combine date-like and time-like into a timezone-aware datetime."""
+    # ---- date ----
     if isinstance(d, datetime):
         d = d.date()
     elif isinstance(d, str):
-        # try ISO
+        s = d.strip()
+        # ISO first
         try:
-            d = date.fromisoformat(d.strip()[:10])
+            d = date.fromisoformat(s[:10])
         except Exception:
-            # very defensive; last resort: digits only yyyymmdd?
-            m = re.match(r"(\d{4})[-/]?(\d{2})[-/]?(\d{2})", d.strip())
+            m = re.match(r"(\d{4})[-/]?(\d{2})[-/]?(\d{2})", s)
             if not m:
                 raise ValueError(f"Unrecognized date: {d!r}")
             d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     if not isinstance(d, date):
         raise ValueError(f"Unsupported date value: {d!r}")
 
-    # time
+    # ---- time ----
     if isinstance(t, datetime):
         t = t.timetz()
     if isinstance(t, str):
         s = t.strip().upper().replace(".", "")
+        parsed: Optional[time] = None
         for fmt in ("%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M:%S %p", "%H%M"):
             try:
-                tt = datetime.strptime(s, fmt).time()
+                parsed = datetime.strptime(s, fmt).time()
                 break
             except Exception:
-                tt = None
-        if tt is None:
-            # fallback: just midnight
-            tt = time(hour=0, minute=0)
-        t = tt
+                continue
+        if parsed is None:
+            parsed = time(0, 0, 0)
+        t = parsed
     if not isinstance(t, time):
-        # fallback to midnight
-        t = time(hour=0, minute=0)
+        t = time(0, 0, 0)
 
     return datetime(d.year, d.month, d.day, t.hour, t.minute, t.second, tzinfo=tz)
 
-def _fmt_dt_ics(dt: datetime) -> str:
-    """
-    Format to DTSTART/DTEND friendly string with TZID label.
-    We keep TZID=America/New_York (most clients will map without VTIMEZONE block).
-    """
-    # local wall time as YYYYMMDDTHHMMSS
+def _fmt_dt_local(dt: datetime) -> str:
+    """Format local time to ICS-friendly YYYYMMDDTHHMMSS (with TZID on the property)."""
     return dt.strftime("%Y%m%dT%H%M%S")
 
 def _clean_multiline(text: str) -> str:
-    # ICS requires CRLF and escaping commas/semicolons where needed.
-    # For safety we keep description simple; calendar clients handle plain text well.
     return _safe_str(text).replace("\r\n", "\\n").replace("\n", "\\n")
 
 def build_player_ics(
     *,
     gig: dict,
-    recipient_email: str,
     summary: str,
     venue_name: str,
     venue_address: str,
     event_date,
     start_time,
     end_time,
-    confirmed_players: list[str],
-    confirmed_sound: str | None,
-    organizer_email: str | None = None,
-    uid_suffix: str | None = None,
+    confirmed_players: Optional[List[str]] = None,
+    confirmed_sound: Optional[str] = None,
+    organizer_email: Optional[str] = None,
+    uid_suffix: Optional[str] = None,
+    # kept optional to avoid call-site breakage in either direction
+    recipient_email: Optional[str] = None,
 ) -> tuple[str, bytes]:
     """
-    Returns (filename, ics_bytes).
-    - Includes METHOD:REQUEST (no RSVP) per spec.
-    - Lists other confirmed players and sound in DESCRIPTION.
+    Return (filename, ics_bytes).
+    Only includes: venue + address, event date, start/end times, other confirmed players, confirmed sound.
     """
-    # datetimes
     dt_start = _combine_date_time(event_date, start_time, tz=NY_TZ)
-    dt_end = _combine_date_time(event_date, end_time, tz=NY_TZ)
+    dt_end   = _combine_date_time(event_date, end_time,   tz=NY_TZ)
 
-    # fields
-    lineups = []
-    if confirmed_players:
-        lineups.append("Players:\n  - " + "\n  - ".join(confirmed_players))
-    if confirmed_sound:
-        lineups.append(f"Sound: {confirmed_sound}")
-    lineup_block = "\n\n".join(lineups)
-
+    # Description lines (only requested fields)
     desc_lines = []
     if venue_name or venue_address:
-        desc_lines.append(f"Venue: {venue_name or ''}")
+        if venue_name:
+            desc_lines.append(f"Venue: {venue_name}")
         if venue_address:
             desc_lines.append(f"Address: {venue_address}")
-    desc_lines.append(f"Call/Start: {_safe_str(start_time)}")
+    desc_lines.append(f"Start: {_safe_str(start_time)}")
     desc_lines.append(f"End: {_safe_str(end_time)}")
-    if lineup_block:
+
+    lines = []
+    if confirmed_players:
+        lines.append("Players:\n  - " + "\n  - ".join(confirmed_players))
+    if confirmed_sound:
+        lines.append(f"Sound: {confirmed_sound}")
+    if lines:
         desc_lines.append("")
-        desc_lines.append(lineup_block)
+        desc_lines.extend(lines)
 
     description = _clean_multiline("\n".join(desc_lines))
     location = _clean_multiline(" — ".join([s for s in [venue_name, venue_address] if s]))
+
     uid = f"prs-{gig.get('id','gig')}-{uid_suffix or uuid.uuid4().hex}@prs"
     dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    # minimal ICS (no VALARM, no attendees writes; only the recipient receives this)
     ics = []
     ics.append("BEGIN:VCALENDAR")
     ics.append("PRODID:-//PRS//Band Manager//EN")
@@ -122,8 +113,8 @@ def build_player_ics(
     ics.append("BEGIN:VEVENT")
     ics.append(f"UID:{uid}")
     ics.append(f"DTSTAMP:{dtstamp}")
-    ics.append(f"DTSTART;TZID=America/New_York:{_fmt_dt_ics(dt_start)}")
-    ics.append(f"DTEND;TZID=America/New_York:{_fmt_dt_ics(dt_end)}")
+    ics.append(f"DTSTART;TZID=America/New_York:{_fmt_dt_local(dt_start)}")
+    ics.append(f"DTEND;TZID=America/New_York:{_fmt_dt_local(dt_end)}")
     ics.append(f"SUMMARY:{_clean_multiline(summary)}")
     if location:
         ics.append(f"LOCATION:{location}")
@@ -134,7 +125,7 @@ def build_player_ics(
     ics.append("STATUS:CONFIRMED")
     ics.append("END:VEVENT")
     ics.append("END:VCALENDAR")
-    ics_bytes = ("\r\n".join(ics) + "\r\n").encode("utf-8")
 
-    filename = f"{gig.get('title','Gig')}-{dt_start.strftime('%Y%m%d')}.ics".replace(" ", "_")
-    return filename, ics_bytes
+    data = ("\r\n".join(ics) + "\r\n").encode("utf-8")
+    fname = f"{(gig.get('title') or 'Gig').replace(' ', '_')}-{dt_start.strftime('%Y%m%d')}.ics"
+    return fname, data
