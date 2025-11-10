@@ -8,7 +8,6 @@ from typing import Dict, Any, Iterable, Optional, List
 
 from supabase import create_client, Client
 from lib.email_utils import gmail_send
-from lib.ics_utils import build_player_ics
 
 # -----------------------------
 # Secrets / config (mirror sound-tech)
@@ -239,67 +238,10 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         <p>Please reply if anything needs attention.</p>
         """
 
-        
-        # --- Build ICS (only the requested extra fields) ---
-        summary    = gig.get("title") or "Gig"
-        event_date = gig.get("event_date")
-        start_time = gig.get("start_time")
-        end_time   = gig.get("end_time")
-
-        def _name_for(mid: str) -> str:
-            return _mus_display_name(mus_map.get(mid, {}))
-
-        other_players = [_name_for(x) for x in target_ids if x != mid]
-        sound_name = confirmed_sound_name if 'confirmed_sound_name' in locals() else None
-
-        # Call helper; if runtime has the older signature, fall back once without recipient_email
-        try:
-            ics_fname, ics_bytes = build_player_ics(
-                gig=gig,
-                recipient_email=to_email,      # preferred (newer helper)
-                summary=summary,
-                venue_name=venue_name,
-                venue_address=venue_addr,
-                event_date=event_date,
-                start_time=start_time,
-                end_time=end_time,
-                confirmed_players=other_players,
-                confirmed_sound=sound_name,
-                organizer_email=ORGANIZER_EMAIL if 'ORGANIZER_EMAIL' in globals() else None,
-                uid_suffix=to_email.replace("@", "_at_"),
-            )
-        except TypeError as e:
-            if "recipient_email" in str(e):
-                # helper is older; retry without that kwarg
-                ics_fname, ics_bytes = build_player_ics(
-                    gig=gig,
-                    summary=summary,
-                    venue_name=venue_name,
-                    venue_address=venue_addr,
-                    event_date=event_date,
-                    start_time=start_time,
-                    end_time=end_time,
-                    confirmed_players=other_players,
-                    confirmed_sound=sound_name,
-                    organizer_email=ORGANIZER_EMAIL if 'ORGANIZER_EMAIL' in globals() else None,
-                    uid_suffix=to_email.replace("@", "_at_"),
-                )
-            else:
-                raise
-
-        attachments = [{
-            "filename": ics_fname,
-            "mime_type": "text/calendar; method=REQUEST; charset=UTF-8",
-            "data": ics_bytes,
-        }]
-
-
-
         subject = f"Player Confirmation: {title} ({event_dt})"
         try:
             if not _is_dry_run():
-                # ✅ send with the ICS
-                result = gmail_send(subject, to_email, html, cc=(cc or [CC_RAY]), attachments=attachments)
+                result = gmail_send(subject, to_email, html, cc=(cc or [CC_RAY]), attachments=None)
                 if not result:
                     raise RuntimeError("gmail_send returned a non-success value (None/False)")
             _insert_email_audit(
