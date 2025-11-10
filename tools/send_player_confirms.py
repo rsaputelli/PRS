@@ -318,16 +318,44 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
             def _mk_dt(date_str, time_str):
                 try:
-                    y, m, d = [int(x) for x in str(date_str).split("-")]
-                    hh, mm = (0, 0)
-                    if time_str:
-                        hh, mm = map(int, str(time_str).split(":")[:2])
-                    return dt.datetime(y, m, d, hh, mm, tzinfo=_tz)
+                    # --- date parsing ---
+                    ds = str(date_str).strip()
+                    if "/" in ds:  # MM/DD/YYYY
+                        m, d, y = [int(x) for x in ds.split("/")]
+                    else:          # YYYY-MM-DD
+                        y, m, d = [int(x) for x in ds.split("-")]
+
+                    # --- time parsing ---
+                    hh, mm = 0, 0
+                    ts = (str(time_str) if time_str else "").strip()
+                    is_pm = False
+                    if ts:
+                        t_upper = ts.upper()
+                        # detect AM/PM
+                        if t_upper.endswith("AM") or t_upper.endswith("PM"):
+                            is_pm = t_upper.endswith("PM")
+                            ts = t_upper.replace("AM", "").replace("PM", "").strip()
+
+                        # support HH:MM[:SS]
+                        parts = [p for p in ts.split(":") if p != ""]
+                        if len(parts) >= 2:
+                            hh = int(parts[0]); mm = int(parts[1])
+
+                        # convert to 24h if AM/PM was present
+                        if "AM" in t_upper or "PM" in t_upper:
+                            if is_pm and hh < 12:
+                                hh += 12
+                            if not is_pm and hh == 12:
+                                hh = 0
+
+                    from zoneinfo import ZoneInfo
+                    _tz = ZoneInfo("America/New_York")
+                    return dt.datetime(int(y), int(m), int(d), int(hh), int(mm), tzinfo=_tz)
                 except Exception:
                     return None
 
             starts_at = _mk_dt(event_dt, gig.get("start_time"))
-            ends_at = _mk_dt(event_dt, gig.get("end_time"))
+            ends_at   = _mk_dt(event_dt, gig.get("end_time"))
 
             if starts_at and ends_at:
                 ics_bytes = make_ics_bytes(
