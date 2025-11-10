@@ -8,6 +8,7 @@ from typing import Dict, Any, Iterable, Optional, List
 
 from supabase import create_client, Client
 from lib.email_utils import gmail_send
+from lib.calendar_utils import make_ics_bytes  
 
 # -----------------------------
 # Secrets / config (mirror sound-tech)
@@ -226,22 +227,109 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
         role = roles.get(mid, "")
         greet = _mus_display_name(mrow)
-        html = f"""
-        <p>Hello {greet},</p>
-        <p>You’re confirmed for <b>{title}</b>{f" ({role})" if role else ""}.</p>
+        
+        # --- Build dynamic section for extra details (same info as ICS) ---
+        other_player_names = []
+        for _id in target_ids:
+            if _id != mid:
+                _row = mus_map.get(_id) or {}
+                name = _mus_display_name(_row)
+                if name:
+                    other_player_names.append(name)
+        soundtech_name = ""  # populate if available later
+
+        extra_html = ""
+        if other_player_names or soundtech_name:
+            extra_html = "<h4>Lineup</h4><ul>"
+            if other_player_names:
+                extra_html += f"<li><b>Other confirmed players:</b> {', '.join(other_player_names)}</li>"
+            if soundtech_name:
+                extra_html += f"<li><b>Confirmed sound tech:</b> {soundtech_name}</li>"
+            extra_html += "</ul>"
+
+        extra_html += f"""
+        <h4>Event Details</h4>
         <table border="1" cellpadding="6" cellspacing="0">
           <tr><th align="left">Date</th><td>{event_dt}</td></tr>
           <tr><th align="left">Time</th><td>{start_hhmm} – {end_hhmm}</td></tr>
           <tr><th align="left">Venue</th><td>{venue_name}</td></tr>
           <tr><th align="left">Address</th><td>{venue_addr}</td></tr>
         </table>
+        """
+
+        html = f"""
+        <p>Hello {greet},</p>
+        <p>You’re confirmed for <b>{title}</b>{f" ({role})" if role else ""}.</p>
+        {extra_html}
         <p>Please reply if anything needs attention.</p>
         """
+
+        # --- Build .ics attachment for the player confirmation ---
+        attachments = None
+        try:
+            from lib.calendar_utils import make_ics_bytes
+
+            summary = title
+            location = " | ".join([p for p in [venue_name, venue_addr] if p]).strip()
+            base_description = f"You’re confirmed for {title}."
+
+            # Gather extra description fields
+            other_player_names = []
+            for _id in target_ids:
+                if _id != mid:
+                    _row = mus_map.get(_id) or {}
+                    name = _mus_display_name(_row)
+                    if name:
+                        other_player_names.append(name)
+            soundtech_name = ""  # populate later if you track a sound tech
+            extra_lines = []
+            if other_player_names:
+                extra_lines.append("Other confirmed players: " + ", ".join(other_player_names))
+            if soundtech_name:
+                extra_lines.append(f"Confirmed sound tech: {soundtech_name}")
+            if venue_name:
+                extra_lines.append(f"Venue: {venue_name}")
+            if event_dt:
+                extra_lines.append(f"Event date: {event_dt}")
+            if start_hhmm or end_hhmm:
+                extra_lines.append(f"Start and end times: {start_hhmm or ''} – {end_hhmm or ''}")
+
+            # Build naive datetime values
+            def _mk_dt(date_str, time_str):
+                try:
+                    y, m, d = [int(x) for x in str(date_str).split("-")]
+                    hh, mm = (0, 0)
+                    if time_str:
+                        hh, mm = map(int, str(time_str).split(":")[:2])
+                    return dt.datetime(y, m, d, hh, mm)
+                except Exception:
+                    return None
+
+            starts_at = _mk_dt(event_dt, gig.get("start_time"))
+            ends_at = _mk_dt(event_dt, gig.get("end_time"))
+
+            if starts_at and ends_at:
+                ics_bytes = make_ics_bytes(
+                    starts_at=starts_at,
+                    ends_at=ends_at,
+                    summary=summary,
+                    location=location,
+                    description=base_description,
+                    method="REQUEST",
+                    extra_description_lines=extra_lines,
+                )
+                attachments = [{
+                    "filename": f"{title}-{event_dt}.ics",
+                    "mime": "text/calendar; method=REQUEST; charset=UTF-8",
+                    "content": ics_bytes,
+                }]
+        except Exception:
+            attachments = None
 
         subject = f"Player Confirmation: {title} ({event_dt})"
         try:
             if not _is_dry_run():
-                result = gmail_send(subject, to_email, html, cc=(cc or [CC_RAY]), attachments=None)
+                result = gmail_send(subject, to_email, html, cc=(cc or [CC_RAY]), attachments=attachments)
                 if not result:
                     raise RuntimeError("gmail_send returned a non-success value (None/False)")
             _insert_email_audit(
