@@ -42,6 +42,18 @@ from lib.closeout_utils import (
 
 st.title("Gig Closeout")
 
+# === Constants ===
+PAYMENT_METHODS = ["Check", "Zelle", "Cash", "Venmo", "Other"]  # Stored in 'method'
+
+def _compose_reference(method_detail: str, notes: str) -> str:
+    """Join method detail (e.g., check #) and notes into the single 'reference' field."""
+    parts = []
+    if method_detail:
+        parts.append(method_detail.strip())
+    if notes:
+        parts.append(notes.strip())
+    return " | ".join([p for p in parts if p])
+
 # Radio uses Open/Closed; Open shows only closeout_status='open'
 mode = st.radio("Mode", ["Open", "Closed"], horizontal=True, label_visibility="collapsed", key="closeout_mode")
 status_target = "open" if mode == "Open" else "closed"
@@ -94,21 +106,63 @@ with colL:
     st.subheader("Payments to People")
     st.caption("Enter what was actually paid. These figures drive 1099s.")
 
-    # Quick add rows for each roster entry (musicians, sound, agent if linked on the gig)
+    # --- Bulk Payments (new) ---
+    with st.expander("Bulk Payments"):
+        # Build a friendly label->record map for the multiselect
+        label_to_r = {r["label"]: r for r in roster}
+        chosen = st.multiselect(
+            "Select roster entries to pay",
+            options=list(label_to_r.keys()),
+        )
+        with st.form("bulk_payments_form"):
+            # Shared values for all selected entries
+            bulk_gross = st.number_input("Gross Amount (per person)", min_value=0.0, step=25.0, value=0.0)
+            bulk_fee = st.number_input("Fee Withheld (per person, optional)", min_value=0.0, step=5.0, value=0.0)
+            bulk_method = st.selectbox("Payment Method", PAYMENT_METHODS, index=0)
+            bulk_method_detail = st.text_input("Method details (e.g., check #1234)", "")
+            bulk_paid_date = st.date_input("Paid Date", value=date.today())
+            bulk_1099 = st.checkbox("1099 Eligible (apply to all)", value=True)
+            bulk_notes = st.text_area("Notes (applies to all)", "")
+
+            if st.form_submit_button("Add Payments", disabled=(len(chosen) == 0 or bulk_gross <= 0.0)):
+                for lbl in chosen:
+                    r = label_to_r.get(lbl)
+                    if not r:
+                        continue
+                    reference = _compose_reference(bulk_method_detail, bulk_notes)
+                    upsert_payment_row(
+                        gig_id=gig["id"],
+                        payee_type=r["type"],
+                        payee_id=r["id"],
+                        payee_name=r["name"],
+                        role=r.get("role"),
+                        gross=bulk_gross,
+                        fee=bulk_fee,
+                        method=bulk_method,          # dropdown stored in 'method'
+                        paid_date=bulk_paid_date,
+                        eligible_1099=bulk_1099,
+                        notes=reference              # method details + notes into 'reference'
+                    )
+                st.success(f"Added {len(chosen)} payment(s).")
+                st.rerun()
+
+    # --- Per-roster single adds (existing behavior, upgraded with dropdown) ---
     for r in roster:
         with st.expander(f"{r['label']}"):
             with st.form(f"pay_{r['type']}_{r['id']}"):
-                gross = st.number_input("Gross Amount", min_value=0.0, step=25.0)
-                fee = st.number_input("Fee Withheld (if any)", min_value=0.0, step=5.0)
-                method = st.text_input("Method (check#, ACH, Zelle…)", "")
-                paid_date = st.date_input("Paid Date")
-                eligible = st.checkbox("1099 Eligible", value=True)
-                note = st.text_input("Notes", "")
+                gross = st.number_input("Gross Amount", min_value=0.0, step=25.0, key=f"gross_{r['type']}_{r['id']}")
+                fee = st.number_input("Fee Withheld (if any)", min_value=0.0, step=5.0, key=f"fee_{r['type']}_{r['id']}")
+                method = st.selectbox("Payment Method", PAYMENT_METHODS, index=0, key=f"method_{r['type']}_{r['id']}")
+                method_detail = st.text_input("Method details (e.g., check #1234)", "", key=f"mdetail_{r['type']}_{r['id']}")
+                paid_date = st.date_input("Paid Date", key=f"pdate_{r['type']}_{r['id']}")
+                eligible = st.checkbox("1099 Eligible", value=True, key=f"e1099_{r['type']}_{r['id']}")
+                note = st.text_input("Notes", "", key=f"note_{r['type']}_{r['id']}")
                 if st.form_submit_button("Add Payment"):
+                    reference = _compose_reference(method_detail, note)
                     upsert_payment_row(
                         gig_id=gig["id"], payee_type=r["type"], payee_id=r["id"], payee_name=r["name"],
                         role=r.get("role"), gross=gross, fee=fee, method=method, paid_date=paid_date,
-                        eligible_1099=eligible, notes=note
+                        eligible_1099=eligible, notes=reference
                     )
                     st.success("Added.")
                     st.rerun()
@@ -121,15 +175,17 @@ with colL:
             manual_role = st.text_input("Role (optional)")
             m_gross = st.number_input("Gross Amount", min_value=0.0, step=25.0, key="manual_gross")
             m_fee = st.number_input("Fee Withheld (if any)", min_value=0.0, step=5.0, key="manual_fee")
-            m_method = st.text_input("Method (check#, ACH, Zelle…)", "", key="manual_method")
+            m_method = st.selectbox("Payment Method", PAYMENT_METHODS, index=0, key="manual_method")
+            m_method_detail = st.text_input("Method details (e.g., check #1234)", "", key="manual_method_detail")
             m_paid_date = st.date_input("Paid Date", key="manual_date")
             m_eligible = st.checkbox("1099 Eligible", value=True, key="manual_1099")
             m_note = st.text_input("Notes", "", key="manual_note")
             if st.form_submit_button("Add Manual Payment"):
+                reference = _compose_reference(m_method_detail, m_note)
                 upsert_payment_row(
                     gig_id=gig["id"], payee_type=manual_kind, payee_id=None, payee_name=manual_name or None,
                     role=(manual_role or None), gross=m_gross, fee=m_fee, method=m_method,
-                    paid_date=m_paid_date, eligible_1099=m_eligible, notes=m_note
+                    paid_date=m_paid_date, eligible_1099=m_eligible, notes=reference
                 )
                 st.success("Added.")
                 st.rerun()
@@ -151,6 +207,9 @@ with colR:
             st.write(f"**{kind}** — {name} {('('+role+')') if role else ''}")
             st.write(f"Gross {money_fmt(gross)} | Fee {money_fmt(fee)} | Net {money_fmt(net)}")
             st.write(f"{p.get('method') or ''} · Paid {paid_on}")
+            # Keep showing reference if present (e.g., check # or notes)
+            if p.get("reference"):
+                st.caption(p.get("reference"))
             if st.button("Delete", key=f"del_{p['id']}"):
                 delete_payment_row(p["id"])
                 st.warning("Deleted.")
