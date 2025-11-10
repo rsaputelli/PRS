@@ -267,21 +267,35 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         # --- Build .ics attachment for the player confirmation ---
         attachments = None
         try:
-            from lib.calendar_utils import make_ics_bytes
-
             summary = title
             location = " | ".join([p for p in [venue_name, venue_addr] if p]).strip()
             base_description = f"You’re confirmed for {title}."
 
-            # Gather extra description fields
+            # Build 'other players' list (exclude current recipient)
             other_player_names = []
             for _id in target_ids:
-                if _id != mid:
-                    _row = mus_map.get(_id) or {}
-                    name = _mus_display_name(_row)
-                    if name:
-                        other_player_names.append(name)
-            soundtech_name = ""  # populate later if you track a sound tech
+                if _id == mid:
+                    continue
+                _row = mus_map.get(_id) or {}
+                name = _mus_display_name(_row)
+                if name:
+                    other_player_names.append(name)
+
+            soundtech_name = ""
+            try:
+                # if you have roles/musicians in scope
+                for _id in target_ids:
+                    role_for = roles.get(_id, "").lower() if isinstance(roles, dict) else ""
+                    if "sound" in role_for:
+                        _row = mus_map.get(_id) or {}
+                        n = _mus_display_name(_row)
+                        if n:
+                            soundtech_name = n
+                            break
+            except Exception:
+                pass
+
+            # Compose DESCRIPTION with requested extra fields
             extra_lines = []
             if other_player_names:
                 extra_lines.append("Other confirmed players: " + ", ".join(other_player_names))
@@ -294,14 +308,21 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             if start_hhmm or end_hhmm:
                 extra_lines.append(f"Start and end times: {start_hhmm or ''} – {end_hhmm or ''}")
 
-            # Build naive datetime values
+            description = base_description
+            if extra_lines:
+                description = (description.rstrip() + "\n\n" + "\n".join(extra_lines)).strip()
+
+            # Build timezone-aware datetimes (required by calendar_utils which calls astimezone)
+            from zoneinfo import ZoneInfo
+            _tz = ZoneInfo("America/New_York")
+
             def _mk_dt(date_str, time_str):
                 try:
                     y, m, d = [int(x) for x in str(date_str).split("-")]
                     hh, mm = (0, 0)
                     if time_str:
                         hh, mm = map(int, str(time_str).split(":")[:2])
-                    return dt.datetime(y, m, d, hh, mm)
+                    return dt.datetime(y, m, d, hh, mm, tzinfo=_tz)
                 except Exception:
                     return None
 
@@ -314,9 +335,8 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     ends_at=ends_at,
                     summary=summary,
                     location=location,
-                    description=base_description,
+                    description=description,   # <- pass the composed DESCRIPTION here
                     method="REQUEST",
-                    extra_description_lines=extra_lines,
                 )
                 attachments = [{
                     "filename": f"{title}-{event_dt}.ics",
@@ -325,6 +345,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                 }]
         except Exception:
             attachments = None
+
 
         subject = f"Player Confirmation: {title} ({event_dt})"
         try:
