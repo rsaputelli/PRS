@@ -385,16 +385,21 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         """
         # --- Notes block (escaped, preserves newlines) ---
         notes_raw = gig.get("notes")
-        # Fallback to closeout_notes (harmless if column is absent or NULL)
+        # Optional fallback (safe if column doesn't exist / is NULL)
         if not (notes_raw and str(notes_raw).strip()):
             notes_raw = gig.get("closeout_notes")
 
+        notes_present = bool(notes_raw and str(notes_raw).strip())
         notes_html = ""
-        if notes_raw and str(notes_raw).strip():
+        if notes_present:
             notes_html = f"""
+            <!-- notes_len:{len(str(notes_raw))} preview:{_html_escape(str(notes_raw)[:40])} -->
             <h4>Notes</h4>
             <div style="white-space:pre-wrap">{_html_escape(notes_raw)}</div>
             """
+        else:
+            # add a hidden breadcrumb so we can view-source and confirm what happened
+            notes_html = "<!-- notes_present:false -->"
 
         stage_name = str(mrow.get("stage_name") or "").strip()
         html = f"""
@@ -494,6 +499,8 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     "other_players_count": other_players_count,
                     "starts_at_built": starts_at_built,
                     "ends_at_built": ends_at_built,
+                    "notes_present": notes_present,
+                    "notes_len": len(str(notes_raw or "")),
                 },
             )
         except Exception as e:
@@ -509,6 +516,8 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     "other_players_count": other_players_count,
                     "starts_at_built": starts_at_built,
                     "ends_at_built": ends_at_built,
+                    "notes_present": notes_present,
+                    "notes_len": len(str(notes_raw or "")),
                 },
             )
             raise
