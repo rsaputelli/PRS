@@ -385,12 +385,17 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         """
         # --- Notes block (escaped, preserves newlines) ---
         notes_raw = gig.get("notes")
+        # Fallback to closeout_notes (harmless if column is absent or NULL)
+        if not (notes_raw and str(notes_raw).strip()):
+            notes_raw = gig.get("closeout_notes")
+
         notes_html = ""
-        if notes_raw:
+        if notes_raw and str(notes_raw).strip():
             notes_html = f"""
             <h4>Notes</h4>
             <div style="white-space:pre-wrap">{_html_escape(notes_raw)}</div>
             """
+
         stage_name = str(mrow.get("stage_name") or "").strip()
         html = f"""
         <p>Hello {stage_name or greet},</p>
