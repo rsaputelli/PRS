@@ -62,7 +62,7 @@ def _sb_admin() -> Client:
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
     res = (
         _sb().table("gigs")
-        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id")
+        .select("id, email, stage_name, display_name, first_name, last_name", sound_tech_id")
         .eq("id", gig_id).limit(1).execute()
     )
     rows = res.data or []
@@ -199,26 +199,40 @@ def _insert_email_audit(*, token: str, gig_id: str, recipient_email: str, kind: 
 # Date/time for ICS (robust; from your schema)
 # -----------------------------
 def _mk_dt(event_date: Any, time_value: Any, tzname: str = "America/New_York") -> Optional[dt.datetime]:
-    """
-    event_date: a date or string ('YYYY-MM-DD' or 'MM/DD/YYYY')
-    time_value: a time object or string ('HH:MM[:SS]' or 'h:mm AM/PM')
-    -> timezone-aware datetime or None
-    """
-    if not event_date:
-        return None
-
+    if not event_date: return None
     # Parse date
     try:
         if isinstance(event_date, dt.date) and not isinstance(event_date, dt.datetime):
             y, m, d = event_date.year, event_date.month, event_date.day
         else:
             ds = str(event_date).strip()
-            if "/" in ds:  # MM/DD/YYYY
-                m, d, y = [int(x) for x in ds.split("/")]
-            else:          # YYYY-MM-DD
-                y, m, d = [int(x) for x in ds.split("-")]
+            if "/" in ds: m, d, y = [int(x) for x in ds.split("/")]
+            else:         y, m, d = [int(x) for x in ds.split("-")]
     except Exception:
         return None
+    # Parse time
+    hh, mm = 0, 0
+    try:
+        if isinstance(time_value, dt.time):
+            hh, mm = time_value.hour, time_value.minute
+        else:
+            ts = str(time_value or "").upper()
+            ampm = None
+            if ts.endswith("AM") or ts.endswith("PM"):
+                ampm = "PM" if ts.endswith("PM") else "AM"
+                ts = ts.replace("AM","").replace("PM","").strip()
+            parts = [p for p in ts.split(":") if p]
+            if len(parts) >= 2: hh, mm = int(parts[0]), int(parts[1])
+            if ampm == "PM" and hh < 12: hh += 12
+            if ampm == "AM" and hh == 12: hh = 0
+    except Exception:
+        hh, mm = 0, 0
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.datetime(y, m, d, hh, mm, tzinfo=ZoneInfo(tzname))
+    except Exception:
+        return None
+
 
     # Parse time
     hh, mm = 0, 0
@@ -251,30 +265,26 @@ def _utc_naive(dt_aware: dt.datetime) -> dt.datetime:
     """Convert aware -> UTC -> naive (for helpers that expect naive UTC)."""
     return dt_aware.astimezone(dt.timezone.utc).replace(tzinfo=None)
 
+def _utc_naive(dt_aware: dt.datetime) -> dt.datetime:
+    return dt_aware.astimezone(dt.timezone.utc).replace(tzinfo=None)
+
 def _fallback_ics_bytes(uid: str, starts_at: dt.datetime, ends_at: dt.datetime,
                         summary: str, location: str, description: str) -> bytes:
-    """Simple RFC5545-compliant ICS (UTC naive inputs)."""
-    def _fmt(d: dt.datetime) -> str:
-        return d.strftime("%Y%m%dT%H%M%SZ")
+    def _fmt(d: dt.datetime) -> str: return d.strftime("%Y%m%dT%H%M%SZ")
     lines = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//PRS//Player Confirm//EN",
-        "CALSCALE:GREGORIAN",
-        "METHOD:REQUEST",
+        "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//PRS//Player Confirm//EN","CALSCALE:GREGORIAN","METHOD:REQUEST",
         "BEGIN:VEVENT",
         f"UID:{uid}",
         f"DTSTAMP:{_fmt(dt.datetime.utcnow())}",
         f"DTSTART:{_fmt(starts_at)}",
         f"DTEND:{_fmt(ends_at)}",
         f"SUMMARY:{summary}",
-        f"LOCATION:{location}".rstrip(),
-        "DESCRIPTION:" + description.replace("\n", "\\n"),
-        "END:VEVENT",
-        "END:VCALENDAR",
-        ""
+        f"LOCATION:{location}",
+        "DESCRIPTION:" + description.replace("\n","\\n"),
+        "END:VEVENT","END:VCALENDAR",""
     ]
     return ("\r\n".join(lines)).encode("utf-8")
+
 
 # -----------------------------
 # Public API (minimal edits elsewhere)
@@ -420,7 +430,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     ics_bytes = make_ics_bytes(
                         starts_at=starts_at_aware,
                         ends_at=ends_at_aware,
-                        summary=summary,
+                        summary=title,
                         location=location,
                         description=description,
                     )
@@ -436,7 +446,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     )
 
                 attachments = [{
-                    "filename": f"{title}-{_nz(event_dt)}.ics",
+                    "filename": f"{title}-{event_dt}.ics",
                     "mime": "text/calendar; method=REQUEST; charset=UTF-8",
                     "content": ics_bytes,
                 }]
