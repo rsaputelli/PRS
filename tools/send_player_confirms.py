@@ -118,16 +118,29 @@ def _stage_pref(mus_row: Dict[str, Any]) -> str:
 # -----------------------------
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
     """
-    Load the gig generically (select '*') to tolerate schema differences.
-    We derive venue fields downstream and optionally look up the venue via venue_id.
+    Load only columns that exist in the gigs schema you provided.
+    (Avoids selecting non-existent fields like venue_name.)
     """
     sb = _sb()
-    res = sb.table("gigs").select("*").eq("id", gig_id).limit(1).execute()
+    res = (
+        sb.table("gigs")
+        .select(
+            "id, venue_id, agent_id, sound_tech_id, title, event_date, "
+            "start_time, end_time, overnight, package_name, total_fee, "
+            "contract_status, private_flag, notes, created_by, created_at, "
+            "updated_at, fee, is_private, sound_by_venue_name, "
+            "sound_by_venue_phone, sound_provided, sound_fee, "
+            "closeout_status, closeout_notes, closeout_at, "
+            "final_venue_gross, final_venue_paid_date"
+        )
+        .eq("id", gig_id)
+        .limit(1)
+        .execute()
+    )
     rows = (res.data or [])
     if not rows:
         raise RuntimeError(f"Gig not found: {gig_id}")
     return rows[0]
-
 
 def _fetch_venue_fields_from_id(venue_id: Optional[str]) -> tuple[str, str]:
     """
