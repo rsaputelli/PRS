@@ -118,26 +118,52 @@ def _stage_pref(mus_row: Dict[str, Any]) -> str:
 # -----------------------------
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
     """
-    Load the gig and a few venue fields; include notes.
-    Expected gig fields used here:
-      - title, event_date (YYYY-MM-DD), start_time, end_time,
-        venue_name, venue_address, sound_tech_id, sound_by_venue_name, notes
+    Load the gig generically (select '*') to tolerate schema differences.
+    We derive venue fields downstream and optionally look up the venue via venue_id.
     """
     sb = _sb()
-    res = (
-        sb.table("gigs")
-        .select(
-            "id, title, event_date, start_time, end_time, "
-            "venue_name, venue_address, sound_tech_id, sound_by_venue_name, notes"
-        )
-        .eq("id", gig_id)
-        .limit(1)
-        .execute()
-    )
+    res = sb.table("gigs").select("*").eq("id", gig_id).limit(1).execute()
     rows = (res.data or [])
     if not rows:
         raise RuntimeError(f"Gig not found: {gig_id}")
     return rows[0]
+
+
+def _fetch_venue_fields_from_id(venue_id: Optional[str]) -> tuple[str, str]:
+    """
+    Best-effort venue lookup from `venues` by id. Returns (name, address).
+    Tries common column names; returns ('','') if not found.
+    """
+    if not venue_id:
+        return "", ""
+    try:
+        sb = _sb()
+        resp = sb.table("venues").select("*").eq("id", venue_id).limit(1).execute()
+        rows = resp.data or []
+        if not rows:
+            return "", ""
+        v = rows[0]
+        name = (
+            str(
+                v.get("name")
+                or v.get("venue_name")
+                or v.get("display_name")
+                or ""
+            ).strip()
+        )
+        addr = (
+            str(
+                v.get("address")
+                or v.get("venue_address")
+                or v.get("street")
+                or v.get("line1")
+                or v.get("full_address")
+                or ""
+            ).strip()
+        )
+        return name, addr
+    except Exception:
+        return "", ""
 
 
 def _gig_musicians_rows(gig_id: str) -> List[Dict[str, Any]]:
@@ -174,13 +200,17 @@ def _fetch_musicians_map(ids: List[str]) -> Dict[str, Dict[str, Any]]:
 
 
 def _fetch_soundtech_name(sound_tech_id: Optional[str]) -> str:
+    """
+    Resolve a display name for a sound tech from the sound_techs table.
+    Tries common columns: name, stage_name, display_name, first/last, contact_name.
+    """
     if not sound_tech_id:
         return ""
     try:
         sb = _sb()
         res = (
-            sb.table("musicians")
-            .select("id, first_name, last_name, stage_name")
+            sb.table("sound_techs")
+            .select("*")
             .eq("id", sound_tech_id)
             .limit(1)
             .execute()
@@ -188,7 +218,16 @@ def _fetch_soundtech_name(sound_tech_id: Optional[str]) -> str:
         rows = res.data or []
         if not rows:
             return ""
-        return _stage_pref(rows[0])
+        st = rows[0]
+        name = (
+            st.get("name")
+            or st.get("stage_name")
+            or st.get("display_name")
+            or (" ".join([str(st.get("first_name") or "").strip(), str(st.get("last_name") or "").strip()]).strip())
+            or st.get("contact_name")
+            or ""
+        )
+        return str(name).strip()
     except Exception:
         return ""
 
@@ -200,7 +239,7 @@ def _build_rfc5545_ics(summary: str, description: str, location: str,
                        dtstart: dt.datetime, dtend: dt.datetime) -> bytes:
     """
     Minimal RFC5545 iCalendar with DTSTART/DTEND. We do not set a timezone
-    block here; we serialize `YYYYMMDDTHHMMSSZ` only if dt is UTC; otherwise
+    block here; we serialize `YYYYMMDDT%H%M%SZ` only if dt is UTC; otherwise
     we write local-like naive stamp (consistent with legacy behavior).
     """
     def _fmt_dt(x: dt.datetime) -> str:
@@ -290,8 +329,27 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     event_dt = _nz(gig.get("event_date"))
     start_time = _nz(gig.get("start_time"))
     end_time = _nz(gig.get("end_time"))
-    venue_name = _nz(gig.get("venue_name"))
-    venue_addr = _nz(gig.get("venue_address"))
+
+    # Derive venue fields defensively (handle multiple schema styles)
+    venue_name = _nz(
+        gig.get("venue_name")
+        or gig.get("venue")
+        or gig.get("venue_title")
+        or ""
+    )
+    venue_addr = _nz(
+        gig.get("venue_address")
+        or gig.get("address")
+        or gig.get("venue_addr")
+        or ""
+    )
+    if not venue_name or not venue_addr:
+        # Optional lookup via venue_id if present
+        vname2, vaddr2 = _fetch_venue_fields_from_id(gig.get("venue_id"))
+        if not venue_name:
+            venue_name = _nz(vname2)
+        if not venue_addr:
+            venue_addr = _nz(vaddr2)
 
     # Build full lineup order and roles
     gm_rows = _gig_musicians_rows(gig_id)
@@ -496,3 +554,4 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                 },
             )
             raise
+
