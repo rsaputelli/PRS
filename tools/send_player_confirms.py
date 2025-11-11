@@ -331,8 +331,9 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     stid = gig.get("sound_tech_id")
     if stid:
         try:
+            # USE ADMIN CLIENT HERE to bypass any RLS blocks on sound_techs
             st_rows = (
-                _sb().table("sound_techs")
+                _sb_admin().table("sound_techs")
                 .select("stage_name, display_name, first_name, last_name, name")
                 .eq("id", stid).limit(1).execute().data or []
             )
@@ -340,7 +341,8 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                 st = st_rows[0]
                 soundtech_name = (
                     str(st.get("stage_name") or st.get("display_name") or "").strip()
-                    or (" ".join([str(st.get("first_name") or "").strip(), str(st.get("last_name") or "").strip()]).strip())
+                    or (" ".join([str(st.get("first_name") or "").strip(),
+                                   str(st.get("last_name") or "").strip()]).strip())
                     or str(st.get("name") or "").strip()
                 )
         except Exception:
@@ -354,11 +356,12 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                 soundtech_name = _stage_pref(mus_map.get(oid) or {})
                 break
 
-    # 3) Final fallback: venue-provided name on the gig (rarely used)
+    # 3) Final fallback: venue-provided name on the gig (rare)
     if not soundtech_name:
         alt = _nz(gig.get("sound_by_venue_name"))
         if alt:
-            soundtech_name = alt         
+            soundtech_name = alt
+       
 
     for mid in target_ids:
         token = uuid.uuid4().hex
@@ -522,6 +525,8 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     "ends_at_built": ends_at_built,
                     "notes_present": notes_present,
                     "notes_len": len(str(notes_raw or "")),
+                    "gig_sound_tech_id": gig.get("sound_tech_id"),
+                    "soundtech_present": bool(soundtech_name),
                 },
             )
         except Exception as e:
@@ -539,6 +544,8 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     "ends_at_built": ends_at_built,
                     "notes_present": notes_present,
                     "notes_len": len(str(notes_raw or "")),
+                    "gig_sound_tech_id": gig.get("sound_tech_id"),
+                    "soundtech_present": bool(soundtech_name),
                 },
             )
             raise
