@@ -324,20 +324,41 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     start_hhmm = _fmt_time12(start_time)
     end_hhmm = _fmt_time12(end_time)
 
-    # Sound tech via role detection first
+    # Sound tech priority: (1) gigs.sound_tech_id -> sound_techs lookup; (2) lineup role contains 'sound'; (3) venue-provided text
     soundtech_name = ""
-    for oid in ordered_ids:
-        r = roles_by_mid.get(oid, "")
-        if "sound" in r.lower():
-            soundtech_name = _stage_pref(mus_map.get(oid) or {})
-            break
+
+    # 1) By explicit sound_tech_id on the gig
+    stid = gig.get("sound_tech_id")
+    if stid:
+        try:
+            st_rows = (
+                _sb().table("sound_techs")
+                .select("stage_name, display_name, first_name, last_name, name")
+                .eq("id", stid).limit(1).execute().data or []
+            )
+            if st_rows:
+                st = st_rows[0]
+                soundtech_name = (
+                    str(st.get("stage_name") or st.get("display_name") or "").strip()
+                    or (" ".join([str(st.get("first_name") or "").strip(), str(st.get("last_name") or "").strip()]).strip())
+                    or str(st.get("name") or "").strip()
+                )
+        except Exception:
+            pass
+
+    # 2) If still blank, detect by lineup role containing 'sound'
     if not soundtech_name:
-        soundtech_name = _fetch_soundtech_name(_nz(gig.get("sound_tech_id")))
-    
+        for oid in ordered_ids:
+            r = (roles_by_mid.get(oid, "") or "").lower()
+            if "sound" in r:
+                soundtech_name = _stage_pref(mus_map.get(oid) or {})
+                break
+
+    # 3) Final fallback: venue-provided name on the gig (rarely used)
     if not soundtech_name:
         alt = _nz(gig.get("sound_by_venue_name"))
         if alt:
-            soundtech_name = alt            
+            soundtech_name = alt         
 
     for mid in target_ids:
         token = uuid.uuid4().hex
