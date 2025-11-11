@@ -180,6 +180,12 @@ def _fmt_addr(v: Dict[str, Any]) -> str:
     if tail: parts.append(tail)
     return " | ".join(parts)
 
+def _html_escape(s: str) -> str:
+    s = str(s or "")
+    return (s.replace("&", "&amp;")
+             .replace("<", "&lt;")
+             .replace(">", "&gt;"))
+
 # -----------------------------
 # Audit helper
 # -----------------------------
@@ -327,6 +333,11 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             break
     if not soundtech_name:
         soundtech_name = _fetch_soundtech_name(_nz(gig.get("sound_tech_id")))
+    
+    if not soundtech_name:
+        alt = _nz(gig.get("sound_by_venue_name"))
+        if alt:
+            soundtech_name = alt            
 
     for mid in target_ids:
         token = uuid.uuid4().hex
@@ -362,6 +373,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             lineup_html += f"<li><b>Confirmed sound tech:</b> {soundtech_name}</li>"
         lineup_html += "</ul>"
 
+
         details_html = f"""
         <h4>Event Details</h4>
         <table border="1" cellpadding="6" cellspacing="0">
@@ -371,12 +383,21 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
           <tr><th align="left">Address</th><td>{venue_addr}</td></tr>
         </table>
         """
-
+        # --- Notes block (escaped, preserves newlines) ---
+        notes_raw = gig.get("notes")
+        notes_html = ""
+        if notes_raw:
+            notes_html = f"""
+            <h4>Notes</h4>
+            <div style="white-space:pre-wrap">{_html_escape(notes_raw)}</div>
+            """
+        stage_name = str(mrow.get("stage_name") or "").strip()
         html = f"""
-        <p>Hello {greet},</p>
+        <p>Hello {stage_name or greet},</p>
         <p>You’re confirmed for <b>{title}</b>{f" ({role_me})" if role_me else ""}.</p>
         {lineup_html}
         {details_html}
+        {notes_html}
         <p>Please reply if anything needs attention.</p>
         """
 
@@ -392,7 +413,11 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
             if starts_at_aware and not ends_at_aware:
                 ends_at_aware = starts_at_aware + dt.timedelta(hours=3)
-
+                
+            # Cross-midnight fix: if end <= start, roll end to next day
+            if starts_at_aware and ends_at_aware and ends_at_aware <= starts_at_aware:
+                ends_at_aware = ends_at_aware + dt.timedelta(days=1)
+               
             if starts_at_aware and ends_at_aware:
                 starts_at_built = starts_at_aware.isoformat()
                 ends_at_built = ends_at_aware.isoformat()
