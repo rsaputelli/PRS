@@ -62,7 +62,7 @@ def _sb_admin() -> Client:
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
     res = (
         _sb().table("gigs")
-        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id")
+        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id, notes")
         .eq("id", gig_id).limit(1).execute()
     )
     rows = res.data or []
