@@ -62,13 +62,16 @@ def _sb_admin() -> Client:
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
     res = (
         _sb().table("gigs")
-        .select("id, email, stage_name, display_name, first_name, last_name")
-        .eq("id", gig_id).limit(1).execute()
+        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id")
+        .eq("id", gig_id)
+        .limit(1)
+        .execute()
     )
     rows = res.data or []
     if not rows:
         raise ValueError(f"Gig {gig_id} not found.")
     return rows[0]
+
 
 def _fetch_venue(venue_id: Optional[str]) -> Dict[str, Any]:
     if not venue_id:
