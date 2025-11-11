@@ -10,25 +10,17 @@ from supabase import create_client, Client
 from lib.email_utils import gmail_send
 from lib.calendar_utils import make_ics_bytes  # keep import; we will try it first
 
-
 # -----------------------------
 # Secrets / config
 # -----------------------------
 def _get_secret(name: str, default: Optional[str] = None):
-    """
-    Resolve secret from environment with a simple fallback.
-    (If you use Streamlit elsewhere, this stays compatible.)
-    """
     try:
-        import streamlit as st  # noqa: WPS433
-        try:
+        import streamlit as st
+        if hasattr(st, "secrets") and name in st.secrets:
             return st.secrets[name]
-        except Exception:
-            # allow env fallback
-            return os.environ.get(name, default)
     except Exception:
-        return os.environ.get(name, default)
-
+        pass
+    return os.environ.get(name, default)
 
 def _is_dry_run() -> bool:
     val = _get_secret("PLAYER_EMAIL_DRY_RUN", "0")
@@ -68,30 +60,26 @@ def _sb_admin() -> Client:
 # Fetch helpers (match your schema)
 # -----------------------------
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
-    """
-    Fetch the gig row. Try a minimal column list first; if that returns no rows,
-    retry with select('*') to avoid accidental column mismatch issues.
-    """
-    sb = _sb()
-
-    # Try minimal, known-safe columns
     res = (
-        sb.table("gigs")
-        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id, notes")
-        .eq("id", gig_id)
-        .limit(1)
-        .execute()
+        _sb().table("gigs")
+        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id")
+        .eq("id", gig_id).limit(1).execute()
     )
     rows = res.data or []
     if not rows:
-        # Fallback: be permissive — select all columns
-        res2 = sb.table("gigs").select("*").eq("id", gig_id).limit(1).execute()
-        rows2 = res2.data or []
-        if not rows2:
-            raise RuntimeError(f"Gig not found: {gig_id}")
-        return rows2[0]
+        raise ValueError(f"Gig {gig_id} not found.")
     return rows[0]
 
+def _fetch_venue(venue_id: Optional[str]) -> Dict[str, Any]:
+    if not venue_id:
+        return {}
+    res = (
+        _sb().table("venues")
+        .select("name, address_line1, address_line2, city, state, postal_code")
+        .eq("id", venue_id).limit(1).execute()
+    )
+    rows = res.data or []
+    return rows[0] if rows else {}
 
 def _gig_musicians_rows(gig_id: str) -> List[Dict[str, Any]]:
     # Need both musician_id and role for lineup and detection
@@ -127,70 +115,70 @@ def _fetch_soundtech_name(sound_tech_id: Optional[str]) -> str:
         rows = res.data or []
         if not rows:
             return ""
-        st = rows[0]
-        stage = str(st.get("stage_name") or st.get("display_name") or "").strip()
-        if stage:
-            return stage
-        full = " ".join([str(st.get("first_name") or "").strip(), str(st.get("last_name") or "").strip()]).strip()
-        if full:
-            return full
-        return str(st.get("name") or "").strip()
+        r = rows[0]
+        for k in ("stage_name", "display_name", "name"):
+            v = (r.get(k) or "").strip()
+            if v:
+                return v
+        fn = (r.get("first_name") or "").strip()
+        ln = (r.get("last_name") or "").strip()
+        combo = (fn + " " + ln).strip()
+        return combo
     except Exception:
         return ""
 
 # -----------------------------
 # Formatting helpers
 # -----------------------------
-def _greet_name(m: Dict[str, Any]) -> str:
-    s = str(m.get("stage_name") or m.get("display_name") or "").strip()
-    if s:
-        return s
-    first = str(m.get("first_name") or "").strip()
-    last = str(m.get("last_name") or "").strip()
-    full = " ".join([first, last]).strip()
-    return full or str(m.get("email") or "").strip()
+def _nz(v) -> str:
+    return "" if v is None else str(v).strip()
 
-def _stage_pref(m: Dict[str, Any]) -> str:
-    s = str(m.get("stage_name") or m.get("display_name") or "").strip()
-    if s:
-        return s
-    first = str(m.get("first_name") or "").strip()
-    last = str(m.get("last_name") or "").strip()
-    full = " ".join([first, last]).strip()
-    return full or str(m.get("email") or "").strip()
+def _stage_pref(mrow: Dict[str, Any]) -> str:
+    v = (mrow.get("stage_name") or "").strip()
+    if v:
+        return v
+    v = (mrow.get("display_name") or "").strip()
+    if v:
+        return v
+    fn = (mrow.get("first_name") or "").strip()
+    ln = (mrow.get("last_name") or "").strip()
+    combo = (fn + " " + ln).strip()
+    return combo or "Unknown"
 
-def _nz(x: Any, alt: str = "") -> str:
-    return alt if x is None else str(x)
+def _greet_name(mrow: Dict[str, Any]) -> str:
+    # Friendly greeting; allow display_name as first option
+    for key in ("display_name", "stage_name"):
+        v = (mrow.get(key) or "").strip()
+        if v:
+            return v
+    fn = (mrow.get("first_name") or "").strip()
+    ln = (mrow.get("last_name") or "").strip()
+    combo = (fn + " " + ln).strip()
+    return combo or "there"
 
-def _fmt_time12(hhmm: Optional[str]) -> str:
-    if not hhmm:
+def _fmt_time12(t: Optional[str]) -> str:
+    # Show "9:00 AM" etc. for email body
+    if not t:
         return ""
-    try:
-        hh, mm = map(int, str(hhmm).split(":")[:2])
-        ampm = "AM" if hh < 12 else "PM"
-        hh12 = hh if 1 <= hh <= 12 else (12 if hh == 0 else (hh - 12))
-        return f"{hh12}:{mm:02d} {ampm}"
-    except Exception:
-        return str(hhmm)
+    s = str(t).strip()
+    # Supabase 'time' often looks like HH:MM:SS
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return dt.datetime.strptime(s, fmt).strftime("%I:%M %p").lstrip("0")
+        except ValueError:
+            continue
+    # Already human? just echo
+    return s
 
 def _fmt_addr(v: Dict[str, Any]) -> str:
-    parts: List[str] = []
-    l1 = str(v.get("address_line1") or "").strip()
-    l2 = str(v.get("address_line2") or "").strip()
-    city = str(v.get("city") or "").strip()
-    state = str(v.get("state") or "").strip()
-    pc = str(v.get("postal_code") or "").strip()
+    parts = []
+    l1 = _nz(v.get("address_line1")); l2 = _nz(v.get("address_line2"))
+    city = _nz(v.get("city")); state = _nz(v.get("state")); pc = _nz(v.get("postal_code"))
     if l1: parts.append(l1)
     if l2: parts.append(l2)
     tail = " ".join(p for p in [city, state, pc] if p).strip()
     if tail: parts.append(tail)
     return " | ".join(parts)
-
-def _html_escape(s: str) -> str:
-    s = str(s or "")
-    return (s.replace("&", "&amp;")
-             .replace("<", "&lt;")
-             .replace(">", "&gt;"))
 
 # -----------------------------
 # Audit helper
@@ -212,46 +200,56 @@ def _insert_email_audit(*, token: str, gig_id: str, recipient_email: str, kind: 
 # -----------------------------
 def _mk_dt(event_date: Any, time_value: Any, tzname: str = "America/New_York") -> Optional[dt.datetime]:
     """
-    Build a timezone-aware datetime for ICS, accepting:
-      - event_date as date/datetime/str(YYYY-MM-DD)
-      - time_value as time/datetime/str(HH:MM)
+    event_date: a date or string ('YYYY-MM-DD' or 'MM/DD/YYYY')
+    time_value: a time object or string ('HH:MM[:SS]' or 'h:mm AM/PM')
+    -> timezone-aware datetime or None
     """
-    if event_date is None:
+    if not event_date:
         return None
+
+    # Parse date
     try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo(tzname)
+        if isinstance(event_date, dt.date) and not isinstance(event_date, dt.datetime):
+            y, m, d = event_date.year, event_date.month, event_date.day
+        else:
+            ds = str(event_date).strip()
+            if "/" in ds:  # MM/DD/YYYY
+                m, d, y = [int(x) for x in ds.split("/")]
+            else:          # YYYY-MM-DD
+                y, m, d = [int(x) for x in ds.split("-")]
     except Exception:
-        tz = None
+        return None
 
-    # normalize date
-    if isinstance(event_date, dt.datetime):
-        y, m, d = event_date.year, event_date.month, event_date.day
-    elif isinstance(event_date, dt.date):
-        y, m, d = event_date.year, event_date.month, event_date.day
-    else:
-        y, m, d = [int(x) for x in str(event_date).split("-")]
-
-    # normalize time
+    # Parse time
     hh, mm = 0, 0
-    if time_value:
+    try:
         if isinstance(time_value, dt.time):
             hh, mm = time_value.hour, time_value.minute
-        elif isinstance(time_value, dt.datetime):
-            hh, mm = time_value.hour, time_value.minute
         else:
-            hh, mm = map(int, str(time_value).split(":")[:2])
+            ts = _nz(time_value).upper()
+            ampm = None
+            if ts.endswith("AM") or ts.endswith("PM"):
+                ampm = "PM" if ts.endswith("PM") else "AM"
+                ts = ts.replace("AM", "").replace("PM", "").strip()
+            parts = [p for p in ts.split(":") if p != ""]
+            if len(parts) >= 2:
+                hh = int(parts[0]); mm = int(parts[1])
+            if ampm == "PM" and hh < 12:
+                hh += 12
+            if ampm == "AM" and hh == 12:
+                hh = 0
+    except Exception:
+        hh, mm = 0, 0
 
     try:
-        return dt.datetime(y, m, d, hh, mm, tzinfo=tz)
+        from zoneinfo import ZoneInfo
+        return dt.datetime(int(y), int(m), int(d), int(hh), int(mm), tzinfo=ZoneInfo(tzname))
     except Exception:
         return None
 
-def _utc_naive(d: dt.datetime) -> dt.datetime:
-    """Convert aware datetime to UTC naive; if already naive, return as-is."""
-    if d.tzinfo:
-        return (d.astimezone(dt.timezone.utc)).replace(tzinfo=None)
-    return d
+def _utc_naive(dt_aware: dt.datetime) -> dt.datetime:
+    """Convert aware -> UTC -> naive (for helpers that expect naive UTC)."""
+    return dt_aware.astimezone(dt.timezone.utc).replace(tzinfo=None)
 
 def _fallback_ics_bytes(uid: str, starts_at: dt.datetime, ends_at: dt.datetime,
                         summary: str, location: str, description: str) -> bytes:
@@ -306,24 +304,6 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         if smid not in roles_by_mid:
             ordered_ids.append(smid)
         roles_by_mid[smid] = _nz(r.get("role"))
-    # === Sound tech detection (role contains 'sound'; fallback to gigs.sound_tech_id / venue note) ===
-    # soundtech_name = ""
-    # for oid in ordered_ids:
-        # r = (roles_by_mid.get(oid, "") or "")
-        # if "sound" in r.lower():
-            # soundtech_name = _stage_pref(mus_map.get(oid) or {})
-            # break
-
-    # if not soundtech_name:
-        # try:
-            # soundtech_name = _fetch_soundtech_name(_nz(gig.get("sound_tech_id")))
-        # except Exception:
-            # soundtech_name = ""
-
-    # if not soundtech_name:
-        # alt = _nz(gig.get("sound_by_venue_name"))
-        # if alt:
-            # soundtech_name = alt  # e.g., "Venue-provided"
 
     # Who to send to
     if musician_ids is None:
@@ -347,10 +327,6 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             break
     if not soundtech_name:
         soundtech_name = _fetch_soundtech_name(_nz(gig.get("sound_tech_id")))
-    if not soundtech_name:
-        alt = _nz(gig.get("sound_by_venue_name"))
-        if alt:
-            soundtech_name = alt
 
     for mid in target_ids:
         token = uuid.uuid4().hex
@@ -396,21 +372,11 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         </table>
         """
 
-        # --- Notes block (escaped, preserves newlines) ---
-        notes_raw = gig.get("notes")
-        notes_html = ""
-        if notes_raw:
-            notes_html = f"""
-            <h4>Notes</h4>
-            <div style="white-space:pre-wrap">{_html_escape(notes_raw)}</div>
-            """
-
         html = f"""
         <p>Hello {greet},</p>
         <p>You’re confirmed for <b>{title}</b>{f" ({role_me})" if role_me else ""}.</p>
         {lineup_html}
         {details_html}
-        {notes_html}
         <p>Please reply if anything needs attention.</p>
         """
 
@@ -426,10 +392,6 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
 
             if starts_at_aware and not ends_at_aware:
                 ends_at_aware = starts_at_aware + dt.timedelta(hours=3)
-
-            # Cross-midnight fix: if end <= start, roll end to next day
-            if starts_at_aware and ends_at_aware and ends_at_aware <= starts_at_aware:
-                ends_at_aware = ends_at_aware + dt.timedelta(days=1)
 
             if starts_at_aware and ends_at_aware:
                 starts_at_built = starts_at_aware.isoformat()
@@ -493,7 +455,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     raise RuntimeError("gmail_send returned a non-success value")
             _insert_email_audit(
                 token=token, gig_id=gig_id, recipient_email=to_email,
-                kind="player_confirm", status=("dry_run" if _is_dry_run() else "sent"),
+                kind="player_confirm", status=("dry-run" if _is_dry_run() else "sent"),
                 detail={
                     "to": to_email,
                     "subject": subject,
