@@ -68,26 +68,30 @@ def _sb_admin() -> Client:
 # Fetch helpers (match your schema)
 # -----------------------------
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
+    """
+    Fetch the gig row. Try a minimal column list first; if that returns no rows,
+    retry with select('*') to avoid accidental column mismatch issues.
+    """
+    sb = _sb()
+
+    # Try minimal, known-safe columns
     res = (
-        _sb().table("gigs")
+        sb.table("gigs")
         .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id, notes")
-        .eq("id", gig_id).limit(1).execute()
+        .eq("id", gig_id)
+        .limit(1)
+        .execute()
     )
     rows = res.data or []
     if not rows:
-        raise ValueError(f"Gig {gig_id} not found.")
+        # Fallback: be permissive — select all columns
+        res2 = sb.table("gigs").select("*").eq("id", gig_id).limit(1).execute()
+        rows2 = res2.data or []
+        if not rows2:
+            raise RuntimeError(f"Gig not found: {gig_id}")
+        return rows2[0]
     return rows[0]
 
-def _fetch_venue(venue_id: Optional[str]) -> Dict[str, Any]:
-    if not venue_id:
-        return {}
-    res = (
-        _sb().table("venues")
-        .select("name, address_line1, address_line2, city, state, postal_code")
-        .eq("id", venue_id).limit(1).execute()
-    )
-    rows = res.data or []
-    return rows[0] if rows else {}
 
 def _gig_musicians_rows(gig_id: str) -> List[Dict[str, Any]]:
     # Need both musician_id and role for lineup and detection
@@ -303,23 +307,23 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             ordered_ids.append(smid)
         roles_by_mid[smid] = _nz(r.get("role"))
     # === Sound tech detection (role contains 'sound'; fallback to gigs.sound_tech_id / venue note) ===
-    soundtech_name = ""
-    for oid in ordered_ids:
-        r = (roles_by_mid.get(oid, "") or "")
-        if "sound" in r.lower():
-            soundtech_name = _stage_pref(mus_map.get(oid) or {})
-            break
+    # soundtech_name = ""
+    # for oid in ordered_ids:
+        # r = (roles_by_mid.get(oid, "") or "")
+        # if "sound" in r.lower():
+            # soundtech_name = _stage_pref(mus_map.get(oid) or {})
+            # break
 
-    if not soundtech_name:
-        try:
-            soundtech_name = _fetch_soundtech_name(_nz(gig.get("sound_tech_id")))
-        except Exception:
-            soundtech_name = ""
+    # if not soundtech_name:
+        # try:
+            # soundtech_name = _fetch_soundtech_name(_nz(gig.get("sound_tech_id")))
+        # except Exception:
+            # soundtech_name = ""
 
-    if not soundtech_name:
-        alt = _nz(gig.get("sound_by_venue_name"))
-        if alt:
-            soundtech_name = alt  # e.g., "Venue-provided"
+    # if not soundtech_name:
+        # alt = _nz(gig.get("sound_by_venue_name"))
+        # if alt:
+            # soundtech_name = alt  # e.g., "Venue-provided"
 
     # Who to send to
     if musician_ids is None:
@@ -343,6 +347,10 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
             break
     if not soundtech_name:
         soundtech_name = _fetch_soundtech_name(_nz(gig.get("sound_tech_id")))
+    if not soundtech_name:
+        alt = _nz(gig.get("sound_by_venue_name"))
+        if alt:
+            soundtech_name = alt
 
     for mid in target_ids:
         token = uuid.uuid4().hex
