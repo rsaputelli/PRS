@@ -1003,9 +1003,23 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             raise ValueError("Missing gig_id for calendar upsert")
 
         res = upsert_band_calendar_event(gid, sb, "Philly Rock and Soul")
-        st.toast(f"🗓️ {res.get('action','ok').title()} calendar event", icon="🗓️")
+
+        if "error" in res:
+            # Show precise failure stage + calendarId for fast triage
+            st.error(f"Calendar upsert failed at [{res.get('stage')}]: {res.get('error')}")
+            if res.get("calendarId"):
+                st.info(f"calendarId: {res['calendarId']}")
+        else:
+            # Success: created/updated + link you can click
+            action = res.get("action", "ok").title()
+            event_id = res.get("eventId")
+            cal_id = res.get("calendarId")
+            st.toast(f"🗓️ {action} calendar event: {res.get('summary','(no title)')}", icon="🗓️")
+            if event_id and cal_id:
+                st.info(f"Event link (open in Google Calendar): https://calendar.google.com/calendar/u/0/r/eventedit/{event_id}")
     except Exception as e:
         st.warning(f"Band calendar upsert skipped: {e}")
+
     
     # gig_id_str must be a string UUID for the saved gig
     if any([

@@ -158,40 +158,79 @@ def upsert_band_calendar_event(
 ):
     """
     Create or update a Calendar event for the given gig.
-    - Uses OAuth refresh token from st.secrets['google_oauth'].
-    - Resolves calendar via st.secrets['gcal_ids'] OR accepts a raw calendarId.
-    - Idempotent based on extendedProperties.private.gig_id.
-    Returns: {"action": "created"|"updated", "eventId": "...", "calendarId": "..."}
+    Returns on success:
+      {"action": "created"|"updated", "eventId": "...", "calendarId": "...", "summary": "..."}
+    Returns on failure (no exception leak):
+      {"error": "...", "stage": "cal_get|fetch_gig|compose|search|update|insert", "calendarId": "..."}
     """
+    from googleapiclient.errors import HttpError
+
     if not gig_id:
-        raise ValueError("gig_id is required")
+        return {"error": "gig_id is required", "stage": "args"}
 
-    service = _get_gcal_service()
-    calendar_id = _resolve_calendar_id(calendar_name)
-    gig = _fetch_gig_for_calendar(sb, gig_id)
-    body = _compose_event_body(gig, calendar_name, gig_id)
+    try:
+        service = _get_gcal_service()
+    except Exception as e:
+        return {"error": f"auth/build failure: {e}", "stage": "auth"}
 
-    # Try to find an existing event via the private extended property
-    events = (
-        service.events()
-        .list(
-            calendarId=calendar_id,
-            privateExtendedProperty=f"gig_id={gig_id}",
-            maxResults=1,
-            singleEvents=True,
-            showDeleted=False,
+    try:
+        calendar_id = _resolve_calendar_id(calendar_name)
+        # Validate the calendar id & our permissions explicitly
+        _ = service.calendars().get(calendarId=calendar_id).execute()
+    except HttpError as he:
+        return {"error": f"calendar access error: {he}", "stage": "cal_get", "calendarId": calendar_id}
+    except Exception as e:
+        return {"error": f"calendar access unexpected: {e}", "stage": "cal_get", "calendarId": calendar_id}
+
+    try:
+        gig = _fetch_gig_for_calendar(sb, gig_id)
+    except Exception as e:
+        return {"error": f"gig fetch failed: {e}", "stage": "fetch_gig", "calendarId": calendar_id}
+
+    try:
+        body = _compose_event_body(gig, calendar_name, gig_id)
+    except Exception as e:
+        return {"error": f"compose failed: {e}", "stage": "compose", "calendarId": calendar_id}
+
+    try:
+        events = (
+            service.events()
+            .list(
+                calendarId=calendar_id,
+                privateExtendedProperty=f"gig_id={gig_id}",
+                maxResults=1,
+                singleEvents=True,
+                showDeleted=False,
+            )
+            .execute()
         )
-        .execute()
-    )
-    items = events.get("items", []) or []
+        items = events.get("items", []) or []
+    except HttpError as he:
+        return {"error": f"event search error: {he}", "stage": "search", "calendarId": calendar_id}
+    except Exception as e:
+        return {"error": f"event search unexpected: {e}", "stage": "search", "calendarId": calendar_id}
 
-    if items:
-        ev_id = items[0]["id"]
-        updated = service.events().patch(calendarId=calendar_id, eventId=ev_id, body=body).execute()
-        return {"action": "updated", "eventId": updated["id"], "calendarId": calendar_id}
-    else:
-        created = service.events().insert(calendarId=calendar_id, body=body).execute()
-        return {"action": "created", "eventId": created["id"], "calendarId": calendar_id}
-
+    try:
+        if items:
+            ev_id = items[0]["id"]
+            updated = service.events().patch(calendarId=calendar_id, eventId=ev_id, body=body).execute()
+            return {
+                "action": "updated",
+                "eventId": updated["id"],
+                "calendarId": calendar_id,
+                "summary": updated.get("summary"),
+            }
+        else:
+            created = service.events().insert(calendarId=calendar_id, body=body).execute()
+            return {
+                "action": "created",
+                "eventId": created["id"],
+                "calendarId": calendar_id,
+                "summary": created.get("summary"),
+            }
+    except HttpError as he:
+        return {"error": f"event upsert error: {he}", "stage": "update" if items else "insert", "calendarId": calendar_id}
+    except Exception as e:
+        return {"error": f"event upsert unexpected: {e}", "stage": "update" if items else "insert", "calendarId": calendar_id}
 
 __all__ = ["make_ics_bytes", "upsert_band_calendar_event"]
