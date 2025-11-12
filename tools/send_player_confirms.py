@@ -324,44 +324,45 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     start_hhmm = _fmt_time12(start_time)
     end_hhmm = _fmt_time12(end_time)
 
-    # Sound tech priority: (1) gigs.sound_tech_id -> sound_techs lookup; (2) lineup role contains 'sound'; (3) venue-provided text
+    # --- Resolve confirmed sound tech (priority: gig.sound_tech_id → lineup role → venue-provided) ---
     soundtech_name = ""
+    stid_str = str(gig.get("sound_tech_id") or "").strip()
 
-    # 1) By explicit sound_tech_id on the gig
-    stid = gig.get("sound_tech_id")
-    if stid:
+    # 1) By explicit sound_tech_id on the gig (admin client to bypass RLS)
+    if stid_str:
         try:
-            # USE ADMIN CLIENT HERE to bypass any RLS blocks on sound_techs
             st_rows = (
                 _sb_admin().table("sound_techs")
-                .select("stage_name, display_name, first_name, last_name, name")
-                .eq("id", stid).limit(1).execute().data or []
+                .select("id, stage_name, display_name, first_name, last_name, name")
+                .eq("id", stid_str).limit(1).execute().data or []
             )
             if st_rows:
                 st = st_rows[0]
                 soundtech_name = (
                     str(st.get("stage_name") or st.get("display_name") or "").strip()
-                    or (" ".join([str(st.get("first_name") or "").strip(),
-                                   str(st.get("last_name") or "").strip()]).strip())
+                    or (" ".join([
+                        str(st.get("first_name") or "").strip(),
+                        str(st.get("last_name") or "").strip()
+                    ]).strip())
                     or str(st.get("name") or "").strip()
                 )
         except Exception:
             pass
 
-    # 2) If still blank, detect by lineup role containing 'sound'
+    # 2) If still blank, detect by lineup role keywords
     if not soundtech_name:
+        ROLE_KEYS = ("sound", "audio", "engineer", "tech")
         for oid in ordered_ids:
-            r = (roles_by_mid.get(oid, "") or "").lower()
-            if "sound" in r:
+            rtxt = (roles_by_mid.get(oid, "") or "").lower()
+            if any(k in rtxt for k in ROLE_KEYS):
                 soundtech_name = _stage_pref(mus_map.get(oid) or {})
                 break
 
-    # 3) Final fallback: venue-provided name on the gig (rare)
+    # 3) Final fallback: venue-provided text (rare)
     if not soundtech_name:
         alt = _nz(gig.get("sound_by_venue_name"))
         if alt:
-            soundtech_name = alt
-       
+            soundtech_name = alt           
 
     for mid in target_ids:
         token = uuid.uuid4().hex
@@ -393,10 +394,13 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
         lineup_html = "<h4>Lineup</h4><ul>"
         if other_players_list:
             lineup_html += f"<li><b>Other confirmed players:</b> {', '.join(other_players_list)}</li>"
-        if soundtech_name:
-            lineup_html += f"<li><b>Confirmed sound tech:</b> {soundtech_name}</li>"
-        lineup_html += "</ul>"
 
+        # show a sound-tech line if we have either a name OR an ID (so you see something even if lookup fails)
+        if soundtech_name or stid_str:
+            label = soundtech_name or f"(ID: {stid_str[:8]}…)"  # short, doesn’t leak full UUID
+            lineup_html += f"<li><b>Confirmed sound tech:</b> {label}</li>"
+
+        lineup_html += "</ul>"
 
         details_html = f"""
         <h4>Event Details</h4>
