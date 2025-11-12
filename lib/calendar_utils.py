@@ -36,36 +36,50 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials as UserCreds
 from google.auth.transport.requests import Request
 
-
 def _get_gcal_service():
     """
     Build a Google Calendar service using OAuth refresh token stored in
-    st.secrets['google_oauth'] with keys:
-      - client_id
-      - client_secret
-      - refresh_token
+    st.secrets['google_oauth'] with keys: client_id, client_secret, refresh_token.
+    Uses the calendar.events scope to match your existing token.
     """
     import streamlit as st
+    from googleapiclient.discovery import build
+    from google.oauth2.credentials import Credentials as UserCreds
+    from google.auth.transport.requests import Request
 
     if "google_oauth" not in st.secrets:
-        raise RuntimeError(
-            "Missing st.secrets['google_oauth'] (client_id, client_secret, refresh_token)."
-        )
+        raise RuntimeError("Missing st.secrets['google_oauth'].")
 
     oauth = st.secrets["google_oauth"]
+    cid = oauth.get("client_id")
+    csec = oauth.get("client_secret")
+    rtok = oauth.get("refresh_token")
+    if not (cid and csec and rtok):
+        raise RuntimeError("google_oauth must include client_id, client_secret, refresh_token.")
+
     creds = UserCreds(
         token=None,  # will be refreshed
-        refresh_token=oauth.get("refresh_token"),
-        client_id=oauth.get("client_id"),
-        client_secret=oauth.get("client_secret"),
+        refresh_token=rtok,
+        client_id=cid,
+        client_secret=csec,
         token_uri="https://oauth2.googleapis.com/token",
         scopes=["https://www.googleapis.com/auth/calendar.events"],
     )
+
     try:
         creds.refresh(Request())
     except Exception as e:
-        # Surface a precise hint for scope mismatches
         raise RuntimeError(f"OAuth refresh failed (check scope=calendar.events and token validity): {e}")
+
+    # Build the service; ensure we don't return None
+    service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+    if service is None:
+        raise RuntimeError("Google API build('calendar','v3', ...) returned None")
+
+    # Debug marker in logs so we know this executed successfully
+    print("GCAL_SERVICE_OK", {"scopes": creds.scopes})
+    return service
+
 
 def _resolve_calendar_id(calendar_name_or_id: str) -> str:
     """
@@ -274,7 +288,12 @@ def debug_calendar_access(calendar_name_or_id: str) -> dict:
     Diagnose auth identity and access to a target calendar.
     Returns: authed_user_primary, target_calendar_id, accessRole
     """
-    service = _get_gcal_service()
+    try:
+        service = _get_gcal_service()
+    except Exception as e:
+        # Propagate a precise message to the UI
+        raise RuntimeError(f"auth/build failed: {e}")
+
     target_id = _resolve_calendar_id(calendar_name_or_id)
 
     me = service.calendarList().get(calendarId="primary").execute()
@@ -288,6 +307,7 @@ def debug_calendar_access(calendar_name_or_id: str) -> dict:
         "target_calendar_id": target_id,
         "accessRole": role,
     }
+
 print("calendar_utils.py loaded: v2025-11-12a")
 
 __all__ = ["make_ics_bytes", "upsert_band_calendar_event", "debug_auth_config", "debug_calendar_access"]
