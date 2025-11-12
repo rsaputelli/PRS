@@ -64,7 +64,7 @@ def _admin_key() -> Optional[str]:
     )
 
 def _sb_admin() -> Client:
-    sr = _admin_key()
+    sr = _admin_key()   # uses SUPABASE_SERVICE_ROLE, SUPABASE_SERVICE_KEY, or supabase_service_key
     return create_client(SUPABASE_URL, sr)
 
 # -----------------------------
