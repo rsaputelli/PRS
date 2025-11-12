@@ -149,7 +149,6 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
         "extendedProperties": {"private": {"gig_id": gig_id}},
     }
 
-
 def upsert_band_calendar_event(
     gig_id: str,
     sb=None,
@@ -158,40 +157,56 @@ def upsert_band_calendar_event(
 ):
     """
     Create or update a Calendar event for the given gig.
-    Returns on success:
+
+    Success:
       {"action": "created"|"updated", "eventId": "...", "calendarId": "...", "summary": "..."}
-    Returns on failure (no exception leak):
-      {"error": "...", "stage": "cal_get|fetch_gig|compose|search|update|insert", "calendarId": "..."}
+
+    Failure (no exception leak):
+      {"error": "...", "stage": "auth|cal_get|fetch_gig|compose|search|insert|update|args",
+       "calendarId": "..."}  # calendarId may be absent if failure is pre-resolve
     """
     from googleapiclient.errors import HttpError
 
+    # Basic arg check
     if not gig_id:
-        return {"error": "gig_id is required", "stage": "args"}
+        msg = "gig_id is required"
+        print("GCAL_UPSERT_ERR", {"stage": "args", "error": msg})
+        return {"error": msg, "stage": "args"}
 
+    # Auth / service
     try:
         service = _get_gcal_service()
     except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "auth", "error": str(e)})
         return {"error": f"auth/build failure: {e}", "stage": "auth"}
 
+    # Resolve calendar + check access
+    calendar_id = None
     try:
         calendar_id = _resolve_calendar_id(calendar_name)
-        # Validate the calendar id & our permissions explicitly
-        _ = service.calendars().get(calendarId=calendar_id).execute()
+        service.calendars().get(calendarId=calendar_id).execute()
     except HttpError as he:
+        print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(he), "calendarId": calendar_id})
         return {"error": f"calendar access error: {he}", "stage": "cal_get", "calendarId": calendar_id}
     except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(e), "calendarId": calendar_id})
         return {"error": f"calendar access unexpected: {e}", "stage": "cal_get", "calendarId": calendar_id}
 
+    # Fetch gig row
     try:
         gig = _fetch_gig_for_calendar(sb, gig_id)
     except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "fetch_gig", "error": str(e), "calendarId": calendar_id})
         return {"error": f"gig fetch failed: {e}", "stage": "fetch_gig", "calendarId": calendar_id}
 
+    # Compose body
     try:
         body = _compose_event_body(gig, calendar_name, gig_id)
     except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "compose", "error": str(e), "calendarId": calendar_id})
         return {"error": f"compose failed: {e}", "stage": "compose", "calendarId": calendar_id}
 
+    # Search existing by private extended property
     try:
         events = (
             service.events()
@@ -206,50 +221,63 @@ def upsert_band_calendar_event(
         )
         items = events.get("items", []) or []
     except HttpError as he:
+        print("GCAL_UPSERT_ERR", {"stage": "search", "error": str(he), "calendarId": calendar_id})
         return {"error": f"event search error: {he}", "stage": "search", "calendarId": calendar_id}
     except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "search", "error": str(e), "calendarId": calendar_id})
         return {"error": f"event search unexpected: {e}", "stage": "search", "calendarId": calendar_id}
 
+    # Insert or update
     try:
         if items:
             ev_id = items[0]["id"]
             updated = service.events().patch(calendarId=calendar_id, eventId=ev_id, body=body).execute()
-            return {
-                "action": "updated",
-                "eventId": updated["id"],
-                "calendarId": calendar_id,
-                "summary": updated.get("summary"),
-            }
+            res = {"action": "updated", "eventId": updated["id"], "calendarId": calendar_id, "summary": updated.get("summary")}
+            print("GCAL_UPSERT", res)
+            return res
         else:
             created = service.events().insert(calendarId=calendar_id, body=body).execute()
-            return {
-                "action": "created",
-                "eventId": created["id"],
-                "calendarId": calendar_id,
-                "summary": created.get("summary"),
-            }
+            res = {"action": "created", "eventId": created["id"], "calendarId": calendar_id, "summary": created.get("summary")}
+            print("GCAL_UPSERT", res)
+            return res
     except HttpError as he:
-        return {"error": f"event upsert error: {he}", "stage": "update" if items else "insert", "calendarId": calendar_id}
+        stage = "update" if items else "insert"
+        print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(he), "calendarId": calendar_id})
+        return {"error": f"event upsert error: {he}", "stage": stage, "calendarId": calendar_id}
     except Exception as e:
-        return {"error": f"event upsert unexpected: {e}", "stage": "update" if items else "insert", "calendarId": calendar_id}
+        stage = "update" if items else "insert"
+        print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(e), "calendarId": calendar_id})
+        return {"error": f"event upsert unexpected: {e}", "stage": stage, "calendarId": calendar_id}
+
+
+def debug_auth_config() -> dict:
+    """
+    Report whether oauth secrets are present and correctly shaped (names only).
+    Never returns secret values.
+    """
+    import streamlit as st
+    out = {"has_google_oauth": False, "missing_keys": [], "present_keys": []}
+    if "google_oauth" not in st.secrets:
+        return out
+    oauth = st.secrets["google_oauth"]
+    need = {"client_id", "client_secret", "refresh_token"}
+    present = {k for k in need if oauth.get(k)}
+    out["has_google_oauth"] = present == need
+    out["present_keys"] = sorted(list(present))
+    out["missing_keys"] = sorted(list(need - present))
+    return out
+
 def debug_calendar_access(calendar_name_or_id: str) -> dict:
     """
     Diagnose auth identity and access to a target calendar.
-    Returns:
-      {
-        "authed_user_primary": "<email@domain>",   # OAuth user (primary calendar ID)
-        "target_calendar_id": "<resolved id>",
-        "accessRole": "owner|writer|reader|freeBusyReader",
-      }
+    Returns: authed_user_primary, target_calendar_id, accessRole
     """
     service = _get_gcal_service()
     target_id = _resolve_calendar_id(calendar_name_or_id)
 
-    # Who am I? Primary calendar entry is the authed user's calendar (id usually their email)
     me = service.calendarList().get(calendarId="primary").execute()
     authed = me.get("id")
 
-    # What access do I have to the target calendar?
     cl = service.calendarList().get(calendarId=target_id).execute()
     role = cl.get("accessRole")
 
@@ -258,5 +286,6 @@ def debug_calendar_access(calendar_name_or_id: str) -> dict:
         "target_calendar_id": target_id,
         "accessRole": role,
     }
+
 
 __all__ = ["make_ics_bytes", "upsert_band_calendar_event"]

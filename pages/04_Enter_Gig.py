@@ -25,6 +25,33 @@ if "user" not in st.session_state or not st.session_state["user"]:
 
 render_header(title="Enter Gig", emoji="")
 st.markdown("---")
+# --- AUTH & CALENDAR DIAGNOSTICS (always visible) ---
+try:
+    # Guard the import so a missing helper shows a visible error
+    from lib.calendar_utils import debug_auth_config, debug_calendar_access
+    st.caption("Diagnostics: calendar_utils v2025-11-12a")
+
+    auth_cfg = debug_auth_config()
+    if not auth_cfg.get("has_google_oauth"):
+        st.error(
+            "Google OAuth config missing in st.secrets['google_oauth']. "
+            f"Present: {auth_cfg.get('present_keys') or []}  "
+            f"Missing: {auth_cfg.get('missing_keys') or ['client_id','client_secret','refresh_token']}"
+        )
+    else:
+        try:
+            dbg = debug_calendar_access("Philly Rock and Soul")
+            st.info(
+                "Google auth OK  \n"
+                f"User (primary): {dbg.get('authed_user_primary')}  \n"
+                f"CalendarId: {dbg.get('target_calendar_id')}  \n"
+                f"accessRole: {dbg.get('accessRole')}"
+            )
+        except Exception as e:
+            st.error(f"Calendar access check failed: {e}")
+except Exception as e:
+    st.error(f"Calendar diagnostics unavailable (import/exec error): {e}")
+
 
 # === Email autosend toggles — init keys (do not use `value=` anywhere) ===
 for _k, _default in [
@@ -269,6 +296,30 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
         )
     except Exception as e:
         st.warning(f"Could not attach session; proceeding with limited access. ({e})")
+        
+# ---- Process pending calendar upsert (rerun-proof) ----
+try:
+    from lib.calendar_utils import upsert_band_calendar_event
+    _pending = st.session_state.pop("pending_cal_upsert", None)
+    if _pending:
+        res = upsert_band_calendar_event(
+            _pending["gig_id"],
+            sb,
+            _pending.get("calendar_name", "Philly Rock and Soul"),
+        )
+        if "error" in res:
+            st.error(f"Calendar upsert failed at [{res.get('stage')}]: {res.get('error')}")
+            if res.get("calendarId"):
+                st.info(f"calendarId: {res['calendarId']}")
+        else:
+            action = res.get("action", "ok").title()
+            st.success(f"🗓️ {action} calendar event: {res.get('summary','(no title)')}")
+            eid = res.get("eventId"); cid = res.get("calendarId")
+            if eid and cid:
+                st.info(f"Event link: https://calendar.google.com/calendar/u/0/r/eventedit/{eid}")
+except Exception as e:
+    st.error(f"Calendar upsert processor error: {e}")
+        
 
 # ============================
 # Cached DB helpers
@@ -996,29 +1047,18 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             _insert_rows("gig_deposits", rows)
             
     # ---- After successful INSERT/UPDATE ----
-    # ---- Band calendar upsert (Philly Rock and Soul) ----
+    # Queue calendar upsert; the top-of-page processor will execute it reliably
     try:
         gid = str(gig_id).strip()
         if not gid:
             raise ValueError("Missing gig_id for calendar upsert")
-
-        res = upsert_band_calendar_event(gid, sb, "Philly Rock and Soul")
-
-        if "error" in res:
-            # Show precise failure stage + calendarId for fast triage
-            st.error(f"Calendar upsert failed at [{res.get('stage')}]: {res.get('error')}")
-            if res.get("calendarId"):
-                st.info(f"calendarId: {res['calendarId']}")
-        else:
-            # Success: created/updated + link you can click
-            action = res.get("action", "ok").title()
-            event_id = res.get("eventId")
-            cal_id = res.get("calendarId")
-            st.toast(f"🗓️ {action} calendar event: {res.get('summary','(no title)')}", icon="🗓️")
-            if event_id and cal_id:
-                st.info(f"Event link (open in Google Calendar): https://calendar.google.com/calendar/u/0/r/eventedit/{event_id}")
+        st.session_state["pending_cal_upsert"] = {
+            "gig_id": gid,
+            "calendar_name": "Philly Rock and Soul",
+        }
     except Exception as e:
-        st.warning(f"Band calendar upsert skipped: {e}")
+        st.warning(f"Could not queue calendar upsert: {e}")
+
 
     
     # gig_id_str must be a string UUID for the saved gig
