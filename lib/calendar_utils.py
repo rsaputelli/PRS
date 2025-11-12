@@ -250,6 +250,7 @@ def upsert_band_calendar_event(
         return {"error": f"event upsert unexpected: {e}", "stage": stage, "calendarId": calendar_id}
 
 
+# --- Diagnostics helpers (no secrets leaked) ---
 def debug_auth_config() -> dict:
     """
     Report whether oauth secrets are present and correctly shaped (names only).
@@ -286,6 +287,7 @@ def debug_calendar_access(calendar_name_or_id: str) -> dict:
         "target_calendar_id": target_id,
         "accessRole": role,
     }
+print("calendar_utils.py loaded: v2025-11-12a")
 
+__all__ = ["make_ics_bytes", "upsert_band_calendar_event", "debug_auth_config", "debug_calendar_access"]
 
-__all__ = ["make_ics_bytes", "upsert_band_calendar_event"]
