@@ -59,12 +59,13 @@ def _get_gcal_service():
         client_id=oauth.get("client_id"),
         client_secret=oauth.get("client_secret"),
         token_uri="https://oauth2.googleapis.com/token",
-        scopes=["https://www.googleapis.com/auth/calendar"],
+        scopes=["https://www.googleapis.com/auth/calendar.events"],
     )
-    creds.refresh(Request())
-    # cache_discovery=False to avoid file writes on Streamlit Cloud
-    return build("calendar", "v3", credentials=creds, cache_discovery=False)
-
+    try:
+        creds.refresh(Request())
+    except Exception as e:
+        # Surface a precise hint for scope mismatches
+        raise RuntimeError(f"OAuth refresh failed (check scope=calendar.events and token validity): {e}")
 
 def _resolve_calendar_id(calendar_name_or_id: str) -> str:
     """
