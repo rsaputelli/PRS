@@ -268,6 +268,20 @@ def _utc_naive(dt_aware: dt.datetime) -> dt.datetime:
     """Convert aware -> UTC -> naive (for helpers that expect naive UTC)."""
     return dt_aware.astimezone(dt.timezone.utc).replace(tzinfo=None)
 
+def _ics_escape(text: str) -> str:
+    if not text:
+        return ""
+    # RFC5545 escaping: backslash, comma, semicolon, and newlines
+    return (
+        str(text)
+        .replace("\\", "\\\\")
+        .replace("\r\n", "\\n")
+        .replace("\n", "\\n")
+        .replace(",", "\\,")
+        .replace(";", "\\;")
+    )
+
+
 def _fallback_ics_bytes(uid: str, starts_at: dt.datetime, ends_at: dt.datetime,
                         summary: str, location: str, description: str) -> bytes:
     """Simple RFC5545-compliant ICS (UTC naive inputs)."""
@@ -286,7 +300,7 @@ def _fallback_ics_bytes(uid: str, starts_at: dt.datetime, ends_at: dt.datetime,
         f"DTEND:{_fmt(ends_at)}",
         f"SUMMARY:{summary}",
         f"LOCATION:{location}".rstrip(),
-        "DESCRIPTION:" + description.replace("\n", "\\n"),
+        "DESCRIPTION:" + _ics_escape(description),
         "END:VEVENT",
         "END:VCALENDAR",
         ""
@@ -512,6 +526,11 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                 description = ("You’re confirmed for " + title).strip()
                 if desc_lines:
                     description += "\n\n" + "\n".join(desc_lines)
+                # === Add gig Notes into ICS description ===
+                notes_ics = ""
+                if notes_present:
+                    notes_ics = _ics_escape(notes_raw)
+                    description += "\n\nNotes:\n" + notes_ics
 
                 try:
                     ics_bytes = make_ics_bytes(
