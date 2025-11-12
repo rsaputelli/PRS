@@ -91,29 +91,49 @@ def _resolve_calendar_id(calendar_name_or_id: str) -> str:
     return mapping.get(calendar_name_or_id, calendar_name_or_id)
 
 
-def _fetch_gig_for_calendar(sb, gig_id: str) -> Dict[str, Any]:
+def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
     """
-    Pull minimal gig fields needed to build the calendar event.
-    Adjust select(...) fields here if your schema differs.
+    Load the gig plus its venue fields (joined via venue_id).
+    Returns a dict with the keys expected by _compose_event_body().
     """
-    if sb is None:
-        raise ValueError("Supabase client (sb) is required to fetch gig details.")
+    if not sb:
+        raise RuntimeError("Supabase client (sb) is required to fetch gig")
 
-    res = (
-        sb.table("gigs")
-        .select(
-            "id, title, event_date, start_time, end_time, "
-            "venue_name, venue_city, venue_state, venue_address"
-        )
-        .eq("id", gig_id)
-        .limit(1)
-        .execute()
+    # Join venues through the foreign key venue_id -> venues.id
+    sel = (
+        "id,event_date,start_time,end_time,is_private,notes,"
+        "venue_id,"
+        "venues:venue_id(name,address_line1,city,state)"
     )
-    rows = (getattr(res, "data", None) or []) if hasattr(res, "data") else (res.data or [])
-    if not rows:
-        raise ValueError(f"No gig found for id={gig_id}")
-    return rows[0]
 
+    resp = (
+        sb.table("gigs")
+          .select(sel)
+          .eq("id", gig_id)
+          .limit(1)
+          .execute()
+    )
+    rows = getattr(resp, "data", None) or []
+    if not rows:
+        raise RuntimeError(f"gig not found: {gig_id}")
+
+    g = rows[0] or {}
+    v = (g.get("venues") or {}) if isinstance(g.get("venues"), dict) else {}
+
+    # Normalize for _compose_event_body()
+    return {
+        "id": g.get("id"),
+        "event_date": g.get("event_date"),
+        "start_time": g.get("start_time"),
+        "end_time": g.get("end_time"),
+        "is_private": g.get("is_private"),
+        "notes": g.get("notes"),
+
+        "venue_name": v.get("name"),
+        "venue_address": v.get("address_line1"),
+        "venue_city": v.get("city"),
+        "venue_state": v.get("state"),
+    }
 
 def _mk_rfc3339(local_dt: dt.datetime, tz: str = "America/New_York") -> str:
     """
