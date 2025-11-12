@@ -41,14 +41,20 @@ try:
     else:
         try:
             dbg = debug_calendar_access("Philly Rock and Soul")
-            st.info(
-                "Google auth OK  \n"
-                f"User (primary): {dbg.get('authed_user_primary')}  \n"
-                f"CalendarId: {dbg.get('target_calendar_id')}  \n"
-                f"accessRole: {dbg.get('accessRole')}"
-            )
+            if dbg.get("events_list_ok"):
+                st.info(
+                    "Google auth OK  \n"
+                    f"CalendarId: {dbg.get('target_calendar_id')}  \n"
+                    "events.list: allowed (scope: calendar.events)"
+                )
+            else:
+                st.error(
+                    "Calendar access check failed (events.list): "
+                    f"{dbg.get('error')}"
+                )
         except Exception as e:
             st.error(f"Calendar access check failed: {e}")
+
 except Exception as e:
     st.error(f"Calendar diagnostics unavailable (import/exec error): {e}")
 

@@ -199,7 +199,13 @@ def upsert_band_calendar_event(
     calendar_id = None
     try:
         calendar_id = _resolve_calendar_id(calendar_name)
-        service.calendars().get(calendarId=calendar_id).execute()
+        # Probe permission using events.list (compatible with calendar.events scope)
+        try:
+            service.events().list(calendarId=calendar_id, maxResults=1, singleEvents=True).execute()
+        except HttpError as he:
+            print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(he), "calendarId": calendar_id})
+            return {"error": f"calendar access error: {he}", "stage": "cal_get", "calendarId": calendar_id}
+
     except HttpError as he:
         print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(he), "calendarId": calendar_id})
         return {"error": f"calendar access error: {he}", "stage": "cal_get", "calendarId": calendar_id}
@@ -285,30 +291,37 @@ def debug_auth_config() -> dict:
 
 def debug_calendar_access(calendar_name_or_id: str) -> dict:
     """
-    Diagnose auth identity and access to a target calendar.
-    Returns: authed_user_primary, target_calendar_id, accessRole
+    Diagnose access using only endpoints allowed by calendar.events scope.
+    Returns:
+      {
+        "target_calendar_id": "<resolved id>",
+        "events_list_ok": True|False,
+        "error": "...",   # present if events_list_ok is False
+      }
     """
-    try:
-        service = _get_gcal_service()
-    except Exception as e:
-        # Propagate a precise message to the UI
-        raise RuntimeError(f"auth/build failed: {e}")
+    from googleapiclient.errors import HttpError
 
+    service = _get_gcal_service()
     target_id = _resolve_calendar_id(calendar_name_or_id)
 
-    me = service.calendarList().get(calendarId="primary").execute()
-    authed = me.get("id")
-
-    cl = service.calendarList().get(calendarId=target_id).execute()
-    role = cl.get("accessRole")
-
-    return {
-        "authed_user_primary": authed,
-        "target_calendar_id": target_id,
-        "accessRole": role,
-    }
-
-print("calendar_utils.py loaded: v2025-11-12a")
+    try:
+        service.events().list(calendarId=target_id, maxResults=1, singleEvents=True).execute()
+        return {
+            "target_calendar_id": target_id,
+            "events_list_ok": True,
+        }
+    except HttpError as he:
+        return {
+            "target_calendar_id": target_id,
+            "events_list_ok": False,
+            "error": f"{he}",
+        }
+    except Exception as e:
+        return {
+            "target_calendar_id": target_id,
+            "events_list_ok": False,
+            "error": f"{e}",
+        }
 
 __all__ = ["make_ics_bytes", "upsert_band_calendar_event", "debug_auth_config", "debug_calendar_access"]
 
