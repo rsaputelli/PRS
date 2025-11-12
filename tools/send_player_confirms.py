@@ -26,9 +26,10 @@ def _is_dry_run() -> bool:
     val = _get_secret("PLAYER_EMAIL_DRY_RUN", "0")
     return str(val).lower() in {"1", "true", "yes", "on"}
 
-SUPABASE_URL = _get_secret("SUPABASE_URL")
 SUPABASE_KEY = (
     _get_secret("SUPABASE_SERVICE_ROLE")
+    or _get_secret("SUPABASE_SERVICE_KEY")
+    or _get_secret("supabase_service_key")
     or _get_secret("SUPABASE_KEY")
     or _get_secret("SUPABASE_ANON_KEY")
 )
@@ -51,6 +52,15 @@ def _sb() -> Client:
     except Exception:
         pass
     return sb
+
+def _admin_key() -> Optional[str]:
+    # Prefer service-role style keys; fall back to whatever we have
+    return (
+        _get_secret("SUPABASE_SERVICE_ROLE")
+        or _get_secret("SUPABASE_SERVICE_KEY")
+        or _get_secret("supabase_service_key")
+        or SUPABASE_KEY
+    )
 
 def _sb_admin() -> Client:
     sr = _get_secret("SUPABASE_SERVICE_ROLE") or SUPABASE_KEY
@@ -332,7 +342,7 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     soundtech_name = ""
     stid_str = str(gig.get("sound_tech_id") or "").strip()
     soundtech_lookup_rows = 0
-    soundtech_admin_key_present = bool(_get_secret("SUPABASE_SERVICE_ROLE"))
+    soundtech_admin_key_present = bool(_admin_key())
     soundtech_row_keys = []
     cand_dn = cand_fl = cand_co = cand_nf = cand_em = ""
 
