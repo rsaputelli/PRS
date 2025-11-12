@@ -8,9 +8,8 @@ import traceback
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
-from lib.calendar_utils import upsert_band_calendar_event
 from tools.send_player_confirms import _insert_email_audit
-
+from lib.calendar_utils import upsert_band_calendar_event
 from lib.ui_header import render_header
 from lib.ui_format import format_currency  # kept for parity / future use
 
@@ -1004,17 +1003,8 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         if not gid:
             raise ValueError("Missing gig_id for calendar upsert")
 
-        # Tolerate signature differences across branches:
-        # 1) upsert_band_calendar_event(gig_id, sb, "Philly Rock and Soul")
-        # 2) upsert_band_calendar_event(gig_id, calendar_name="Philly Rock and Soul")
-        # 3) upsert_band_calendar_event(gig_id)
-        try:
-            upsert_band_calendar_event(gid, sb, "Philly Rock and Soul")
-        except TypeError:
-            try:
-                upsert_band_calendar_event(gid, calendar_name="Philly Rock and Soul")
-            except TypeError:
-                upsert_band_calendar_event(gid)
+        # Simple stable API call
+        upsert_band_calendar_event(gid, sb, "Philly Rock and Soul")
 
         st.toast("🗓️ Posted to Philly Rock and Soul calendar.", icon="🗓️")
     except Exception as e:
