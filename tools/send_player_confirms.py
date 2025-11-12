@@ -331,23 +331,36 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     # 1) By explicit sound_tech_id on the gig (admin client to bypass RLS)
     if stid_str:
         try:
+            # Use actual columns present in sound_techs schema
             st_rows = (
                 _sb_admin().table("sound_techs")
-                .select("id, stage_name, display_name, first_name, last_name, name")
+                .select("id, display_name, first_name, last_name, company, name_for_1099")
                 .eq("id", stid_str).limit(1).execute().data or []
             )
             if st_rows:
                 st = st_rows[0]
-                soundtech_name = (
-                    str(st.get("stage_name") or st.get("display_name") or "").strip()
-                    or (" ".join([
-                        str(st.get("first_name") or "").strip(),
-                        str(st.get("last_name") or "").strip()
-                    ]).strip())
-                    or str(st.get("name") or "").strip()
-                )
+
+                # Preference: display_name → "First Last" → company → name_for_1099
+                dn = (st.get("display_name") or "").strip()
+                if dn:
+                    soundtech_name = dn
+                else:
+                    fn = (st.get("first_name") or "").strip()
+                    ln = (st.get("last_name") or "").strip()
+                    fl = (f"{fn} {ln}").strip()
+                    if fl:
+                        soundtech_name = fl
+                    else:
+                        co = (st.get("company") or "").strip()
+                        if co:
+                            soundtech_name = co
+                        else:
+                            nf = (st.get("name_for_1099") or "").strip()
+                            if nf:
+                                soundtech_name = nf
         except Exception:
             pass
+
 
     # 2) If still blank, detect by lineup role keywords
     if not soundtech_name:
