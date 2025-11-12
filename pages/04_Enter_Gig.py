@@ -997,18 +997,14 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             
     # ---- After successful INSERT/UPDATE ----
     # ---- Band calendar upsert (Philly Rock and Soul) ----
-    # Do this before autosend so a rerun doesn't skip the calendar update.
     try:
         gid = str(gig_id).strip()
         if not gid:
             raise ValueError("Missing gig_id for calendar upsert")
 
-        # Simple stable API call
-        upsert_band_calendar_event(gid, sb, "Philly Rock and Soul")
-
-        st.toast("🗓️ Posted to Philly Rock and Soul calendar.", icon="🗓️")
+        res = upsert_band_calendar_event(gid, sb, "Philly Rock and Soul")
+        st.toast(f"🗓️ {res.get('action','ok').title()} calendar event", icon="🗓️")
     except Exception as e:
-        # Non-fatal: keep email + ICS flow untouched
         st.warning(f"Band calendar upsert skipped: {e}")
     
     # gig_id_str must be a string UUID for the saved gig
