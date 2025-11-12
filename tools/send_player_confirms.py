@@ -26,6 +26,7 @@ def _is_dry_run() -> bool:
     val = _get_secret("PLAYER_EMAIL_DRY_RUN", "0")
     return str(val).lower() in {"1", "true", "yes", "on"}
 
+SUPABASE_URL = _get_secret("SUPABASE_URL")
 SUPABASE_KEY = (
     _get_secret("SUPABASE_SERVICE_ROLE")
     or _get_secret("SUPABASE_SERVICE_KEY")
@@ -63,7 +64,7 @@ def _admin_key() -> Optional[str]:
     )
 
 def _sb_admin() -> Client:
-    sr = _get_secret("SUPABASE_SERVICE_ROLE") or SUPABASE_KEY
+    sr = _admin_key()
     return create_client(SUPABASE_URL, sr)
 
 # -----------------------------
@@ -119,7 +120,7 @@ def _fetch_soundtech_name(sound_tech_id: Optional[str]) -> str:
         # Be flexible about columns on sound_techs
         res = (
             _sb().table("sound_techs")
-            .select("id, stage_name, display_name, first_name, last_name, name")
+            .select("id, display_name, first_name, last_name, company, name_for_1099, email")
             .eq("id", sound_tech_id).limit(1).execute()
         )
         rows = res.data or []
