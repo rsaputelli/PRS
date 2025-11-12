@@ -232,5 +232,31 @@ def upsert_band_calendar_event(
         return {"error": f"event upsert error: {he}", "stage": "update" if items else "insert", "calendarId": calendar_id}
     except Exception as e:
         return {"error": f"event upsert unexpected: {e}", "stage": "update" if items else "insert", "calendarId": calendar_id}
+def debug_calendar_access(calendar_name_or_id: str) -> dict:
+    """
+    Diagnose auth identity and access to a target calendar.
+    Returns:
+      {
+        "authed_user_primary": "<email@domain>",   # OAuth user (primary calendar ID)
+        "target_calendar_id": "<resolved id>",
+        "accessRole": "owner|writer|reader|freeBusyReader",
+      }
+    """
+    service = _get_gcal_service()
+    target_id = _resolve_calendar_id(calendar_name_or_id)
+
+    # Who am I? Primary calendar entry is the authed user's calendar (id usually their email)
+    me = service.calendarList().get(calendarId="primary").execute()
+    authed = me.get("id")
+
+    # What access do I have to the target calendar?
+    cl = service.calendarList().get(calendarId=target_id).execute()
+    role = cl.get("accessRole")
+
+    return {
+        "authed_user_primary": authed,
+        "target_calendar_id": target_id,
+        "accessRole": role,
+    }
 
 __all__ = ["make_ics_bytes", "upsert_band_calendar_event"]
