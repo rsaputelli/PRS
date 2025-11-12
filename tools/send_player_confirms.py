@@ -329,38 +329,47 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     stid_str = str(gig.get("sound_tech_id") or "").strip()
 
     # 1) By explicit sound_tech_id on the gig (admin client to bypass RLS)
+    soundtech_name = ""
+    stid_str = str(gig.get("sound_tech_id") or "").strip()
+    soundtech_lookup_rows = 0
+    soundtech_admin_key_present = bool(_get_secret("SUPABASE_SERVICE_ROLE"))
+    soundtech_row_keys = []
+    cand_dn = cand_fl = cand_co = cand_nf = cand_em = ""
+
     if stid_str:
         try:
-            # Use actual columns present in sound_techs schema
             st_rows = (
                 _sb_admin().table("sound_techs")
-                .select("id, display_name, first_name, last_name, company, name_for_1099")
+                .select("id, display_name, first_name, last_name, company, name_for_1099, email")
                 .eq("id", stid_str).limit(1).execute().data or []
             )
+            soundtech_lookup_rows = len(st_rows)
             if st_rows:
                 st = st_rows[0]
+                soundtech_row_keys = list(st.keys())
 
-                # Preference: display_name → "First Last" → company → name_for_1099
-                dn = (st.get("display_name") or "").strip()
+                dn = (st.get("display_name") or "").strip();       cand_dn = dn
+                fn = (st.get("first_name") or "").strip()
+                ln = (st.get("last_name") or "").strip()
+                fl = (f"{fn} {ln}").strip();                        cand_fl = fl
+                co = (st.get("company") or "").strip();             cand_co = co
+                nf = (st.get("name_for_1099") or "").strip();       cand_nf = nf
+                em = (st.get("email") or "").strip();               cand_em = em
+
+                # Preference: display_name → "First Last" → company → name_for_1099 → email
                 if dn:
                     soundtech_name = dn
-                else:
-                    fn = (st.get("first_name") or "").strip()
-                    ln = (st.get("last_name") or "").strip()
-                    fl = (f"{fn} {ln}").strip()
-                    if fl:
-                        soundtech_name = fl
-                    else:
-                        co = (st.get("company") or "").strip()
-                        if co:
-                            soundtech_name = co
-                        else:
-                            nf = (st.get("name_for_1099") or "").strip()
-                            if nf:
-                                soundtech_name = nf
+                elif fl:
+                    soundtech_name = fl
+                elif co:
+                    soundtech_name = co
+                elif nf:
+                    soundtech_name = nf
+                elif em:
+                    soundtech_name = em
         except Exception:
+            # swallow and continue to fallbacks below
             pass
-
 
     # 2) If still blank, detect by lineup role keywords
     if not soundtech_name:
@@ -375,7 +384,8 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
     if not soundtech_name:
         alt = _nz(gig.get("sound_by_venue_name"))
         if alt:
-            soundtech_name = alt           
+            soundtech_name = alt
+          
 
     for mid in target_ids:
         token = uuid.uuid4().hex
@@ -544,6 +554,17 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     "notes_len": len(str(notes_raw or "")),
                     "gig_sound_tech_id": gig.get("sound_tech_id"),
                     "soundtech_present": bool(soundtech_name),
+                    "soundtech_lookup_rows": soundtech_lookup_rows,
+                    "soundtech_admin_key_present": soundtech_admin_key_present,
+                    "soundtech_row_keys": soundtech_row_keys,
+                    "soundtech_candidates": {
+                        "display_name": cand_dn,
+                        "first_last": cand_fl,
+                        "company": cand_co,
+                        "name_for_1099": cand_nf,
+                        "email": cand_em,
+                    },
+                    "soundtech_label_used": soundtech_name or (f"(ID: {stid_str[:8]}…)" if stid_str else ""),
                 },
             )
         except Exception as e:
@@ -563,6 +584,17 @@ def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = No
                     "notes_len": len(str(notes_raw or "")),
                     "gig_sound_tech_id": gig.get("sound_tech_id"),
                     "soundtech_present": bool(soundtech_name),
+                    "soundtech_lookup_rows": soundtech_lookup_rows,
+                    "soundtech_admin_key_present": soundtech_admin_key_present,
+                    "soundtech_row_keys": soundtech_row_keys,
+                    "soundtech_candidates": {
+                        "display_name": cand_dn,
+                        "first_last": cand_fl,
+                        "company": cand_co,
+                        "name_for_1099": cand_nf,
+                        "email": cand_em,
+                    },
+                    "soundtech_label_used": soundtech_name or (f"(ID: {stid_str[:8]}…)" if stid_str else ""),
                 },
             )
             raise
