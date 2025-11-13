@@ -144,45 +144,136 @@ def _mk_rfc3339(local_dt: dt.datetime, tz: str = "America/New_York") -> str:
         local_dt = local_dt.replace(tzinfo=ZoneInfo(tz))
     return local_dt.isoformat()
 
-
 def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) -> Dict[str, Any]:
     """
     Build the Google Calendar event body from a gig row.
+
+    Changes:
+    - summary now prefers gig['title'] then gig['event_title'], else "Gig"
+    - description now includes (when available):
+        • Lineup (as in the player confirmation ICS)
+        • Notes (gig.notes)
+        • Venue details
+      plus the existing Calendar name and Gig ID footer for traceability.
     """
-    title = gig.get("title") or "Gig"
-    venue = gig.get("venue_name") or ""
-    city = gig.get("venue_city") or ""
-    state = gig.get("venue_state") or ""
-    address = gig.get("venue_address") or ""
-    location_parts = [p for p in [venue, address, f"{city} {state}".strip()] if p]
+    def _html_escape(s: str) -> str:
+        # minimal HTML escaping for description fields
+        return (
+            str(s)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+
+    # --- Title / Summary ---
+    title = (gig.get("title") or gig.get("event_title") or "Gig").strip()
+
+    # --- Location (one-line "Venue | Address | City State") ---
+    venue = (gig.get("venue_name") or "").strip()
+    city = (gig.get("venue_city") or "").strip()
+    state = (gig.get("venue_state") or "").strip()
+    address = (gig.get("venue_address") or "").strip()
+    city_state = " ".join([x for x in [city, state] if x]).strip()
+    location_parts = [p for p in [venue, address, city_state] if p]
     location = " | ".join(location_parts)
 
-    # Combine date + times → datetimes
-    event_date = gig["event_date"]  # 'YYYY-MM-DD'
+    # --- Datetimes (roll end to next day if needed) ---
+    event_date = str(gig["event_date"])  # 'YYYY-MM-DD'
     start = str(gig.get("start_time") or "00:00")
     end   = str(gig.get("end_time") or "00:00")
-    y, m, d = [int(x) for x in str(event_date).split("-")]
+    y, m, d = [int(x) for x in event_date.split("-")]
     sh, sm = [int(x) for x in start.split(":")[:2]]
     eh, em = [int(x) for x in end.split(":")[:2]]
 
     starts_at = dt.datetime(y, m, d, sh, sm)
     ends_at   = dt.datetime(y, m, d, eh, em)
-    # If end is past midnight (i.e., <= start), roll to next day
     if ends_at <= starts_at:
-        ends_at = ends_at + dt.timedelta(days=1)
+        ends_at += dt.timedelta(days=1)
 
-    description = f"Calendar: {calendar_name}\nGig ID: {gig_id}"
+    # --- Description blocks (HTML) ---
+    # Lineup: support multiple possible shapes with graceful fallback
+    lineup_html = ""
+    if gig.get("lineup_html"):
+        lineup_html = f"""
+        <h4>Lineup</h4>
+        <div>{gig["lineup_html"]}</div>
+        """
+    else:
+        # Try a list of players (dicts) or a plain text fallback
+        lineup_items = []
+        lineup_list = gig.get("lineup") or []
+        if isinstance(lineup_list, list) and lineup_list:
+            # Expect dicts like {"stage_name": "...", "role": "..."}; fall back to str(item)
+            for item in lineup_list:
+                if isinstance(item, dict):
+                    stage = (item.get("stage_name") or item.get("name") or "").strip()
+                    role = (item.get("role") or "").strip()
+                    label = stage if stage else str(item)
+                    if role:
+                        label = f"{label} ({role})"
+                    lineup_items.append(_html_escape(label))
+                else:
+                    lineup_items.append(_html_escape(str(item)))
+        elif gig.get("lineup_text"):
+            lineup_items = [x.strip() for x in str(gig["lineup_text"]).splitlines() if x.strip()]
+
+        if lineup_items:
+            li = "".join([f"<li>{x}</li>" for x in lineup_items])
+            lineup_html = f"""
+            <h4>Lineup</h4>
+            <ul>{li}</ul>
+            """
+
+    # Notes
+    notes_html = ""
+    if gig.get("notes"):
+        notes_html = f"""
+        <h4>Notes</h4>
+        <div style="white-space:pre-wrap">{_html_escape(str(gig["notes"]))}</div>
+        """
+
+    # Venue details block
+    venue_lines = []
+    if venue:
+        venue_lines.append(_html_escape(venue))
+    if address:
+        venue_lines.append(_html_escape(address))
+    if city_state:
+        venue_lines.append(_html_escape(city_state))
+    venue_block = "<br/>".join(venue_lines)
+    venue_html = ""
+    if venue_block:
+        venue_html = f"""
+        <h4>Venue</h4>
+        <div>{venue_block}</div>
+        """
+
+    # Footer (keep existing trace info)
+    footer_html = f"""
+    <hr/>
+    <div><b>Calendar:</b> {_html_escape(calendar_name)}<br/>
+    <b>Gig ID:</b> {_html_escape(gig_id)}</div>
+    """
+
+    description_html = f"""
+    <div>
+      {lineup_html}
+      {notes_html}
+      {venue_html}
+      {footer_html}
+    </div>
+    """
 
     return {
         "summary": title,
         "location": location,
-        "description": description,
+        "description": description_html,
         "start": {"dateTime": _mk_rfc3339(starts_at), "timeZone": "America/New_York"},
         "end":   {"dateTime": _mk_rfc3339(ends_at),   "timeZone": "America/New_York"},
         "reminders": {"useDefault": True},
-        # Use private extended property to find/update the same event
         "extendedProperties": {"private": {"gig_id": gig_id}},
     }
+
 
 def upsert_band_calendar_event(
     gig_id: str,
