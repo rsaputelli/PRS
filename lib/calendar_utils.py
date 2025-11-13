@@ -282,6 +282,39 @@ def upsert_band_calendar_event(
        "calendarId": "..."}  # calendarId may be absent if failure is pre-resolve
     """
     from googleapiclient.errors import HttpError
+    # Try to reuse the same lineup HTML builder used by player confirmations.
+    # This does NOT change the email path; it only injects lineup_html into the gig dict for calendar use.
+    def _inject_lineup_html(gig: dict, sb_client, gid: str) -> None:
+        try:
+            # Try common helper names from tools/send_player_confirms.py
+            build_funcs = []
+            try:
+                from tools.send_player_confirms import build_lineup_html as _b
+                build_funcs.append(_b)
+            except Exception:
+                pass
+            try:
+                from tools.send_player_confirms import render_lineup_html as _r
+                build_funcs.append(_r)
+            except Exception:
+                pass
+
+            if not build_funcs:
+                return  # nothing to reuse; silently skip
+
+            # Try a few likely signatures without breaking if they don't match
+            for fn in build_funcs:
+                for args in ((gid,), (sb_client, gid), (gig,), (sb_client, gid, gig)):
+                    try:
+                        html = fn(*args)
+                        if html:
+                            gig["lineup_html"] = html
+                            return
+                    except Exception:
+                        continue
+        except Exception:
+            # Never let calendar posting fail just because lineup HTML couldn't be built
+            pass
 
     # Basic arg check
     if not gig_id:
@@ -325,6 +358,9 @@ def upsert_band_calendar_event(
     except Exception as e:
         print("GCAL_UPSERT_ERR", {"stage": "fetch_gig", "error": str(e), "calendarId": calendar_id})
         return {"error": f"gig fetch failed: {e}", "stage": "fetch_gig", "calendarId": calendar_id}
+
+    # Inject lineup_html from the same builder used by player confirmations (no effect on ICS code)
+    _inject_lineup_html(gig, sb, gig_id)
 
     # Compose body
     try:
