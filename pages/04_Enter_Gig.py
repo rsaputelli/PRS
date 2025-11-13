@@ -1092,6 +1092,12 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
+    # Always schedule a PRS Calendar upsert on the next rerun
+    st.session_state["pending_cal_upsert"] = {
+    "gig_id": gig_id,
+    "calendar_name": "PRS Calendar",  # keep your preferred calendar display name
+}
+
     st.write({
         "id": gig_id,
         "title": new_gig.get("title"),
