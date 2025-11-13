@@ -95,7 +95,7 @@ def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
     """
     Load the gig plus its venue fields (joined via venue_id).
     Returns a dict with the keys expected by _compose_event_body().
-    Includes title/notes so calendar summary & description are correct.
+    Includes title/notes and also venue_id/sound_tech_id needed for lineup/details.
     """
     if not sb:
         raise RuntimeError("Supabase client (sb) is required to fetch gig")
@@ -103,8 +103,7 @@ def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
     # Join venues through the foreign key venue_id -> venues.id
     sel = (
         "id,event_date,start_time,end_time,is_private,"
-        "title,notes,"                     # <-- removed event_title
-        "venue_id,"
+        "title,notes,venue_id,sound_tech_id,"
         "venues:venue_id(name,address_line1,city,state)"
     )
 
@@ -122,17 +121,16 @@ def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
     g = rows[0] or {}
     v = (g.get("venues") or {}) if isinstance(g.get("venues"), dict) else {}
 
-    # Normalize for _compose_event_body()
     return {
         "id": g.get("id"),
         "event_date": g.get("event_date"),
         "start_time": g.get("start_time"),
         "end_time": g.get("end_time"),
         "is_private": g.get("is_private"),
-
         "title": g.get("title"),
         "notes": g.get("notes"),
-
+        "venue_id": g.get("venue_id"),
+        "sound_tech_id": g.get("sound_tech_id"),
         "venue_name": v.get("name"),
         "venue_address": v.get("address_line1"),
         "venue_city": v.get("city"),
@@ -152,11 +150,13 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
     """
     Build the Google Calendar event body from a gig row.
 
-    Summary:
-      - summary prefers gig['title'] then gig['event_title'], else "Gig"
-      - description includes Lineup, Notes, and Venue details when available
+    Rules:
+      - summary uses gig['title'] (fallback "Gig")
+      - if gig provides lineup_html / details_html / notes_html, use them verbatim (no re-wrapping)
+      - otherwise, build minimal fallback sections
+      - avoid duplicating Notes/Venue that are already provided
     """
-    import datetime as dt  # local to avoid circulars in some runners
+    import datetime as dt
 
     def _html_escape(s: str) -> str:
         return (
@@ -165,6 +165,90 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
             .replace("<", "&lt;")
             .replace(">", "&gt;")
         )
+
+    title = (gig.get("title") or "Gig").strip()
+
+    # Location: "Venue | Address | City State"
+    venue = (gig.get("venue_name") or "").strip()
+    city = (gig.get("venue_city") or "").strip()
+    state = (gig.get("venue_state") or "").strip()
+    address = (gig.get("venue_address") or "").strip()
+    city_state = " ".join([x for x in [city, state] if x]).strip()
+    location_parts = [p for p in [venue, address, city_state] if p]
+    location = " | ".join(location_parts)
+
+    # Datetimes (roll end to next day if needed)
+    event_date = str(gig["event_date"])
+    start = str(gig.get("start_time") or "00:00")
+    end   = str(gig.get("end_time") or "00:00")
+    y, m, d = [int(x) for x in event_date.split("-")]
+    sh, sm = [int(x) for x in start.split(":")[:2]]
+    eh, em = [int(x) for x in end.split(":")[:2]]
+    starts_at = dt.datetime(y, m, d, sh, sm)
+    ends_at   = dt.datetime(y, m, d, eh, em)
+    if ends_at <= starts_at:
+        ends_at += dt.timedelta(days=1)
+
+    # --------------- description blocks ---------------
+    parts: list[str] = []
+
+    # Prefer prebuilt HTML blocks (identical to email path)
+    if gig.get("lineup_html"):
+        parts.append(str(gig["lineup_html"]))  # use as-is (no extra <h4>)
+    else:
+        # Minimal fallback lineup from any plain data present
+        items = []
+        lineup_list = gig.get("lineup") or []
+        if isinstance(lineup_list, list) and lineup_list:
+            for item in lineup_list:
+                if isinstance(item, dict):
+                    stage = (item.get("stage_name") or item.get("name") or "").strip()
+                    role = (item.get("role") or "").strip()
+                    label = stage if stage else str(item)
+                    if role:
+                        label = f"{label} ({role})"
+                    items.append(_html_escape(label))
+                else:
+                    items.append(_html_escape(str(item)))
+        elif gig.get("lineup_text"):
+            items = [x.strip() for x in str(gig["lineup_text"]).splitlines() if x.strip()]
+        if items:
+            li = "".join([f"<li>{x}</li>" for x in items])
+            parts.append(f"<h4>Lineup</h4><ul>{li}</ul>")
+
+    if gig.get("notes_html"):
+        parts.append(str(gig["notes_html"]))    # use as-is
+    elif gig.get("notes"):
+        parts.append(f"<h4>Notes</h4><div style='white-space:pre-wrap'>{_html_escape(gig['notes'])}</div>")
+
+    if gig.get("details_html"):
+        parts.append(str(gig["details_html"]))  # use as-is
+    else:
+        # Minimal Venue block only if details_html not provided
+        venue_lines = []
+        if venue:
+            venue_lines.append(_html_escape(venue))
+        if address:
+            venue_lines.append(_html_escape(address))
+        if city_state:
+            venue_lines.append(_html_escape(city_state))
+        if venue_lines:
+            parts.append(f"<h4>Venue</h4><div>{'<br/>'.join(venue_lines)}</div>")
+
+    # Footer
+    parts.append(f"<hr/><div><b>Calendar:</b> {_html_escape(calendar_name)}<br/><b>Gig ID:</b> {_html_escape(gig_id)}</div>")
+
+    description_html = "\n\n".join(parts)
+
+    return {
+        "summary": title,
+        "location": location,
+        "description": description_html,
+        "start": {"dateTime": _mk_rfc3339(starts_at), "timeZone": "America/New_York"},
+        "end":   {"dateTime": _mk_rfc3339(ends_at),   "timeZone": "America/New_York"},
+        "reminders": {"useDefault": True},
+        "extendedProperties": {"private": {"gig_id": str(gig_id)}},
+    }
 
     # --- Title / Summary (fix: include event_title fallback) ---
     title = (gig.get("title") or gig.get("event_title") or "Gig").strip()
@@ -277,20 +361,14 @@ def upsert_band_calendar_event(
     Success:
       {"action": "created"|"updated", "eventId": "...", "calendarId": "...", "summary": "..."}
 
-    Failure (no exception leak):
+    Failure:
       {"error": "...", "stage": "auth|cal_get|fetch_gig|compose|search|insert|update|args",
-       "calendarId": "..."}  # calendarId may be absent if failure is pre-resolve
+       "calendarId": "..."}
     """
     from googleapiclient.errors import HttpError
 
-    # --- helper: reuse player-confirm builders for lineup/details/notes (no change to email/ICS path) ---
+    # Helper: reuse player-confirm builders; adds lineup_html/details_html/notes_html if available
     def _inject_lineup_and_details_html(gig: dict, sb_client, gid: str) -> None:
-        """
-        Tries to rebuild lineup_html, details_html, notes_html using the same helpers
-        used by tools/send_player_confirms. Falls back to a minimal DB build for lineup
-        if helpers are unavailable. Never raises.
-        """
-        # 1) Try to import helpers from send_player_confirms
         try:
             from tools.send_player_confirms import (
                 _gig_musicians_rows, _fetch_musicians_map,
@@ -301,7 +379,6 @@ def upsert_band_calendar_event(
             except Exception:
                 _fetch_soundtech_name = None
 
-            # Lineup (Other confirmed players + sound tech) — mirrors email logic
             gm_rows = _gig_musicians_rows(gid)
             ordered_ids, roles_by_mid = [], {}
             for r in gm_rows:
@@ -313,23 +390,22 @@ def upsert_band_calendar_event(
                     ordered_ids.append(smid)
                 roles_by_mid[smid] = _nz(r.get("role"))
             mus_map = _fetch_musicians_map(ordered_ids)
-            other_players_list = []
+            other_players = []
             for oid in ordered_ids:
                 orow = mus_map.get(oid) or {}
                 name = _stage_pref(orow)
                 role = roles_by_mid.get(oid, "")
-                other_players_list.append(f"{name}{f' ({role})' if role else ''}")
+                other_players.append(f"{name}{f' ({role})' if role else ''}")
 
             lineup_html = "<h4>Lineup</h4><ul>"
-            if other_players_list:
-                lineup_html += f"<li><b>Other confirmed players:</b> {', '.join(other_players_list)}</li>"
+            if other_players:
+                lineup_html += f"<li><b>Other confirmed players:</b> {', '.join(other_players)}</li>"
             if _fetch_soundtech_name and gig.get("sound_tech_id"):
                 sname = _fetch_soundtech_name(gig.get("sound_tech_id"))
                 if sname:
                     lineup_html += f"<li><b>Confirmed sound tech:</b> {sname}</li>"
             lineup_html += "</ul>"
 
-            # Venue/details block — mirrors email details table
             venue = {}
             try:
                 if sb_client and gig.get("venue_id"):
@@ -364,72 +440,116 @@ def upsert_band_calendar_event(
             gig["lineup_html"] = lineup_html
             gig["details_html"] = details_html
             gig["notes_html"] = notes_html
-            return
         except Exception:
-            # fall through to DB-only minimal lineup build
-            pass
+            # Fallback: minimal confirmed-players list
+            try:
+                if not sb_client:
+                    return
+                q = (
+                    sb_client.table("gig_players")
+                    .select("is_confirmed, role, musicians:musician_id(stage_name,name)")
+                    .eq("gig_id", gid)
+                    .eq("is_confirmed", True)
+                    .order("role", desc=False)
+                    .execute()
+                )
+                rows = getattr(q, "data", None) or []
+                items = []
+                for r in rows:
+                    m = r.get("musicians") or {}
+                    stage = (m.get("stage_name") or m.get("name") or "").strip()
+                    role = (r.get("role") or "").strip()
+                    if stage and role:
+                        items.append(f"<li>{stage} ({role})</li>")
+                    elif stage:
+                        items.append(f"<li>{stage}</li>")
+                if items:
+                    gig["lineup_html"] = "<h4>Lineup</h4><ul>" + "".join(items) + "</ul>"
+            except Exception:
+                pass
 
-        # 2) Fallback: minimal lineup from DB (confirmed players)
-        try:
-            if not sb_client:
-                return
-            q = (
-                sb_client.table("gig_players")
-                .select("is_confirmed, role, musicians:musician_id(stage_name,name)")
-                .eq("gig_id", gid)
-                .eq("is_confirmed", True)
-                .order("role", desc=False)
-                .execute()
-            )
-            rows = getattr(q, "data", None) or []
-            items = []
-            for r in rows:
-                m = r.get("musicians") or {}
-                stage = (m.get("stage_name") or m.get("name") or "").strip()
-                role = (r.get("role") or "").strip()
-                if stage and role:
-                    items.append(f"<li>{stage} ({role})</li>")
-                elif stage:
-                    items.append(f"<li>{stage}</li>")
-            if items:
-                gig["lineup_html"] = "<h4>Lineup</h4><ul>" + "".join(items) + "</ul>"
-        except Exception:
-            # ignore silently — calendar upsert should still proceed
-            pass
-
-    # ------------------ argument validation ------------------
+    # Args
     if not gig_id:
         msg = "gig_id is required"
         print("GCAL_UPSERT_ERR", {"stage": "args", "error": msg})
         return {"error": msg, "stage": "args"}
 
-    # ------------------ auth / service ------------------
+    # Auth
     try:
         service = _get_gcal_service()
     except Exception as e:
         print("GCAL_UPSERT_ERR", {"stage": "auth", "error": str(e)})
         return {"error": f"auth/build failure: {e}", "stage": "auth"}
 
-    # ------------------ resolve calendar + access probe ------------------
+    # Resolve calendar + probe
     calendar_id = None
     try:
         calendar_id = _resolve_calendar_id(calendar_name)
         if not calendar_id:
             raise RuntimeError(f"Calendar not found for name: {calendar_name}")
-
-        # Probe permission using events.list (compatible with calendar.events scope)
-        service.events().list(
-            calendarId=calendar_id,
-            maxResults=1,
-            singleEvents=True
-        ).execute()
-
+        service.events().list(calendarId=calendar_id, maxResults=1, singleEvents=True).execute()
     except HttpError as he:
         print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(he), "calendarId": calendar_id})
         return {"error": f"calendar access error: {he}", "stage": "cal_get", "calendarId": calendar_id}
     except Exception as e:
         print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(e), "calendarId": calendar_id})
         return {"error": f"calendar access unexpected: {e}", "stage": "cal_get", "calendarId": calendar_id}
+
+    # Fetch gig
+    try:
+        gig = _fetch_gig_for_calendar(sb, gig_id)
+    except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "fetch_gig", "error": str(e), "calendarId": calendar_id})
+        return {"error": f"gig fetch failed: {e}", "stage": "fetch_gig", "calendarId": calendar_id}
+
+    # Enrich with lineup/details/notes (uses player-confirm logic)
+    _inject_lineup_and_details_html(gig, sb, gig_id)
+
+    # Compose (now uses prebuilt blocks as-is; no later appends)
+    try:
+        body = _compose_event_body(gig, calendar_name, gig_id)
+    except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "compose", "error": str(e), "calendarId": calendar_id})
+        return {"error": f"compose failed: {e}", "stage": "compose", "calendarId": calendar_id}
+
+    # Upsert deterministically by gig_id
+    try:
+        search = service.events().list(
+            calendarId=calendar_id,
+            privateExtendedProperty=f"gig_id={gig_id}",
+            maxResults=1,
+            singleEvents=True,
+            showDeleted=False,
+        ).execute()
+        items = (search or {}).get("items", []) or []
+        found_event_id = items[0]["id"] if items else None
+    except HttpError as he:
+        print("GCAL_UPSERT_ERR", {"stage": "search", "error": str(he), "calendarId": calendar_id})
+        return {"error": f"event search error: {he}", "stage": "search", "calendarId": calendar_id}
+    except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "search", "error": str(e), "calendarId": calendar_id})
+        return {"error": f"event search unexpected: {e}", "stage": "search", "calendarId": calendar_id}
+
+    try:
+        if found_event_id:
+            updated = service.events().update(calendarId=calendar_id, eventId=found_event_id, body=body).execute()
+            res = {"action": "updated", "eventId": updated["id"], "calendarId": calendar_id, "summary": updated.get("summary")}
+            print("GCAL_UPSERT", res)
+            return res
+        else:
+            created = service.events().insert(calendarId=calendar_id, body=body).execute()
+            res = {"action": "created", "eventId": created["id"], "calendarId": calendar_id, "summary": created.get("summary")}
+            print("GCAL_UPSERT", res)
+            return res
+    except HttpError as he:
+        stage = "update" if found_event_id else "insert"
+        print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(he), "calendarId": calendar_id})
+        return {"error": f"event upsert error: {he}", "stage": stage, "calendarId": calendar_id}
+    except Exception as e:
+        stage = "update" if found_event_id else "insert"
+        print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(e), "calendarId": calendar_id})
+        return {"error": f"event upsert unexpected: {e}", "stage": stage, "calendarId": calendar_id}
+
 
     print(f"[CAL] Using calendar_name='{calendar_name}' (resolved ID: {calendar_id}) for gig_id={gig_id}")
 
