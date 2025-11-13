@@ -323,7 +323,6 @@ def upsert_band_calendar_event(
 
     print(f"[CAL] Using calendar_name='{calendar_name}' (resolved ID: {calendar_id}) for gig_id={gig_id}")
 
-
     # Fetch gig row
     try:
         gig = _fetch_gig_for_calendar(sb, gig_id)
@@ -334,25 +333,26 @@ def upsert_band_calendar_event(
     # Compose body
     try:
         body = _compose_event_body(gig, calendar_name, gig_id)
-        print("CAL-UPsert", {"summary": body.get("summary"), "hasLineup": "Lineup" in str(body.get("description") or ""), "hasNotes": "Notes" in str(body.get("description") or "")})
+        print("CAL-UPsert", {
+            "summary": body.get("summary"),
+            "hasLineup": "Lineup" in str(body.get("description") or ""),
+            "hasNotes": "Notes" in str(body.get("description") or "")
+        })
     except Exception as e:
         print("GCAL_UPSERT_ERR", {"stage": "compose", "error": str(e), "calendarId": calendar_id})
         return {"error": f"compose failed: {e}", "stage": "compose", "calendarId": calendar_id}
 
-    # Search existing by private extended property
+    # === Deterministic find by private extended property (gig_id) ===
     try:
-        events = (
-            service.events()
-            .list(
-                calendarId=calendar_id,
-                privateExtendedProperty=f"gig_id={gig_id}",
-                maxResults=1,
-                singleEvents=True,
-                showDeleted=False,
-            )
-            .execute()
-        )
-        items = events.get("items", []) or []
+        search = service.events().list(
+            calendarId=calendar_id,
+            privateExtendedProperty=f"gig_id={gig_id}",
+            maxResults=1,
+            singleEvents=True,
+            showDeleted=False,
+        ).execute()
+        items = (search or {}).get("items", []) or []
+        found_event_id = items[0]["id"] if items else None
     except HttpError as he:
         print("GCAL_UPSERT_ERR", {"stage": "search", "error": str(he), "calendarId": calendar_id})
         return {"error": f"event search error: {he}", "stage": "search", "calendarId": calendar_id}
@@ -360,28 +360,43 @@ def upsert_band_calendar_event(
         print("GCAL_UPSERT_ERR", {"stage": "search", "error": str(e), "calendarId": calendar_id})
         return {"error": f"event search unexpected: {e}", "stage": "search", "calendarId": calendar_id}
 
-    # Insert or update
+    # === Insert or Update (use update(), not patch, so summary/description are authoritative) ===
     try:
-        if items:
-            ev_id = items[0]["id"]
-            updated = service.events().patch(calendarId=calendar_id, eventId=ev_id, body=body).execute()
-            res = {"action": "updated", "eventId": updated["id"], "calendarId": calendar_id, "summary": updated.get("summary")}
+        if found_event_id:
+            updated = service.events().update(
+                calendarId=calendar_id,
+                eventId=found_event_id,
+                body=body,
+            ).execute()
+            res = {
+                "action": "updated",
+                "eventId": updated["id"],
+                "calendarId": calendar_id,
+                "summary": updated.get("summary"),
+            }
             print("GCAL_UPSERT", res)
             return res
         else:
-            created = service.events().insert(calendarId=calendar_id, body=body).execute()
-            res = {"action": "created", "eventId": created["id"], "calendarId": calendar_id, "summary": created.get("summary")}
+            created = service.events().insert(
+                calendarId=calendar_id,
+                body=body,
+            ).execute()
+            res = {
+                "action": "created",
+                "eventId": created["id"],
+                "calendarId": calendar_id,
+                "summary": created.get("summary"),
+            }
             print("GCAL_UPSERT", res)
             return res
     except HttpError as he:
-        stage = "update" if items else "insert"
+        stage = "update" if found_event_id else "insert"
         print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(he), "calendarId": calendar_id})
         return {"error": f"event upsert error: {he}", "stage": stage, "calendarId": calendar_id}
     except Exception as e:
-        stage = "update" if items else "insert"
+        stage = "update" if found_event_id else "insert"
         print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(e), "calendarId": calendar_id})
         return {"error": f"event upsert unexpected: {e}", "stage": stage, "calendarId": calendar_id}
-
 
 # --- Diagnostics helpers (no secrets leaked) ---
 def debug_auth_config() -> dict:

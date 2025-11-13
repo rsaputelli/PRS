@@ -1092,11 +1092,23 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
-    # Always schedule a PRS Calendar upsert on the next rerun
+
+    # Schedule a rerun-proof upsert (kept)
     st.session_state["pending_cal_upsert"] = {
-    "gig_id": gig_id,
-    "calendar_name": "PRS Calendar",  # keep your preferred calendar display name
-}
+        "gig_id": gig_id,
+        "calendar_name": "Philly Rock and Soul",  # must match elsewhere
+    }
+
+    # Also perform the upsert immediately so posting doesn't rely on a rerun
+    try:
+        _cal_res = upsert_band_calendar_event(
+            gig_id=gig_id,
+            sb=sb,
+            calendar_name="Philly Rock and Soul",  # keep this exact name
+        )
+        st.info("PRS Calendar updated.")
+    except Exception as e:
+        st.warning(f"Calendar upsert failed: {e}")
 
     st.write({
         "id": gig_id,
@@ -1107,6 +1119,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "status": new_gig.get("contract_status"),
         "fee": new_gig.get("fee"),
     })
+
     # Optional: store the actual time objects in session for reuse elsewhere
     st.session_state["start_time_in_obj"] = start_time_in
     st.session_state["end_time_in_obj"]   = end_time_in
