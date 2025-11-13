@@ -282,54 +282,135 @@ def upsert_band_calendar_event(
        "calendarId": "..."}  # calendarId may be absent if failure is pre-resolve
     """
     from googleapiclient.errors import HttpError
-    # Try to reuse the same lineup HTML builder used by player confirmations.
-    # This does NOT change the email path; it only injects lineup_html into the gig dict for calendar use.
-    def _inject_lineup_html(gig: dict, sb_client, gid: str) -> None:
+
+    # --- helper: reuse player-confirm builders for lineup/details/notes (no change to email/ICS path) ---
+    def _inject_lineup_and_details_html(gig: dict, sb_client, gid: str) -> None:
+        """
+        Tries to rebuild lineup_html, details_html, notes_html using the same helpers
+        used by tools/send_player_confirms. Falls back to a minimal DB build for lineup
+        if helpers are unavailable. Never raises.
+        """
+        # 1) Try to import helpers from send_player_confirms
         try:
-            # Try common helper names from tools/send_player_confirms.py
-            build_funcs = []
+            from tools.send_player_confirms import (
+                _gig_musicians_rows, _fetch_musicians_map,
+                _stage_pref, _nz, _fmt_time12, _fmt_addr, _html_escape
+            )
             try:
-                from tools.send_player_confirms import build_lineup_html as _b
-                build_funcs.append(_b)
+                from tools.send_player_confirms import _fetch_soundtech_name
             except Exception:
-                pass
+                _fetch_soundtech_name = None
+
+            # Lineup (Other confirmed players + sound tech) — mirrors email logic
+            gm_rows = _gig_musicians_rows(gid)
+            ordered_ids, roles_by_mid = [], {}
+            for r in gm_rows:
+                mid = r.get("musician_id")
+                if mid is None:
+                    continue
+                smid = str(mid)
+                if smid not in roles_by_mid:
+                    ordered_ids.append(smid)
+                roles_by_mid[smid] = _nz(r.get("role"))
+            mus_map = _fetch_musicians_map(ordered_ids)
+            other_players_list = []
+            for oid in ordered_ids:
+                orow = mus_map.get(oid) or {}
+                name = _stage_pref(orow)
+                role = roles_by_mid.get(oid, "")
+                other_players_list.append(f"{name}{f' ({role})' if role else ''}")
+
+            lineup_html = "<h4>Lineup</h4><ul>"
+            if other_players_list:
+                lineup_html += f"<li><b>Other confirmed players:</b> {', '.join(other_players_list)}</li>"
+            if _fetch_soundtech_name and gig.get("sound_tech_id"):
+                sname = _fetch_soundtech_name(gig.get("sound_tech_id"))
+                if sname:
+                    lineup_html += f"<li><b>Confirmed sound tech:</b> {sname}</li>"
+            lineup_html += "</ul>"
+
+            # Venue/details block — mirrors email details table
+            venue = {}
             try:
-                from tools.send_player_confirms import render_lineup_html as _r
-                build_funcs.append(_r)
+                if sb_client and gig.get("venue_id"):
+                    vresp = sb_client.table("venues").select("*").eq("id", gig.get("venue_id")).limit(1).execute()
+                    vrows = getattr(vresp, "data", None) or []
+                    venue = vrows[0] if vrows else {}
             except Exception:
-                pass
+                venue = {}
+            venue_name = _nz((venue or {}).get("name"))
+            venue_addr = _fmt_addr(venue or {})
+            start_hhmm = _fmt_time12(gig.get("start_time"))
+            end_hhmm = _fmt_time12(gig.get("end_time"))
 
-            if not build_funcs:
-                return  # nothing to reuse; silently skip
+            details_html = f"""
+            <h4>Event Details</h4>
+            <table border="1" cellpadding="6" cellspacing="0">
+              <tr><th align="left">Date</th><td>{_nz(gig.get("event_date"))}</td></tr>
+              <tr><th align="left">Time</th><td>{start_hhmm} – {end_hhmm}</td></tr>
+              <tr><th align="left">Venue</th><td>{_html_escape(venue_name)}</td></tr>
+              <tr><th align="left">Address</th><td>{_html_escape(venue_addr)}</td></tr>
+            </table>
+            """
 
-            # Try a few likely signatures without breaking if they don't match
-            for fn in build_funcs:
-                for args in ((gid,), (sb_client, gid), (gig,), (sb_client, gid, gig)):
-                    try:
-                        html = fn(*args)
-                        if html:
-                            gig["lineup_html"] = html
-                            return
-                    except Exception:
-                        continue
+            notes_raw = gig.get("notes") or gig.get("closeout_notes")
+            notes_html = ""
+            if notes_raw and str(notes_raw).strip():
+                notes_html = f"""
+                <h4>Notes</h4>
+                <div style="white-space:pre-wrap">{_html_escape(notes_raw)}</div>
+                """
+
+            gig["lineup_html"] = lineup_html
+            gig["details_html"] = details_html
+            gig["notes_html"] = notes_html
+            return
         except Exception:
-            # Never let calendar posting fail just because lineup HTML couldn't be built
+            # fall through to DB-only minimal lineup build
             pass
 
-    # Basic arg check
+        # 2) Fallback: minimal lineup from DB (confirmed players)
+        try:
+            if not sb_client:
+                return
+            q = (
+                sb_client.table("gig_players")
+                .select("is_confirmed, role, musicians:musician_id(stage_name,name)")
+                .eq("gig_id", gid)
+                .eq("is_confirmed", True)
+                .order("role", desc=False)
+                .execute()
+            )
+            rows = getattr(q, "data", None) or []
+            items = []
+            for r in rows:
+                m = r.get("musicians") or {}
+                stage = (m.get("stage_name") or m.get("name") or "").strip()
+                role = (r.get("role") or "").strip()
+                if stage and role:
+                    items.append(f"<li>{stage} ({role})</li>")
+                elif stage:
+                    items.append(f"<li>{stage}</li>")
+            if items:
+                gig["lineup_html"] = "<h4>Lineup</h4><ul>" + "".join(items) + "</ul>"
+        except Exception:
+            # ignore silently — calendar upsert should still proceed
+            pass
+
+    # ------------------ argument validation ------------------
     if not gig_id:
         msg = "gig_id is required"
         print("GCAL_UPSERT_ERR", {"stage": "args", "error": msg})
         return {"error": msg, "stage": "args"}
 
-    # Auth / service
+    # ------------------ auth / service ------------------
     try:
         service = _get_gcal_service()
     except Exception as e:
         print("GCAL_UPSERT_ERR", {"stage": "auth", "error": str(e)})
         return {"error": f"auth/build failure: {e}", "stage": "auth"}
 
-    # Resolve calendar + check access
+    # ------------------ resolve calendar + access probe ------------------
     calendar_id = None
     try:
         calendar_id = _resolve_calendar_id(calendar_name)
@@ -351,6 +432,87 @@ def upsert_band_calendar_event(
         return {"error": f"calendar access unexpected: {e}", "stage": "cal_get", "calendarId": calendar_id}
 
     print(f"[CAL] Using calendar_name='{calendar_name}' (resolved ID: {calendar_id}) for gig_id={gig_id}")
+
+    # ------------------ fetch gig ------------------
+    try:
+        gig = _fetch_gig_for_calendar(sb, gig_id)
+    except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "fetch_gig", "error": str(e), "calendarId": calendar_id})
+        return {"error": f"gig fetch failed: {e}", "stage": "fetch_gig", "calendarId": calendar_id}
+
+    # Inject lineup/details/notes HTML (reused from player-confirm logic)
+    _inject_lineup_and_details_html(gig, sb, gig_id)
+
+    # ------------------ compose body ------------------
+    try:
+        body = _compose_event_body(gig, calendar_name, gig_id)
+        # If details_html exists and your composer doesn't include it already, append it.
+        if gig.get("details_html"):
+            desc = (body.get("description") or "").strip()
+            body["description"] = (desc + "\n\n" + gig["details_html"]).strip() if desc else gig["details_html"]
+        # Optional: ensure Notes HTML makes it through if your composer only uses plain notes
+        if gig.get("notes_html"):
+            desc = (body.get("description") or "").strip()
+            body["description"] = (desc + "\n\n" + gig["notes_html"]).strip() if desc else gig["notes_html"]
+    except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "compose", "error": str(e), "calendarId": calendar_id})
+        return {"error": f"compose failed: {e}", "stage": "compose", "calendarId": calendar_id}
+
+    # ------------------ deterministic find by gig_id ------------------
+    try:
+        search = service.events().list(
+            calendarId=calendar_id,
+            privateExtendedProperty=f"gig_id={gig_id}",
+            maxResults=1,
+            singleEvents=True,
+            showDeleted=False,
+        ).execute()
+        items = (search or {}).get("items", []) or []
+        found_event_id = items[0]["id"] if items else None
+    except HttpError as he:
+        print("GCAL_UPSERT_ERR", {"stage": "search", "error": str(he), "calendarId": calendar_id})
+        return {"error": f"event search error: {he}", "stage": "search", "calendarId": calendar_id}
+    except Exception as e:
+        print("GCAL_UPSERT_ERR", {"stage": "search", "error": str(e), "calendarId": calendar_id})
+        return {"error": f"event search unexpected: {e}", "stage": "search", "calendarId": calendar_id}
+
+    # ------------------ update or insert (use update so summary/description are authoritative) ------------------
+    try:
+        if found_event_id:
+            updated = service.events().update(
+                calendarId=calendar_id,
+                eventId=found_event_id,
+                body=body,
+            ).execute()
+            res = {
+                "action": "updated",
+                "eventId": updated["id"],
+                "calendarId": calendar_id,
+                "summary": updated.get("summary"),
+            }
+            print("GCAL_UPSERT", res)
+            return res
+        else:
+            created = service.events().insert(
+                calendarId=calendar_id,
+                body=body,
+            ).execute()
+            res = {
+                "action": "created",
+                "eventId": created["id"],
+                "calendarId": calendar_id,
+                "summary": created.get("summary"),
+            }
+            print("GCAL_UPSERT", res)
+            return res
+    except HttpError as he:
+        stage = "update" if found_event_id else "insert"
+        print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(he), "calendarId": calendar_id})
+        return {"error": f"event upsert error: {he}", "stage": stage, "calendarId": calendar_id}
+    except Exception as e:
+        stage = "update" if found_event_id else "insert"
+        print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(e), "calendarId": calendar_id})
+        return {"error": f"event upsert unexpected: {e}", "stage": stage, "calendarId": calendar_id}
 
     # Fetch gig row
     try:
