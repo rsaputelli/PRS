@@ -304,12 +304,15 @@ def upsert_band_calendar_event(
     calendar_id = None
     try:
         calendar_id = _resolve_calendar_id(calendar_name)
+        if not calendar_id:
+            raise RuntimeError(f"Calendar not found for name: {calendar_name}")
+
         # Probe permission using events.list (compatible with calendar.events scope)
-        try:
-            service.events().list(calendarId=calendar_id, maxResults=1, singleEvents=True).execute()
-        except HttpError as he:
-            print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(he), "calendarId": calendar_id})
-            return {"error": f"calendar access error: {he}", "stage": "cal_get", "calendarId": calendar_id}
+        service.events().list(
+            calendarId=calendar_id,
+            maxResults=1,
+            singleEvents=True
+        ).execute()
 
     except HttpError as he:
         print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(he), "calendarId": calendar_id})
@@ -317,6 +320,9 @@ def upsert_band_calendar_event(
     except Exception as e:
         print("GCAL_UPSERT_ERR", {"stage": "cal_get", "error": str(e), "calendarId": calendar_id})
         return {"error": f"calendar access unexpected: {e}", "stage": "cal_get", "calendarId": calendar_id}
+
+    print(f"[CAL] Using calendar_name='{calendar_name}' (resolved ID: {calendar_id}) for gig_id={gig_id}")
+
 
     # Fetch gig row
     try:
