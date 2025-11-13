@@ -1101,14 +1101,24 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
     # Also perform the upsert immediately so posting doesn't rely on a rerun
     try:
-        _cal_res = upsert_band_calendar_event(
+        res = upsert_band_calendar_event(
             gig_id=gig_id,
             sb=sb,
             calendar_name="Philly Rock and Soul",  # keep this exact name
         )
-        st.info("PRS Calendar updated.")
+        # === NEW: inspect result dict so we don't show success on silent errors ===
+        if isinstance(res, dict) and res.get("error"):
+            st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
+            # Optional: show more detail during debug
+            st.write({"calendarId": res.get("calendarId")})
+        else:
+            action = (res or {}).get("action", "updated")
+            ev_id  = (res or {}).get("eventId")
+            st.success(f"PRS Calendar {action}.")
+            if ev_id:
+                st.caption(f"Event ID: {ev_id}")
     except Exception as e:
-        st.warning(f"Calendar upsert failed: {e}")
+        st.error(f"Calendar upsert exception: {e}")
 
     st.write({
         "id": gig_id,
