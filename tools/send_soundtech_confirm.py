@@ -1,7 +1,7 @@
 # tools/send_soundtech_confirm.py
 from __future__ import annotations
 import os
-import uuid   →   import uuid as uuid_mod
+import uuid as uuid_mod
 import datetime as dt
 from typing import Dict, Any, Optional
 
