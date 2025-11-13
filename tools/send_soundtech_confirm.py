@@ -1,7 +1,7 @@
 # tools/send_soundtech_confirm.py
 from __future__ import annotations
 import os
-import uuid
+import uuid   →   import uuid as uuid_mod
 import datetime as dt
 from typing import Dict, Any, Optional
 
@@ -183,7 +183,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
         except Exception:
             fee_str = str(ev["sound_fee"])
 
-    token = uuid.uuid4().hex
+    token = uuid_mod.uuid4().hex
     title = ev.get("title") or "Gig"
 
     # --- 12-hour time helper (safe for time|datetime|string) ---
@@ -271,7 +271,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
         # 2) Ensure UID + DTSTAMP (UTC) inside VEVENT
         if "UID:" not in t:
-            uid = f"{uuid.uuid4()}@prs"
+            uid = f"{uuid_mod.uuid4()}@prs"
             t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nUID:{uid}\n", 1)
 
         if "DTSTAMP:" not in t:
