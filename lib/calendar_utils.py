@@ -148,16 +148,13 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
     """
     Build the Google Calendar event body from a gig row.
 
-    Changes:
-    - summary now prefers gig['title'] then gig['event_title'], else "Gig"
-    - description now includes (when available):
-        • Lineup (as in the player confirmation ICS)
-        • Notes (gig.notes)
-        • Venue details
-      plus the existing Calendar name and Gig ID footer for traceability.
+    Summary:
+      - summary prefers gig['title'] then gig['event_title'], else "Gig"
+      - description includes Lineup, Notes, and Venue details when available
     """
+    import datetime as dt  # local to avoid circulars in some runners
+
     def _html_escape(s: str) -> str:
-        # minimal HTML escaping for description fields
         return (
             str(s)
             .replace("&", "&amp;")
@@ -165,10 +162,10 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
             .replace(">", "&gt;")
         )
 
-    # --- Title / Summary ---
+    # --- Title / Summary (fix: include event_title fallback) ---
     title = (gig.get("title") or gig.get("event_title") or "Gig").strip()
 
-    # --- Location (one-line "Venue | Address | City State") ---
+    # --- Location (Venue | Address | City State) ---
     venue = (gig.get("venue_name") or "").strip()
     city = (gig.get("venue_city") or "").strip()
     state = (gig.get("venue_state") or "").strip()
@@ -184,14 +181,12 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
     y, m, d = [int(x) for x in event_date.split("-")]
     sh, sm = [int(x) for x in start.split(":")[:2]]
     eh, em = [int(x) for x in end.split(":")[:2]]
-
     starts_at = dt.datetime(y, m, d, sh, sm)
     ends_at   = dt.datetime(y, m, d, eh, em)
     if ends_at <= starts_at:
         ends_at += dt.timedelta(days=1)
 
-    # --- Description blocks (HTML) ---
-    # Lineup: support multiple possible shapes with graceful fallback
+    # --- Lineup block ---
     lineup_html = ""
     if gig.get("lineup_html"):
         lineup_html = f"""
@@ -199,11 +194,9 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
         <div>{gig["lineup_html"]}</div>
         """
     else:
-        # Try a list of players (dicts) or a plain text fallback
-        lineup_items = []
+        items = []
         lineup_list = gig.get("lineup") or []
         if isinstance(lineup_list, list) and lineup_list:
-            # Expect dicts like {"stage_name": "...", "role": "..."}; fall back to str(item)
             for item in lineup_list:
                 if isinstance(item, dict):
                     stage = (item.get("stage_name") or item.get("name") or "").strip()
@@ -211,20 +204,19 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
                     label = stage if stage else str(item)
                     if role:
                         label = f"{label} ({role})"
-                    lineup_items.append(_html_escape(label))
+                    items.append(_html_escape(label))
                 else:
-                    lineup_items.append(_html_escape(str(item)))
+                    items.append(_html_escape(str(item)))
         elif gig.get("lineup_text"):
-            lineup_items = [x.strip() for x in str(gig["lineup_text"]).splitlines() if x.strip()]
-
-        if lineup_items:
-            li = "".join([f"<li>{x}</li>" for x in lineup_items])
+            items = [x.strip() for x in str(gig["lineup_text"]).splitlines() if x.strip()]
+        if items:
+            li = "".join([f"<li>{x}</li>" for x in items])
             lineup_html = f"""
             <h4>Lineup</h4>
             <ul>{li}</ul>
             """
 
-    # Notes
+    # --- Notes block ---
     notes_html = ""
     if gig.get("notes"):
         notes_html = f"""
@@ -232,7 +224,7 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
         <div style="white-space:pre-wrap">{_html_escape(str(gig["notes"]))}</div>
         """
 
-    # Venue details block
+    # --- Venue block ---
     venue_lines = []
     if venue:
         venue_lines.append(_html_escape(venue))
@@ -241,14 +233,9 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
     if city_state:
         venue_lines.append(_html_escape(city_state))
     venue_block = "<br/>".join(venue_lines)
-    venue_html = ""
-    if venue_block:
-        venue_html = f"""
-        <h4>Venue</h4>
-        <div>{venue_block}</div>
-        """
+    venue_html = f"<h4>Venue</h4><div>{venue_block}</div>" if venue_block else ""
 
-    # Footer (keep existing trace info)
+    # --- Footer (non-sensitive trace) ---
     footer_html = f"""
     <hr/>
     <div><b>Calendar:</b> {_html_escape(calendar_name)}<br/>
@@ -271,9 +258,8 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
         "start": {"dateTime": _mk_rfc3339(starts_at), "timeZone": "America/New_York"},
         "end":   {"dateTime": _mk_rfc3339(ends_at),   "timeZone": "America/New_York"},
         "reminders": {"useDefault": True},
-        "extendedProperties": {"private": {"gig_id": gig_id}},
+        "extendedProperties": {"private": {"gig_id": str(gig_id)}},
     }
-
 
 def upsert_band_calendar_event(
     gig_id: str,
@@ -334,6 +320,7 @@ def upsert_band_calendar_event(
     # Compose body
     try:
         body = _compose_event_body(gig, calendar_name, gig_id)
+        print("CAL-UPsert", {"summary": body.get("summary"), "hasLineup": "Lineup" in str(body.get("description") or ""), "hasNotes": "Notes" in str(body.get("description") or "")})
     except Exception as e:
         print("GCAL_UPSERT_ERR", {"stage": "compose", "error": str(e), "calendarId": calendar_id})
         return {"error": f"compose failed: {e}", "stage": "compose", "calendarId": calendar_id}
