@@ -95,7 +95,7 @@ def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
     """
     Load the gig plus its venue fields (joined via venue_id).
     Returns a dict with the keys expected by _compose_event_body().
-    Includes title / event_title / notes so calendar summary & description are correct.
+    Includes title/notes so calendar summary & description are correct.
     """
     if not sb:
         raise RuntimeError("Supabase client (sb) is required to fetch gig")
@@ -103,7 +103,7 @@ def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
     # Join venues through the foreign key venue_id -> venues.id
     sel = (
         "id,event_date,start_time,end_time,is_private,"
-        "title,event_title,notes,"                 # <-- added title + event_title + notes
+        "title,notes,"                     # <-- removed event_title
         "venue_id,"
         "venues:venue_id(name,address_line1,city,state)"
     )
@@ -130,18 +130,14 @@ def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
         "end_time": g.get("end_time"),
         "is_private": g.get("is_private"),
 
-        # new fields
         "title": g.get("title"),
-        "event_title": g.get("event_title"),
         "notes": g.get("notes"),
 
-        # venue normalization
         "venue_name": v.get("name"),
         "venue_address": v.get("address_line1"),
         "venue_city": v.get("city"),
         "venue_state": v.get("state"),
     }
-
 
 def _mk_rfc3339(local_dt: dt.datetime, tz: str = "America/New_York") -> str:
     """
