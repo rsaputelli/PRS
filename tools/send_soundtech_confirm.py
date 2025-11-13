@@ -251,109 +251,109 @@ def send_soundtech_confirm(gig_id: str) -> None:
             description="Sound tech call. Brought to you by PRS Scheduling.",
         )
 
-        # Upgrade to a real invite: add METHOD + ORGANIZER/ATTENDEE + Outlook-safe fields
-        try:
-            import re, uuid
-            from datetime import datetime, timezone
+    # Upgrade to a real invite: add METHOD + ORGANIZER/ATTENDEE + Outlook-safe fields
+    try:
+        import re
+        from datetime import datetime, timezone
 
-            _txt = ics_bytes.decode("utf-8", "ignore")
+        _txt = ics_bytes.decode("utf-8", "ignore")
 
-            # Work with LF internally, we'll restore CRLF at the end
-            t = _txt.replace("\r\n", "\n").replace("\r", "\n")
+        # Work with LF internally, we'll restore CRLF at the end
+        t = _txt.replace("\r\n", "\n").replace("\r", "\n")
 
-            # 1) Ensure METHOD:REQUEST at VCALENDAR level
-            if "METHOD:" not in t:
-                t = t.replace(
-                    "BEGIN:VCALENDAR\nVERSION:2.0\n",
-                    "BEGIN:VCALENDAR\nVERSION:2.0\nMETHOD:REQUEST\n",
-                    1,
-                )
-
-            # 2) Ensure UID + DTSTAMP (UTC) inside VEVENT
-            if "UID:" not in t:
-                uid = f"{uuid.uuid4()}@prs"
-                t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nUID:{uid}\n", 1)
-
-            if "DTSTAMP:" not in t:
-                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nDTSTAMP:{ts}\n", 1)
-
-            # 3) TZ strategy: keep local time with TZID=America/New_York and include a VTIMEZONE block.
-            # If DTSTART/DTEND are "floating" (no Z, no TZID), add TZID.
-            def _fix_dt_line(s: str, key: str) -> str:
-                # Match floating local time like: DTSTART:20251117T210000
-                pat = rf'^{key}:(\d{{8}}T\d{{6}})$'
-                return re.sub(pat, rf'{key};TZID=America/New_York:\1', s, flags=re.M)
-
-            t = _fix_dt_line(t, "DTSTART")
-            t = _fix_dt_line(t, "DTEND")
-
-            # Insert VTIMEZONE for America/New_York if not present
-            if ("BEGIN:VTIMEZONE" not in t) or ("TZID:America/New_York" not in t):
-                tz_block = (
-                    "BEGIN:VTIMEZONE\n"
-                    "TZID:America/New_York\n"
-                    "X-LIC-LOCATION:America/New_York\n"
-                    "BEGIN:DAYLIGHT\n"
-                    "TZOFFSETFROM:-0500\n"
-                    "TZOFFSETTO:-0400\n"
-                    "TZNAME:EDT\n"
-                    "DTSTART:19700308T020000\n"
-                    "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU\n"
-                    "END:DAYLIGHT\n"
-                    "BEGIN:STANDARD\n"
-                    "TZOFFSETFROM:-0400\n"
-                    "TZOFFSETTO:-0500\n"
-                    "TZNAME:EST\n"
-                    "DTSTART:19701101T020000\n"
-                    "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU\n"
-                    "END:STANDARD\n"
-                    "END:VTIMEZONE\n"
-                )
-                # place right after METHOD line for readability
-                t = t.replace("METHOD:REQUEST\n", f"METHOD:REQUEST\n{tz_block}", 1)
-
-            # 4) Ensure ORGANIZER/ATTENDEE inside VEVENT (explicit MAILTO + CN/ROLE)
-            cn_org = "Philly Rock & Soul"
-            org_line = f"ORGANIZER;CN={cn_org}:MAILTO:{FROM_EMAIL}"
-
-            tech_name = (
-                tech.get("name")
-                or tech.get("full_name")
-                or tech.get("stage_name")
-                or tech.get("email")
-                or "Sound Tech"
+        # 1) Ensure METHOD:REQUEST at VCALENDAR level
+        if "METHOD:" not in t:
+            t = t.replace(
+                "BEGIN:VCALENDAR\nVERSION:2.0\n",
+                "BEGIN:VCALENDAR\nVERSION:2.0\nMETHOD:REQUEST\n",
+                1,
             )
-            att_line = f"ATTENDEE;CN={tech_name};ROLE=REQ-PARTICIPANT:MAILTO:{tech.get('email')}"
 
-            def _ensure_in_vevent(s: str, line: str, key_present: str) -> str:
-                if key_present in s:
-                    return s
-                return s.replace("END:VEVENT", f"{line}\nEND:VEVENT", 1)
+        # 2) Ensure UID + DTSTAMP (UTC) inside VEVENT
+        if "UID:" not in t:
+            uid = f"{uuid.uuid4()}@prs"
+            t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nUID:{uid}\n", 1)
 
-            t = _ensure_in_vevent(t, org_line, "ORGANIZER:")
-            t = _ensure_in_vevent(t, att_line, "ATTENDEE:")
+        if "DTSTAMP:" not in t:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nDTSTAMP:{ts}\n", 1)
 
-            # 5) Optional Outlook niceties (safe no-ops if already present)
-            t = _ensure_in_vevent(t, "STATUS:CONFIRMED", "STATUS:")
-            t = _ensure_in_vevent(t, "SEQUENCE:0", "SEQUENCE:")
+        # 3) TZ strategy: keep local time with TZID=America/New_York and include a VTIMEZONE block.
+        # If DTSTART/DTEND are "floating" (no Z, no TZID), add TZID.
+        def _fix_dt_line(s: str, key: str) -> str:
+            # Match floating local time like: DTSTART:20251117T210000
+            pat = rf'^{key}:(\d{{8}}T\d{{6}})$'
+            return re.sub(pat, rf'{key};TZID=America/New_York:\1', s, flags=re.M)
 
-            # 6) CRLF endings for Outlook strictness
-            t = t.replace("\n", "\r\n")
+        t = _fix_dt_line(t, "DTSTART")
+        t = _fix_dt_line(t, "DTEND")
 
-            ics_bytes = t.encode("utf-8")
+        # Insert VTIMEZONE for America/New_York if not present
+        if ("BEGIN:VTIMEZONE" not in t) or ("TZID:America/New_York" not in t):
+            tz_block = (
+                "BEGIN:VTIMEZONE\n"
+                "TZID:America/New_York\n"
+                "X-LIC-LOCATION:America/New_York\n"
+                "BEGIN:DAYLIGHT\n"
+                "TZOFFSETFROM:-0500\n"
+                "TZOFFSETTO:-0400\n"
+                "TZNAME:EDT\n"
+                "DTSTART:19700308T020000\n"
+                "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU\n"
+                "END:DAYLIGHT\n"
+                "BEGIN:STANDARD\n"
+                "TZOFFSETFROM:-0400\n"
+                "TZOFFSETTO:-0500\n"
+                "TZNAME:EST\n"
+                "DTSTART:19701101T020000\n"
+                "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU\n"
+                "END:STANDARD\n"
+                "END:VTIMEZONE\n"
+            )
+            # place right after METHOD line for readability
+            t = t.replace("METHOD:REQUEST\n", f"METHOD:REQUEST\n{tz_block}", 1)
 
-        except Exception:
-            # If anything odd happens, fall back to original bytes
-            pass
+        # 4) Ensure ORGANIZER/ATTENDEE inside VEVENT (explicit MAILTO + CN/ROLE)
+        cn_org = "Philly Rock & Soul"
+        org_line = f"ORGANIZER;CN={cn_org}:MAILTO:{FROM_EMAIL}"
 
-        atts.append(
-            {
-                "filename": f"{title}-{ev['event_date']}.ics",
-                "mime": "text/calendar; method=REQUEST; charset=UTF-8",
-                "content": ics_bytes,
-            }
+        tech_name = (
+            tech.get("name")
+            or tech.get("full_name")
+            or tech.get("stage_name")
+            or tech.get("email")
+            or "Sound Tech"
         )
+        att_line = f"ATTENDEE;CN={tech_name};ROLE=REQ-PARTICIPANT:MAILTO:{tech.get('email')}"
+
+        def _ensure_in_vevent(s: str, line: str, key_present: str) -> str:
+            if key_present in s:
+                return s
+            return s.replace("END:VEVENT", f"{line}\nEND:VEVENT", 1)
+
+        t = _ensure_in_vevent(t, org_line, "ORGANIZER:")
+        t = _ensure_in_vevent(t, att_line, "ATTENDEE:")
+
+        # 5) Optional Outlook niceties (safe no-ops if already present)
+        t = _ensure_in_vevent(t, "STATUS:CONFIRMED", "STATUS:")
+        t = _ensure_in_vevent(t, "SEQUENCE:0", "SEQUENCE:")
+
+        # 6) CRLF endings for Outlook strictness
+        t = t.replace("\n", "\r\n")
+
+        ics_bytes = t.encode("utf-8")
+
+    except Exception:
+        # If anything odd happens, fall back to original bytes
+        pass
+
+    atts.append(
+        {
+            "filename": f"{title}-{ev['event_date']}.ics",
+            "mime": "text/calendar; method=REQUEST; charset=UTF-8",
+            "content": ics_bytes,
+        }
+    )
 
     # ---- SEND + AUDIT with strict checks ----
     try:
