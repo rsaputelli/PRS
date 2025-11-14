@@ -111,8 +111,8 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
         .select(
             "id, title, event_date, start_time, end_time, "
             "sound_provided, sound_fee, sound_tech_id, "
-            "venue_name, venue_address_line1, city, state, "
-            "notes, sound_notes"
+            "venue_id, notes, sound_by_venue_name, sound_by_venue_phone, "
+            "venues(name, address_line1, city, state)"
         )
         .eq("id", gig_id)
         .limit(1)
@@ -391,27 +391,35 @@ def send_soundtech_confirm(gig_id: str) -> None:
         t = _ensure_in_vevent(t, org_line, "ORGANIZER:")
         t = _ensure_in_vevent(t, att_line, "ATTENDEE:")
 
-        # ------------------------------------------------------------------
         # LOCATION (if we have it) and rich DESCRIPTION + X-ALT-DESC
         # ------------------------------------------------------------------
-        # LOCATION: best-effort from gig fields (may be empty if not selected upstream)
+        # LOCATION: build from joined venues table (with reasonable fallbacks)
         venue_parts = []
 
-        vn = ev.get("venue_name") or ev.get("venue")
+        venue = ev.get("venues")
+        # Supabase may return a dict or a single-element list; normalize
+        if isinstance(venue, list):
+            venue = venue[0] if venue else None
+        if not isinstance(venue, dict):
+            venue = None
+
+        # Name: primary from venues.name, fallback to sound_by_venue_name
+        vn = None
+        if venue:
+            vn = venue.get("name")
+        if not vn:
+            vn = ev.get("sound_by_venue_name")
         if vn:
             venue_parts.append(str(vn))
 
-        addr = (
-            ev.get("venue_address_line1")
-            or ev.get("address_line1")
-            or ev.get("address1")
-            or ev.get("address")
-        )
+        # Address line 1 from venues.address_line1
+        addr = venue.get("address_line1") if venue else None
         if addr:
             venue_parts.append(str(addr))
 
-        city = ev.get("city")
-        state = ev.get("state")
+        # City / state from venues.city / venues.state
+        city = venue.get("city") if venue else None
+        state = venue.get("state") if venue else None
         if city or state:
             city_state = " ".join(
                 [str(city or "").strip(), str(state or "").strip()]
