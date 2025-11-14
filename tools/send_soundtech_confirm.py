@@ -110,7 +110,9 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
         sb.table("gigs")
         .select(
             "id, title, event_date, start_time, end_time, "
-            "sound_provided, sound_fee, sound_tech_id"
+            "sound_provided, sound_fee, sound_tech_id, "
+            "venue_name, venue_address_line1, city, state, "
+            "notes, sound_notes"
         )
         .eq("id", gig_id)
         .limit(1)
@@ -420,7 +422,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
         location_text = ", ".join(p for p in venue_parts if p)
 
         # DESCRIPTION: top line + gig info + optional notes + optional sound fee
-        top_line = "Sound tech call. Brought to you by PRS Scheduling."
+        top_line = "Sound tech call (v2). Brought to you by PRS Scheduling."
         desc_lines = [top_line, ""]
 
         title = ev.get("title")
@@ -435,7 +437,9 @@ def send_soundtech_confirm(gig_id: str) -> None:
         end_time = ev.get("end_time")
         if start_time or end_time:
             desc_lines.append(
-                f"Start and end times: {start_time or ''} – {end_time or ''}"
+                "Start and end times: "
+                f"{_fmt_time12(start_time) if start_time else ''} – "
+                f"{_fmt_time12(end_time) if end_time else ''}"
             )
 
         notes_text = ev.get("notes") or ev.get("sound_notes")
@@ -461,9 +465,10 @@ def send_soundtech_confirm(gig_id: str) -> None:
             html_parts.append(f"<p>Event date: {_html_escape(event_date)}</p>")
         if start_time or end_time:
             html_parts.append(
-                f"<p>Start and end times: "
-                f"{_html_escape(start_time or '')} – {_html_escape(end_time or '')}"
-                f"</p>"
+                "<p>Start and end times: "
+                f"{_html_escape(_fmt_time12(start_time) if start_time else '')} – "
+                f"{_html_escape(_fmt_time12(end_time) if end_time else '')}"
+                "</p>"
             )
         if notes_text:
             html_parts.append(
