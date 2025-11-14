@@ -110,9 +110,7 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
         sb.table("gigs")
         .select(
             "id, title, event_date, start_time, end_time, "
-            "sound_provided, sound_fee, sound_tech_id, "
-            "venue_id, notes, sound_by_venue_name, sound_by_venue_phone, "
-            "venues(name, address_line1, city, state)"
+            "sound_provided, sound_fee, sound_tech_id, venue_id, notes"
         )
         .eq("id", gig_id)
         .limit(1)
@@ -124,6 +122,28 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
         raise ValueError(f"Gig {gig_id} not found or not accessible (RLS)")
 
     ev = ev_rows[0]
+    # Add venue fields for ICS LOCATION (safe enrichment; does not affect Google)
+    venue_id = ev.get("venue_id")
+    if venue_id:
+        v_res = (
+            sb.table("venues")
+            .select("name, address_line1, city, state")
+            .eq("id", venue_id)
+            .limit(1)
+            .execute()
+        )
+        v_rows = (v_res.data or []) if v_res else []
+        if v_rows:
+            v = v_rows[0]
+            # Map into fields the ICS mutate block already checks
+            if v.get("name"):
+                ev["venue_name"] = v["name"]
+            if v.get("address_line1"):
+                ev["venue_address_line1"] = v["address_line1"]
+            if v.get("city"):
+                ev["city"] = v["city"]
+            if v.get("state"):
+                ev["state"] = v["state"]
 
     # Ensure there is a sound tech assigned
     stid = ev.get("sound_tech_id")
