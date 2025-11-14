@@ -282,8 +282,8 @@ def send_soundtech_confirm(gig_id: str) -> None:
         # If DTSTART/DTEND are "floating" (no Z, no TZID), add TZID.
         def _fix_dt_line(s: str, key: str) -> str:
             # Match floating local time like: DTSTART:20251117T210000
-            pat = rf'^{key}:(\d{{8}}T\d{{6}})$'
-            return re.sub(pat, rf'{key};TZID=America/New_York:\1', s, flags=re.M)
+            pat = rf"^{key}:(\d{{8}}T\d{{6}})$"
+            return re.sub(pat, rf"{key};TZID=America/New_York:\1", s, flags=re.M)
 
         t = _fix_dt_line(t, "DTSTART")
         t = _fix_dt_line(t, "DTEND")
@@ -334,11 +334,104 @@ def send_soundtech_confirm(gig_id: str) -> None:
         t = _ensure_in_vevent(t, org_line, "ORGANIZER:")
         t = _ensure_in_vevent(t, att_line, "ATTENDEE:")
 
-        # 5) Optional Outlook niceties (safe no-ops if already present)
+        # 5) LOCATION + DESCRIPTION (plain text) + X-ALT-DESC (HTML) for Outlook/Gmail
+        def _escape_ics_text(val: str) -> str:
+            if not val:
+                return ""
+            s = str(val)
+            # RFC5545 escaping: backslash, semicolon, comma, newlines
+            s = s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+            s = s.replace("\r\n", "\n").replace("\r", "\n")
+            s = s.replace("\n", "\\n")
+            return s
+
+        def _html_escape(val: str) -> str:
+            s = str(val or "")
+            s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            return s
+
+        # Build LOCATION from venue fields, if present on the event payload
+        venue_parts = []
+
+        vn = ev.get("venue_name") or ev.get("venue")
+        if vn:
+            venue_parts.append(str(vn))
+
+        addr = (
+            ev.get("venue_address_line1")
+            or ev.get("address_line1")
+            or ev.get("address1")
+            or ev.get("address")
+        )
+        if addr:
+            venue_parts.append(str(addr))
+
+        city = ev.get("city")
+        state = ev.get("state")
+        city_state = ""
+        if city or state:
+            city_state = " ".join(
+                [str(city or "").strip(), str(state or "").strip()]
+            ).strip()
+        if city_state:
+            venue_parts.append(city_state)
+
+        location_text = ", ".join(p for p in venue_parts if p)
+
+        # Build DESCRIPTION text
+        top_line = "Sound tech call. Brought to you by PRS Scheduling."
+        desc_lines = [top_line]
+
+        # Optional notes for the sound tech (if/when present on the gig row)
+        notes_text = ev.get("notes") or ev.get("sound_notes")
+        if notes_text:
+            desc_lines.append("")
+            desc_lines.append(str(notes_text))
+
+        # Optional sound fee line (re-using the fee_str we computed earlier)
+        if fee_str:
+            desc_lines.append("")
+            desc_lines.append(f"Sound fee: {fee_str}")
+
+        description_text = "\n".join(desc_lines)
+
+        # Minimal HTML equivalent for X-ALT-DESC
+        html_parts = [f"<p>{_html_escape(top_line)}</p>"]
+        if notes_text:
+            html_parts.append(
+                f'<p style="white-space:pre-wrap;">{_html_escape(notes_text)}</p>'
+            )
+        if fee_str:
+            html_parts.append(f"<p>Sound fee: {_html_escape(fee_str)}</p>")
+        html_text = "".join(html_parts)
+
+        # Strip any existing LOCATION/DESCRIPTION/X-ALT-DESC before inserting ours
+        t = re.sub(r"^LOCATION:.*\n", "", t, flags=re.M)
+        t = re.sub(r"^DESCRIPTION:.*\n", "", t, flags=re.M)
+        t = re.sub(r"^X-ALT-DESC;FMTTYPE=text/html:.*\n", "", t, flags=re.M)
+
+        if location_text:
+            loc_line = f"LOCATION:{_escape_ics_text(location_text)}"
+            t = _ensure_in_vevent(t, loc_line, "LOCATION:")
+
+        if description_text:
+            desc_line = f"DESCRIPTION:{_escape_ics_text(description_text)}"
+            t = _ensure_in_vevent(t, desc_line, "DESCRIPTION:")
+
+        if html_text:
+            alt_line = (
+                "X-ALT-DESC;FMTTYPE=text/html:"
+                f"{_escape_ics_text(html_text)}"
+            )
+            t = _ensure_in_vevent(
+                t, alt_line, "X-ALT-DESC;FMTTYPE=text/html"
+            )
+
+        # 6) Optional Outlook niceties (safe no-ops if already present)
         t = _ensure_in_vevent(t, "STATUS:CONFIRMED", "STATUS:")
         t = _ensure_in_vevent(t, "SEQUENCE:0", "SEQUENCE:")
 
-        # 6) CRLF endings for Outlook strictness
+        # 7) CRLF endings for Outlook strictness
         t = t.replace("\n", "\r\n")
 
         ics_bytes = t.encode("utf-8")
