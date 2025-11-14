@@ -261,7 +261,54 @@ def send_soundtech_confirm(gig_id: str) -> None:
         # Work with LF internally, we'll restore CRLF at the end
         t = _txt.replace("\r\n", "\n").replace("\r", "\n")
 
-        # 1) Ensure METHOD:REQUEST at VCALENDAR level
+        # --- helpers --------------------------------------------------------
+        def _escape_ics_text(val: str) -> str:
+            """
+            RFC5545 escaping for TEXT values:
+            - backslash, semicolon, comma
+            - CR/LF as literal '\n'
+            """
+            if not val:
+                return ""
+            s = str(val)
+            s = s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+            s = s.replace("\r\n", "\n").replace("\r", "\n")
+            s = s.replace("\n", "\\n")
+            return s
+
+        def _html_escape(val: str) -> str:
+            s = str(val or "")
+            s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            return s
+
+        def _fold_ics_line(line: str) -> str:
+            """
+            Fold a long ICS line at ~73 characters (spec is 75 bytes; this is a
+            simple, safe approximation). Continuation lines start with a space.
+            """
+            out = []
+            current = line
+            while len(current) > 73:
+                out.append(current[:73])
+                current = " " + current[73:]
+            out.append(current)
+            return "\n".join(out)
+
+        def _ensure_in_vevent(s: str, line: str, key_present: str) -> str:
+            if key_present in s:
+                return s
+            return s.replace("END:VEVENT", f"{_fold_ics_line(line)}\nEND:VEVENT", 1)
+
+        def _remove_prop_block(s: str, prop_name_prefix: str) -> str:
+            """
+            Remove a property (and its folded continuation lines) whose name
+            starts with prop_name_prefix (e.g. 'DESCRIPTION', 'LOCATION',
+            'X-ALT-DESC').
+            """
+            pattern = rf"^{prop_name_prefix}[^\n]*\n(?:[ \t].*\n)*"
+            return re.sub(pattern, "", s, flags=re.M)
+
+        # --- 1) METHOD:REQUEST at VCALENDAR level ---------------------------
         if "METHOD:" not in t:
             t = t.replace(
                 "BEGIN:VCALENDAR\nVERSION:2.0\n",
@@ -269,7 +316,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
                 1,
             )
 
-        # 2) Ensure UID + DTSTAMP (UTC) inside VEVENT
+        # --- 2) UID + DTSTAMP in VEVENT -------------------------------------
         if "UID:" not in t:
             uid = f"{uuid_mod.uuid4()}@prs"
             t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nUID:{uid}\n", 1)
@@ -278,8 +325,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
             ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nDTSTAMP:{ts}\n", 1)
 
-        # 3) TZ strategy: keep local time with TZID=America/New_York and include a VTIMEZONE block.
-        # If DTSTART/DTEND are "floating" (no Z, no TZID), add TZID.
+        # --- 3) TZID: keep local times, add America/New_York ----------------
         def _fix_dt_line(s: str, key: str) -> str:
             # Match floating local time like: DTSTART:20251117T210000
             pat = rf"^{key}:(\d{{8}}T\d{{6}})$"
@@ -288,7 +334,6 @@ def send_soundtech_confirm(gig_id: str) -> None:
         t = _fix_dt_line(t, "DTSTART")
         t = _fix_dt_line(t, "DTEND")
 
-        # Insert VTIMEZONE for America/New_York if not present
         if ("BEGIN:VTIMEZONE" not in t) or ("TZID:America/New_York" not in t):
             tz_block = (
                 "BEGIN:VTIMEZONE\n"
@@ -310,10 +355,9 @@ def send_soundtech_confirm(gig_id: str) -> None:
                 "END:STANDARD\n"
                 "END:VTIMEZONE\n"
             )
-            # place right after METHOD line for readability
             t = t.replace("METHOD:REQUEST\n", f"METHOD:REQUEST\n{tz_block}", 1)
 
-        # 4) Ensure ORGANIZER/ATTENDEE inside VEVENT (explicit MAILTO + CN/ROLE)
+        # --- 4) ORGANIZER / ATTENDEE ----------------------------------------
         cn_org = "Philly Rock & Soul"
         org_line = f"ORGANIZER;CN={cn_org}:MAILTO:{FROM_EMAIL}"
 
@@ -326,31 +370,11 @@ def send_soundtech_confirm(gig_id: str) -> None:
         )
         att_line = f"ATTENDEE;CN={tech_name};ROLE=REQ-PARTICIPANT:MAILTO:{tech.get('email')}"
 
-        def _ensure_in_vevent(s: str, line: str, key_present: str) -> str:
-            if key_present in s:
-                return s
-            return s.replace("END:VEVENT", f"{line}\nEND:VEVENT", 1)
-
         t = _ensure_in_vevent(t, org_line, "ORGANIZER:")
         t = _ensure_in_vevent(t, att_line, "ATTENDEE:")
 
-        # 5) LOCATION + DESCRIPTION (plain text) + X-ALT-DESC (HTML) for Outlook/Gmail
-        def _escape_ics_text(val: str) -> str:
-            if not val:
-                return ""
-            s = str(val)
-            # RFC5545 escaping: backslash, semicolon, comma, newlines
-            s = s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
-            s = s.replace("\r\n", "\n").replace("\r", "\n")
-            s = s.replace("\n", "\\n")
-            return s
-
-        def _html_escape(val: str) -> str:
-            s = str(val or "")
-            s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            return s
-
-        # Build LOCATION from venue fields, if present on the event payload
+        # --- 5) LOCATION + DESCRIPTION + X-ALT-DESC (HTML) ------------------
+        # Build LOCATION from event fields
         venue_parts = []
 
         vn = ev.get("venue_name") or ev.get("venue")
@@ -382,20 +406,18 @@ def send_soundtech_confirm(gig_id: str) -> None:
         top_line = "Sound tech call. Brought to you by PRS Scheduling."
         desc_lines = [top_line]
 
-        # Optional notes for the sound tech (if/when present on the gig row)
         notes_text = ev.get("notes") or ev.get("sound_notes")
         if notes_text:
             desc_lines.append("")
             desc_lines.append(str(notes_text))
 
-        # Optional sound fee line (re-using the fee_str we computed earlier)
         if fee_str:
             desc_lines.append("")
             desc_lines.append(f"Sound fee: {fee_str}")
 
         description_text = "\n".join(desc_lines)
 
-        # Minimal HTML equivalent for X-ALT-DESC
+        # Minimal HTML version for X-ALT-DESC
         html_parts = [f"<p>{_html_escape(top_line)}</p>"]
         if notes_text:
             html_parts.append(
@@ -405,11 +427,12 @@ def send_soundtech_confirm(gig_id: str) -> None:
             html_parts.append(f"<p>Sound fee: {_html_escape(fee_str)}</p>")
         html_text = "".join(html_parts)
 
-        # Strip any existing LOCATION/DESCRIPTION/X-ALT-DESC before inserting ours
-        t = re.sub(r"^LOCATION:.*\n", "", t, flags=re.M)
-        t = re.sub(r"^DESCRIPTION:.*\n", "", t, flags=re.M)
-        t = re.sub(r"^X-ALT-DESC;FMTTYPE=text/html:.*\n", "", t, flags=re.M)
+        # Remove any existing LOCATION / DESCRIPTION / X-ALT-DESC blocks
+        t = _remove_prop_block(t, "LOCATION")
+        t = _remove_prop_block(t, "DESCRIPTION")
+        t = _remove_prop_block(t, "X-ALT-DESC")
 
+        # Insert new ones
         if location_text:
             loc_line = f"LOCATION:{_escape_ics_text(location_text)}"
             t = _ensure_in_vevent(t, loc_line, "LOCATION:")
@@ -419,6 +442,8 @@ def send_soundtech_confirm(gig_id: str) -> None:
             t = _ensure_in_vevent(t, desc_line, "DESCRIPTION:")
 
         if html_text:
+            # NOTE: do NOT HTML-escape here beyond the basic _html_escape above;
+            # ICS escaping is handled by _escape_ics_text.
             alt_line = (
                 "X-ALT-DESC;FMTTYPE=text/html:"
                 f"{_escape_ics_text(html_text)}"
@@ -427,11 +452,11 @@ def send_soundtech_confirm(gig_id: str) -> None:
                 t, alt_line, "X-ALT-DESC;FMTTYPE=text/html"
             )
 
-        # 6) Optional Outlook niceties (safe no-ops if already present)
+        # --- 6) Outlook niceties --------------------------------------------
         t = _ensure_in_vevent(t, "STATUS:CONFIRMED", "STATUS:")
         t = _ensure_in_vevent(t, "SEQUENCE:0", "SEQUENCE:")
 
-        # 7) CRLF endings for Outlook strictness
+        # --- 7) CRLF endings for Outlook strictness -------------------------
         t = t.replace("\n", "\r\n")
 
         ics_bytes = t.encode("utf-8")
@@ -439,6 +464,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
     except Exception:
         # If anything odd happens, fall back to original bytes
         pass
+
 
     atts.append(
         {
