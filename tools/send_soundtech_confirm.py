@@ -258,15 +258,17 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
         _txt = ics_bytes.decode("utf-8", "ignore")
 
-        # Work with LF internally, we'll restore CRLF at the end
+        # Normalize to LF internally; we'll restore CRLF at the end
         t = _txt.replace("\r\n", "\n").replace("\r", "\n")
 
-        # --- helpers --------------------------------------------------------
+        # ------------------------------------------------------------------
+        # Helpers: RFC5545 escaping, HTML escaping, folding, VEVENT insert
+        # ------------------------------------------------------------------
         def _escape_ics_text(val: str) -> str:
             """
-            RFC5545 escaping for TEXT values:
-            - backslash, semicolon, comma
-            - CR/LF as literal '\n'
+            RFC5545 TEXT escape:
+              - backslash, semicolon, comma
+              - CR/LF as literal '\n'
             """
             if not val:
                 return ""
@@ -278,37 +280,48 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
         def _html_escape(val: str) -> str:
             s = str(val or "")
-            s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            return s
+            return (
+                s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
 
         def _fold_ics_line(line: str) -> str:
             """
-            Fold a long ICS line at ~73 characters (spec is 75 bytes; this is a
-            simple, safe approximation). Continuation lines start with a space.
+            Fold a long ICS line at ~73 characters (continuation lines start with a space).
             """
             out = []
-            current = line
-            while len(current) > 73:
-                out.append(current[:73])
-                current = " " + current[73:]
-            out.append(current)
+            cur = line
+            while len(cur) > 73:
+                out.append(cur[:73])
+                cur = " " + cur[73:]
+            out.append(cur)
             return "\n".join(out)
 
         def _ensure_in_vevent(s: str, line: str, key_present: str) -> str:
+            """
+            Insert a (possibly folded) property just before END:VEVENT if not already present.
+            """
             if key_present in s:
                 return s
-            return s.replace("END:VEVENT", f"{_fold_ics_line(line)}\nEND:VEVENT", 1)
+            return s.replace(
+                "END:VEVENT",
+                f"{_fold_ics_line(line)}\nEND:VEVENT",
+                1,
+            )
 
-        def _remove_prop_block(s: str, prop_name_prefix: str) -> str:
+        def _remove_prop_block(s: str, prefix: str) -> str:
             """
-            Remove a property (and its folded continuation lines) whose name
-            starts with prop_name_prefix (e.g. 'DESCRIPTION', 'LOCATION',
-            'X-ALT-DESC').
+            Remove a property and any folded continuation lines:
+              PREFIX:...
+               continued...
             """
-            pattern = rf"^{prop_name_prefix}[^\n]*\n(?:[ \t].*\n)*"
+            pattern = rf"^{prefix}[^\n]*\n(?:[ \t].*\n)*"
             return re.sub(pattern, "", s, flags=re.M)
 
-        # --- 1) METHOD:REQUEST at VCALENDAR level ---------------------------
+        # ------------------------------------------------------------------
+        # METHOD:REQUEST at VCALENDAR level (keep existing if present)
+        # ------------------------------------------------------------------
         if "METHOD:" not in t:
             t = t.replace(
                 "BEGIN:VCALENDAR\nVERSION:2.0\n",
@@ -316,7 +329,9 @@ def send_soundtech_confirm(gig_id: str) -> None:
                 1,
             )
 
-        # --- 2) UID + DTSTAMP in VEVENT -------------------------------------
+        # ------------------------------------------------------------------
+        # UID + DTSTAMP inside VEVENT
+        # ------------------------------------------------------------------
         if "UID:" not in t:
             uid = f"{uuid_mod.uuid4()}@prs"
             t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nUID:{uid}\n", 1)
@@ -325,16 +340,11 @@ def send_soundtech_confirm(gig_id: str) -> None:
             ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             t = t.replace("BEGIN:VEVENT\n", f"BEGIN:VEVENT\nDTSTAMP:{ts}\n", 1)
 
-        # --- 3) TZID: keep local times, add America/New_York ----------------
-        def _fix_dt_line(s: str, key: str) -> str:
-            # Match floating local time like: DTSTART:20251117T210000
-            pat = rf"^{key}:(\d{{8}}T\d{{6}})$"
-            return re.sub(pat, rf"{key};TZID=America/New_York:\1", s, flags=re.M)
-
-        t = _fix_dt_line(t, "DTSTART")
-        t = _fix_dt_line(t, "DTEND")
-
-        if ("BEGIN:VTIMEZONE" not in t) or ("TZID:America/New_York" not in t):
+        # ------------------------------------------------------------------
+        # VTIMEZONE: keep existing; add America/New_York if missing
+        # (we do NOT touch DTSTART/DTEND with 'Z' so we preserve UTC times)
+        # ------------------------------------------------------------------
+        if "TZID:America/New_York" not in t:
             tz_block = (
                 "BEGIN:VTIMEZONE\n"
                 "TZID:America/New_York\n"
@@ -357,24 +367,32 @@ def send_soundtech_confirm(gig_id: str) -> None:
             )
             t = t.replace("METHOD:REQUEST\n", f"METHOD:REQUEST\n{tz_block}", 1)
 
-        # --- 4) ORGANIZER / ATTENDEE ----------------------------------------
+        # ------------------------------------------------------------------
+        # ORGANIZER / ATTENDEE (explicit MAILTO + CN/ROLE)
+        # ------------------------------------------------------------------
         cn_org = "Philly Rock & Soul"
         org_line = f"ORGANIZER;CN={cn_org}:MAILTO:{FROM_EMAIL}"
 
         tech_name = (
-            tech.get("name")
+            tech.get("display_name")
+            or tech.get("name")
             or tech.get("full_name")
             or tech.get("stage_name")
             or tech.get("email")
             or "Sound Tech"
         )
-        att_line = f"ATTENDEE;CN={tech_name};ROLE=REQ-PARTICIPANT:MAILTO:{tech.get('email')}"
+        att_line = (
+            f"ATTENDEE;CN={tech_name};ROLE=REQ-PARTICIPANT:"
+            f"MAILTO:{tech.get('email')}"
+        )
 
         t = _ensure_in_vevent(t, org_line, "ORGANIZER:")
         t = _ensure_in_vevent(t, att_line, "ATTENDEE:")
 
-        # --- 5) LOCATION + DESCRIPTION + X-ALT-DESC (HTML) ------------------
-        # Build LOCATION from event fields
+        # ------------------------------------------------------------------
+        # LOCATION (if we have it) and rich DESCRIPTION + X-ALT-DESC
+        # ------------------------------------------------------------------
+        # LOCATION: best-effort from gig fields (may be empty if not selected upstream)
         venue_parts = []
 
         vn = ev.get("venue_name") or ev.get("venue")
@@ -392,19 +410,33 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
         city = ev.get("city")
         state = ev.get("state")
-        city_state = ""
         if city or state:
             city_state = " ".join(
                 [str(city or "").strip(), str(state or "").strip()]
             ).strip()
-        if city_state:
-            venue_parts.append(city_state)
+            if city_state:
+                venue_parts.append(city_state)
 
         location_text = ", ".join(p for p in venue_parts if p)
 
-        # Build DESCRIPTION text
+        # DESCRIPTION: top line + gig info + optional notes + optional sound fee
         top_line = "Sound tech call. Brought to you by PRS Scheduling."
-        desc_lines = [top_line]
+        desc_lines = [top_line, ""]
+
+        title = ev.get("title")
+        if title:
+            desc_lines.append(f"Gig: {title}")
+
+        event_date = ev.get("event_date")
+        if event_date:
+            desc_lines.append(f"Event date: {event_date}")
+
+        start_time = ev.get("start_time")
+        end_time = ev.get("end_time")
+        if start_time or end_time:
+            desc_lines.append(
+                f"Start and end times: {start_time or ''} – {end_time or ''}"
+            )
 
         notes_text = ev.get("notes") or ev.get("sound_notes")
         if notes_text:
@@ -415,35 +447,53 @@ def send_soundtech_confirm(gig_id: str) -> None:
             desc_lines.append("")
             desc_lines.append(f"Sound fee: {fee_str}")
 
-        description_text = "\n".join(desc_lines)
+        # Filter out any trailing empty elements
+        while desc_lines and desc_lines[-1] == "":
+            desc_lines.pop()
 
-        # Minimal HTML version for X-ALT-DESC
+        description_text = "\n".join(desc_lines) if desc_lines else top_line
+
+        # HTML equivalent for X-ALT-DESC
         html_parts = [f"<p>{_html_escape(top_line)}</p>"]
+        if title:
+            html_parts.append(f"<p>Gig: {_html_escape(title)}</p>")
+        if event_date:
+            html_parts.append(f"<p>Event date: {_html_escape(event_date)}</p>")
+        if start_time or end_time:
+            html_parts.append(
+                f"<p>Start and end times: "
+                f"{_html_escape(start_time or '')} – {_html_escape(end_time or '')}"
+                f"</p>"
+            )
         if notes_text:
             html_parts.append(
-                f'<p style="white-space:pre-wrap;">{_html_escape(notes_text)}</p>'
+                f"<p style='white-space:pre-wrap'>"
+                f"{_html_escape(notes_text)}</p>"
             )
         if fee_str:
-            html_parts.append(f"<p>Sound fee: {_html_escape(fee_str)}</p>")
+            html_parts.append(
+                f"<p>Sound fee: {_html_escape(fee_str)}</p>"
+            )
+
         html_text = "".join(html_parts)
 
-        # Remove any existing LOCATION / DESCRIPTION / X-ALT-DESC blocks
+        # Strip any existing LOCATION / DESCRIPTION / X-ALT-DESC (including folded)
         t = _remove_prop_block(t, "LOCATION")
         t = _remove_prop_block(t, "DESCRIPTION")
         t = _remove_prop_block(t, "X-ALT-DESC")
 
-        # Insert new ones
+        # Insert new LOCATION if we have one
         if location_text:
             loc_line = f"LOCATION:{_escape_ics_text(location_text)}"
             t = _ensure_in_vevent(t, loc_line, "LOCATION:")
 
+        # Insert DESCRIPTION
         if description_text:
             desc_line = f"DESCRIPTION:{_escape_ics_text(description_text)}"
             t = _ensure_in_vevent(t, desc_line, "DESCRIPTION:")
 
+        # Insert X-ALT-DESC HTML
         if html_text:
-            # NOTE: do NOT HTML-escape here beyond the basic _html_escape above;
-            # ICS escaping is handled by _escape_ics_text.
             alt_line = (
                 "X-ALT-DESC;FMTTYPE=text/html:"
                 f"{_escape_ics_text(html_text)}"
@@ -452,11 +502,15 @@ def send_soundtech_confirm(gig_id: str) -> None:
                 t, alt_line, "X-ALT-DESC;FMTTYPE=text/html"
             )
 
-        # --- 6) Outlook niceties --------------------------------------------
+        # ------------------------------------------------------------------
+        # Outlook niceties (status + sequence)
+        # ------------------------------------------------------------------
         t = _ensure_in_vevent(t, "STATUS:CONFIRMED", "STATUS:")
         t = _ensure_in_vevent(t, "SEQUENCE:0", "SEQUENCE:")
 
-        # --- 7) CRLF endings for Outlook strictness -------------------------
+        # ------------------------------------------------------------------
+        # Restore CRLF for Outlook strictness
+        # ------------------------------------------------------------------
         t = t.replace("\n", "\r\n")
 
         ics_bytes = t.encode("utf-8")
@@ -464,7 +518,6 @@ def send_soundtech_confirm(gig_id: str) -> None:
     except Exception:
         # If anything odd happens, fall back to original bytes
         pass
-
 
     atts.append(
         {
