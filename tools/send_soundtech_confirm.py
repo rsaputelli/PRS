@@ -457,7 +457,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
             # 🔑 Use your existing helpers here
             t = _remove_prop_block(t, "LOCATION:")
-            t = _ensure_in_vevent(t, loc_line, "LOCATION:")
+            t = _ensure_in_vevent(t, loc_line, "\nLOCATION:")
         # If loc_str is empty, do nothing to LOCATION.
 
 
