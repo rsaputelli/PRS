@@ -610,13 +610,34 @@ def _label_row(r: pd.Series) -> str:
     parts = [p for p in [dt_str, title, venue_txt, fee_txt] if p]
     return " | ".join(parts)
 
+# Sort for display, but use gig ID (stable) as the selectbox value
 gigs = gigs.sort_values(by=["_start_dt"], ascending=[True])
-opts = list(gigs.index)
-labels = {idx: _label_row(gigs.loc[idx]) for idx in opts}
-sel_idx = st.selectbox("Select a gig to edit", options=opts, format_func=lambda i: labels.get(i, str(i)))
-row = gigs.loc[sel_idx]
-gid = str(row.get("id") or f"edit-{sel_idx}")
-gid_str = str(row.get("id") or gid)
+
+# Ensure ID is string so it's stable across reloads
+if "id" not in gigs.columns:
+    st.error("Gig table missing 'id' column; cannot continue.")
+    st.stop()
+gigs["id"] = gigs["id"].astype(str)
+
+# Build labels keyed by gig_id
+labels = {}
+for _, r in gigs.iterrows():
+    gid_val = r["id"]
+    labels[gid_val] = _label_row(r)
+
+opts = list(labels.keys())
+
+sel_gid = st.selectbox(
+    "Select a gig to edit",
+    options=opts,
+    format_func=lambda g: labels.get(g, str(g)),
+)
+
+# Row for the selected gig (by ID, not by position)
+row = gigs[gigs["id"] == sel_gid].iloc[0]
+gid = str(sel_gid)
+gid_str = str(sel_gid)
+
 
 # ------------------------------------------------------------------
 # Per-gig widget keys + gig-switch cleanup (place this right here)
