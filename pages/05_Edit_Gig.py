@@ -638,6 +638,13 @@ row = gigs[gigs["id"] == sel_gid].iloc[0]
 gid = str(sel_gid)
 gid_str = str(sel_gid)
 
+# If we just saved this gig on the previous run, drop any per-gig widget state
+# so all widgets rehydrate from the current DB row instead of stale values.
+just_saved_gid = st.session_state.pop("_edit_just_saved_gid", None)
+if just_saved_gid == gid:
+    for key in list(st.session_state.keys()):
+        if key.endswith(f"_{gid}"):
+            del st.session_state[key]
 
 # ------------------------------------------------------------------
 # Per-gig widget keys + gig-switch cleanup (place this right here)
@@ -1348,6 +1355,12 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 st.rerun()
             except Exception:
                 _safe_rerun("autosend after edit save")
+
+        ...
+    # any lineup / deposit post-save checks
+
+    # Remember which gig was just saved so we can refresh its widget state on the next run
+    st.session_state["_edit_just_saved_gid"] = gid_str
 
     # Bust caches so the next render reflects changes immediately
     st.cache_data.clear()
