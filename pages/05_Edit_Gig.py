@@ -654,20 +654,28 @@ if just_saved_gid == gid:
 def k(name: str) -> str:
     return f"{name}_{gid}"
 
-# If the selected gig changed, purge stale state from prior gig
 prev_gid = st.session_state.get("_edit_prev_gid")
+just_saved_gid = st.session_state.pop("_edit_just_saved_gid", None)
+
+def _clear_per_gig_state(target_gid: str):
+    """Remove all widget keys for a specific gig so widgets rehydrate from DB."""
+    if not target_gid:
+        return
+    for key in list(st.session_state.keys()):
+        # All per-gig widgets use the pattern f"{name}_{gid}"
+        if key.endswith(f"_{target_gid}"):
+            st.session_state.pop(key, None)
+
+# If we switched gigs, clear state for the previous gig
 if prev_gid is not None and prev_gid != gid:
-    stale_keys = [
-        key for key in list(st.session_state.keys())
-        if key.startswith("edit_role_")
-        or key.startswith("edit_soundtech_")
-        or key.startswith("edit_lineup_form_")
-        or key.endswith("_lineup_buf")        # if you buffer lineup edits
-        or key.endswith("_lineup_buf_gid")    # if you buffer lineup edits
-    ]
-    for sk in stale_keys:
-        st.session_state.pop(sk, None)
+    _clear_per_gig_state(prev_gid)
+
+# If we just saved this gig, clear its widget state so it rehydrates from the DB row
+if just_saved_gid == gid:
+    _clear_per_gig_state(gid)
+
 st.session_state["_edit_prev_gid"] = gid
+
 
 # -----------------------------
 # Edit form
