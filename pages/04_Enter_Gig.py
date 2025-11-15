@@ -25,35 +25,45 @@ if "user" not in st.session_state or not st.session_state["user"]:
 
 render_header(title="Enter Gig", emoji="")
 st.markdown("---")
-# --- AUTH & CALENDAR DIAGNOSTICS (always visible) ---
-try:
-    # Guard the import so a missing helper shows a visible error
-    from lib.calendar_utils import debug_auth_config, debug_calendar_access
-    st.caption("Diagnostics: calendar_utils v2025-11-12a")
 
-    auth_cfg = debug_auth_config()
-    if not auth_cfg.get("has_google_oauth"):
-        st.error(
-            "Google OAuth config missing in st.secrets['google_oauth']. "
-            f"Present: {auth_cfg.get('present_keys') or []}  "
-            f"Missing: {auth_cfg.get('missing_keys') or ['client_id','client_secret','refresh_token']}"
-        )
-    else:
-        try:
-            dbg = debug_calendar_access("Philly Rock and Soul")
-            if dbg.get("events_list_ok"):
-                st.info(
-                    "Google auth OK  \n"
-                    f"CalendarId: {dbg.get('target_calendar_id')}  \n"
-                    "events.list: allowed (scope: calendar.events)"
-                )
-            else:
-                st.error(
-                    "Calendar access check failed (events.list): "
-                    f"{dbg.get('error')}"
-                )
-        except Exception as e:
-            st.error(f"Calendar access check failed: {e}")
+# --- AUTH & CALENDAR DIAGNOSTICS (admin-only, on demand) ---
+try:
+    from lib.calendar_utils import debug_auth_config, debug_calendar_access
+
+    if _IS_ADMIN():
+        with st.expander("Calendar diagnostics (optional)", expanded=False):
+            st.caption("Diagnostics: calendar_utils v2025-11-12a")
+
+            run_diag = st.button("Run calendar diagnostics")
+            if run_diag:
+                auth_cfg = debug_auth_config()
+                if not auth_cfg.get("has_google_oauth"):
+                    st.error(
+                        "Google OAuth config missing in st.secrets['google_oauth']. "
+                        f"Present: {auth_cfg.get('present_keys') or []}  "
+                        f"Missing: {auth_cfg.get('missing_keys') or ['client_id','client_secret','refresh_token']}"
+                    )
+                else:
+                    try:
+                        dbg = debug_calendar_access("Philly Rock and Soul")
+                        if dbg.get("events_list_ok"):
+                            st.success(
+                                "Google auth OK  \n"
+                                f"CalendarId: {dbg.get('target_calendar_id')}  \n"
+                                "events.list: allowed (scope: calendar.events)"
+                            )
+                        else:
+                            st.error(
+                                "Calendar access check failed (events.list): "
+                                f"{dbg.get('error')}"
+                            )
+                    except Exception as e:
+                        st.error(f"Calendar access check failed: {e}")
+except Exception as e:
+    # Only show this to admins if something is really wrong with diagnostics
+    if _IS_ADMIN():
+        st.error(f"Calendar diagnostics unavailable (import/exec error): {e}")
+
 
 except Exception as e:
     st.error(f"Calendar diagnostics unavailable (import/exec error): {e}")
