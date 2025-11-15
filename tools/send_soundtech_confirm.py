@@ -412,42 +412,52 @@ def send_soundtech_confirm(gig_id: str) -> None:
         t = _ensure_in_vevent(t, att_line, "ATTENDEE:")
 
         # LOCATION (if we have it) and rich DESCRIPTION + X-ALT-DESC
-        # ------------------------------------------------------------------
-        # LOCATION: build from joined venues table (with reasonable fallbacks)
-        venue_parts = []
 
-        venue = ev.get("venues")
-        # Supabase may return a dict or a single-element list; normalize
-        if isinstance(venue, list):
-            venue = venue[0] if venue else None
-        if not isinstance(venue, dict):
-            venue = None
+        # --- Build a human-readable location string from the event dict ---
+        venues = ev.get("venues") or {}
+        venue_name = (
+            ev.get("venue_name")
+            or ev.get("sound_by_venue_name")
+            or venues.get("name")
+        )
+        city = venues.get("city") or ev.get("venue_city")
+        state = venues.get("state") or ev.get("venue_state")
 
-        # Name: primary from venues.name, fallback to sound_by_venue_name
-        vn = None
-        if venue:
-            vn = venue.get("name")
-        if not vn:
-            vn = ev.get("sound_by_venue_name")
-        if vn:
-            venue_parts.append(str(vn))
+        loc_parts = []
+        if venue_name:
+            loc_parts.append(str(venue_name).strip())
 
-        # Address line 1 from venues.address_line1
-        addr = venue.get("address_line1") if venue else None
-        if addr:
-            venue_parts.append(str(addr))
+        city_state = ", ".join(
+            part for part in [city, state] if part
+        )
+        if city_state:
+            loc_parts.append(city_state)
 
-        # City / state from venues.city / venues.state
-        city = venue.get("city") if venue else None
-        state = venue.get("state") if venue else None
-        if city or state:
-            city_state = " ".join(
-                [str(city or "").strip(), str(state or "").strip()]
-            ).strip()
-            if city_state:
-                venue_parts.append(city_state)
+        loc_str = " | ".join(loc_parts)
 
-        location_text = ", ".join(p for p in venue_parts if p)
+        # Only modify LOCATION if we actually have a non-empty value
+        if loc_str:
+            # Collapse weird whitespace
+            loc_clean = " ".join(str(loc_str).split())
+
+            # RFC 5545 escaping for text values
+            loc_escaped = (
+                loc_clean
+                .replace("\\", "\\\\")
+                .replace(",", r"\,")
+                .replace(";", r"\;")
+                .replace("\n", " ")
+                .replace("\r", " ")
+            )
+
+            loc_line = f"LOCATION:{loc_escaped}"
+
+            # 🔑 Use your existing helpers here
+            t = _remove_prop_block(t, "LOCATION:")
+            t = _ensure_in_vevent(t, loc_line, "LOCATION:")
+        # If loc_str is empty, do nothing to LOCATION.
+
+
 
         # DESCRIPTION: top line + gig info + optional notes + optional sound fee
         top_line = "Sound tech call (v2). Brought to you by PRS Scheduling."
