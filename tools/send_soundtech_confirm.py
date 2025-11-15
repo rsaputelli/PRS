@@ -110,12 +110,14 @@ def _fetch_event_and_tech(sb: Client, gig_id: str) -> Dict[str, Any]:
         sb.table("gigs")
         .select(
             "id, title, event_date, start_time, end_time, "
-            "sound_provided, sound_fee, sound_tech_id, venue_id, notes"
+            "sound_provided, sound_fee, sound_tech_id, venue_id, notes, "
+            "sound_by_venue_name, sound_by_venue_phone"
         )
         .eq("id", gig_id)
         .limit(1)
         .execute()
     )
+
     ev_rows = (ev_res.data or []) if ev_res else []
     if not ev_rows:
         # Most common causes: wrong gig_id or RLS preventing visibility
@@ -414,14 +416,15 @@ def send_soundtech_confirm(gig_id: str) -> None:
         # LOCATION (if we have it) and rich DESCRIPTION + X-ALT-DESC
 
         # --- Build a human-readable location string from the event dict ---
-        venues = ev.get("venues") or {}
-        venue_name = (
-            ev.get("venue_name")
-            or ev.get("sound_by_venue_name")
-            or venues.get("name")
-        )
-        city = venues.get("city") or ev.get("venue_city")
-        state = venues.get("state") or ev.get("venue_state")
+        # We flatten venue fields onto `ev` in _fetch_event_and_tech:
+        #   ev["venue_name"]  <- venues.name
+        #   ev["city"]        <- venues.city
+        #   ev["state"]       <- venues.state
+        # Plus a manual fallback from gigs.sound_by_venue_name.
+        venue_name = ev.get("venue_name") or ev.get("sound_by_venue_name")
+        city = ev.get("city")
+        state = ev.get("state")
+
 
         loc_parts = []
         if venue_name:
@@ -520,15 +523,9 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
         html_text = "".join(html_parts)
 
-        # Strip any existing LOCATION / DESCRIPTION / X-ALT-DESC (including folded)
-        t = _remove_prop_block(t, "LOCATION")
+        # Strip any existing DESCRIPTION / X-ALT-DESC (including folded)
         t = _remove_prop_block(t, "DESCRIPTION")
         t = _remove_prop_block(t, "X-ALT-DESC")
-
-        # Insert new LOCATION if we have one
-        if location_text:
-            loc_line = f"LOCATION:{_escape_ics_text(location_text)}"
-            t = _ensure_in_vevent(t, loc_line, "LOCATION:")
 
         # Insert DESCRIPTION
         if description_text:
