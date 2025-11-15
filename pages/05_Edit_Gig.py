@@ -4,12 +4,16 @@
 import os
 from datetime import datetime, date, time, timedelta
 from typing import Optional, Dict, List, Set
+import random
+import traceback
 
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
+from lib.calendar_utils import upsert_band_calendar_event
+
 
 # -----------------------------
 # Page config
@@ -42,6 +46,25 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
         )
     except Exception as e:
         st.warning(f"Could not attach Supabase session. ({e})")
+        
+# ---- Process pending calendar upsert (rerun-proof) ----
+try:
+    from lib.calendar_utils import upsert_band_calendar_event as _upsert_band_calendar_event_for_queue
+    _pending = st.session_state.pop("pending_cal_upsert", None)
+    if _pending:
+        res = _upsert_band_calendar_event_for_queue(
+            _pending["gig_id"],
+            sb,
+            _pending.get("calendar_name", "Philly Rock and Soul"),
+        )
+        if isinstance(res, dict) and res.get("error"):
+            st.error(f"Calendar upsert (queued) failed: {res.get('error')} (stage: {res.get('stage')})")
+        else:
+            action = (res or {}).get("action", "updated")
+            st.info(f"Queued calendar event {action} for gig {_pending['gig_id']}.")
+except Exception as e:
+    st.error(f"Calendar upsert processor error: {e}")
+        
 
 # -----------------------------
 # Auth/admin gate BEFORE header
@@ -107,6 +130,224 @@ if not IS_ADMIN:
 # Header AFTER gate
 # -----------------------------
 render_header(title="Edit Gig", emoji="✏️")
+
+# === Email autosend toggles — init keys (shared with Enter Gig) ===
+for _k, _default in [
+    ("autoc_send_st_on_create", True),
+    ("autoc_send_agent_on_create", True),
+    ("autoc_send_players_on_create", True),
+]:
+    if _k not in st.session_state:
+        st.session_state[_k] = _default
+
+def _IS_ADMIN() -> bool:
+    # Reuse the existing admin flag for this page
+    return bool(IS_ADMIN)
+
+# === Email autosend toggles UI (admin-only) ===
+if _IS_ADMIN():
+    st.markdown("### Auto-send on Save")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.checkbox("Sound tech", key="autoc_send_st_on_create", help="Email the sound tech on save")
+    with c2:
+        st.checkbox("Agent", key="autoc_send_agent_on_create", help="Email the agent on save")
+    with c3:
+        st.checkbox("Players", key="autoc_send_players_on_create", help="Email all assigned players on save")
+# non-admins just don’t see the toggles; no extra caption needed
+
+# ---- Persisted auto-send log (renders every run; always visible) ----
+st.session_state.setdefault("autosend_log", [])      # list[dict]
+st.session_state.setdefault("autosend_last", None)   # last entry dict
+st.session_state.setdefault("__last_trace", "")      # last raw traceback text
+st.session_state.setdefault("autosend_queue", [])    # queue of gig_id strings
+
+def _autosend_log_add(entry: dict):
+    try:
+        st.session_state["autosend_log"].append(entry)
+        if len(st.session_state["autosend_log"]) > 50:
+            st.session_state["autosend_log"] = st.session_state["autosend_log"][-50:]
+        st.session_state["autosend_last"] = entry
+        if entry.get("trace"):
+            st.session_state["__last_trace"] = entry["trace"]
+    except Exception as _e:
+        st.write(f"Autosend logger failed: {_e!s}")
+
+def _log(channel: str, msg: str, trace: str | None = None):
+    _autosend_log_add({
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "run_id": f"{random.randint(0, 2**32-1):08x}",
+        "channel": channel,
+        "msg": msg,
+        "trace": trace,
+    })
+
+with st.expander("Auto-send log (persists across reruns)", expanded=True):
+    log = st.session_state["autosend_log"]
+    if not log:
+        st.markdown("_No entries yet in this session._")
+    else:
+        for i, e in enumerate(log, 1):
+            ts   = e.get("ts","")
+            rid  = e.get("run_id","-")
+            chan = e.get("channel","-")
+            msg  = e.get("msg","")
+            st.markdown(f"**{i}. {ts} [{rid}] {chan}** — {msg}")
+            if e.get("trace"):
+                st.code(e["trace"])
+
+# ---------- Autosend helpers ----------
+def _safe_rerun(why: str = ""):
+    """Prefer st.rerun(); never call experimental_rerun."""
+    try:
+        st.rerun()
+    except Exception:
+        # If rerun genuinely fails (rare), just continue this run.
+        # The queue runner at top will still process on the next user action.
+        pass
+
+def _autosend_once(stage: str, gig_id: str) -> bool:
+    """True the first time per (stage,gig) for this session; False thereafter."""
+    k = f"autosend_once::{stage}::{gig_id}"
+    if st.session_state.get(k):
+        return False
+    st.session_state[k] = True
+    return True
+
+# ===== AUTOSEND RUNTIME (queue + resumable per-channel) =====
+def _autosend_run_for(gig_id_str: str):
+    # Snapshot (for log)
+    snap = {
+        "is_admin": bool(_IS_ADMIN()),
+        "toggles": {
+            "agent": bool(st.session_state.get("autoc_send_agent_on_create", False)),
+            "soundtech": bool(
+                st.session_state.get("autoc_send_st_on_create", False)
+                or st.session_state.get(f"edit_autoc_send_now_{gig_id_str}", False)
+            ),
+            "players": bool(st.session_state.get("autoc_send_players_on_create", False)),
+        },
+        "gig_id_str": gig_id_str,
+    }
+    _log("snapshot", f"{snap}")
+
+    # Per-gig progress
+    prog_key = f"autosend_progress__{gig_id_str}"
+    prog = st.session_state.get(prog_key)
+    if not isinstance(prog, dict):
+        prog = {"st": False, "agent": False, "players": False}
+    st.session_state[prog_key] = prog
+
+    def _need_more() -> bool:
+        return not all(prog.values())
+
+    def _mark_done(channel: str):
+        prog[channel] = True
+        st.session_state[prog_key] = prog
+
+    def _bump_and_rerun(reason: str):
+        _log("system", f"Bump+rerun: {reason}")
+        _safe_rerun(reason)
+
+    # === 1) Sound tech ===
+    _enabled_st = (
+        _IS_ADMIN()
+        and (st.session_state.get("autoc_send_st_on_create", False)
+             or st.session_state.get(f"edit_autoc_send_now_{gig_id_str}", False))
+        and not st.session_state.get("sound_by_venue_in", False)
+    )
+    if not _enabled_st:
+        _log(
+            "Sound-tech confirmation",
+            f"SKIPPED: is_admin={_IS_ADMIN()}, "
+            f"toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
+            f"edit_flag={st.session_state.get(f'edit_autoc_send_now_{gig_id_str}', False)}, "
+            f"sound_by_venue={st.session_state.get('sound_by_venue_in', False)}",
+        )
+        _mark_done("st")
+    elif not prog["st"] and _autosend_once("soundtech", gig_id_str):
+        _log("Sound-tech confirmation", "Calling sender...")
+        try:
+            from tools.send_soundtech_confirm import send_soundtech_confirm
+            send_soundtech_confirm(gig_id_str)
+            st.toast("📧 Sound-tech emailed.", icon="📧")
+            _log("Sound-tech confirmation", "Sent OK.")
+        except Exception:
+            tr = traceback.format_exc()
+            _log("Sound-tech confirmation", "Send failed", tr)
+            st.error("Sound-tech autosend failed — see log above.")
+            st.code(tr)
+        finally:
+            _mark_done("st")
+            if _need_more():
+                _bump_and_rerun("advance to agent")
+                return
+
+    # === 2) Agent ===
+    _enabled_agent = _IS_ADMIN() and st.session_state.get("autoc_send_agent_on_create", False)
+    if not _enabled_agent:
+        _log(
+            "Agent confirmation",
+            f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_agent_on_create', False)}",
+        )
+        _mark_done("agent")
+    elif not prog["agent"] and _autosend_once("agent", gig_id_str):
+        _log("Agent confirmation", "Calling sender...")
+        try:
+            from tools.send_agent_confirm import send_agent_confirm
+            send_agent_confirm(gig_id_str)
+            st.toast("📧 Agent emailed.", icon="📧")
+            _log("Agent confirmation", "Sent OK.")
+        except Exception:
+            tr = traceback.format_exc()
+            _log("Agent confirmation", "Send failed", tr)
+            st.error("Agent autosend failed — see log above.")
+            st.code(tr)
+        finally:
+            _mark_done("agent")
+            if _need_more():
+                _bump_and_rerun("advance to players")
+                return
+
+    # === 3) Players ===
+    _enabled_players = _IS_ADMIN() and st.session_state.get("autoc_send_players_on_create", False)
+    if not _enabled_players:
+        _log(
+            "Player confirmations",
+            f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_players_on_create', False)}",
+        )
+        _mark_done("players")
+    elif not prog["players"] and _autosend_once("players", gig_id_str):
+        _log("Player confirmations", "Calling sender...")
+        try:
+            from tools.send_player_confirms import send_player_confirms
+            send_player_confirms(gig_id_str)
+            st.toast("📧 Players emailed.", icon="📧")
+            _log("Player confirmations", "Sent OK.")
+        except Exception:
+            tr = traceback.format_exc()
+            _log("Player confirmations", "Send failed", tr)
+            st.error("Player autosend failed — see log above.")
+            st.code(tr)
+        finally:
+            _mark_done("players")
+            if _need_more():
+                _bump_and_rerun("advance to done")
+                return
+
+    # Done: pop from queue and set a guard for this gig (prevents dupes)
+    if not _need_more():
+        _log("system", "Autosend complete (all channels).")
+        st.session_state[f"autosend_guard__{gig_id_str}"] = True
+        if (
+            st.session_state["autosend_queue"]
+            and st.session_state["autosend_queue"][0] == gig_id_str
+        ):
+            st.session_state["autosend_queue"] = st.session_state["autosend_queue"][1:]
+
+# Run the queue head (if any) every run (independent of form state)
+if st.session_state["autosend_queue"]:
+    _autosend_run_for(st.session_state["autosend_queue"][0])
 
 # -----------------------------
 # Data helpers (cached)
@@ -501,6 +742,8 @@ def _fmt_sound(x: str) -> str:
     if x == SOUND_ADD: return "(+ Add New Sound Tech)"
     return sound_labels.get(x, x)
 sound_provided = st.checkbox("Venue provides sound?", value=bool(row.get("sound_provided")), key=f"edit_sound_provided_{gid}")
+# Keep this in sync with Enter Gig's `sound_by_venue_in` flag
+st.session_state["sound_by_venue_in"] = bool(sound_provided)
 
 cur_sid = str(row.get("sound_tech_id")) if pd.notna(row.get("sound_tech_id")) else ""
 cur_sid = st.session_state.get(f"sound_sel_{gid}", cur_sid)
@@ -1037,6 +1280,53 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         else:
             st.info("Deposits were not persisted because the 'gig_deposits' table is missing.")
 
+    # ---- Queue calendar upsert for this gig and also run immediately ----
+    try:
+        gid = gid_str.strip()
+        if not gid:
+            raise ValueError("Missing gig_id for calendar upsert")
+        st.session_state["pending_cal_upsert"] = {
+            "gig_id": gid,
+            "calendar_name": "Philly Rock and Soul",  # must match calendar_utils
+        }
+    except Exception as e:
+        st.warning(f"Could not queue calendar upsert: {e}")
+
+    try:
+        res = upsert_band_calendar_event(
+            gig_id=gid_str,
+            sb=sb,
+            calendar_name="Philly Rock and Soul",  # keep this exact name
+        )
+        if isinstance(res, dict) and res.get("error"):
+            st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
+        else:
+            action = (res or {}).get("action", "updated")
+            ev_id  = (res or {}).get("eventId")
+            st.success(f"PRS Calendar {action}.")
+            if ev_id:
+                st.caption(f"Event ID: {ev_id}")
+    except Exception as e:
+        st.error(f"Calendar upsert exception: {e}")
+
+    # ---- Queue autosend (sound-tech / agent / players) if toggled/selected ----
+    # Persist the per-gig sound-tech-on-save flag so the autosend runner can see it
+    st.session_state[f"edit_autoc_send_now_{gid_str}"] = bool(autoc_send_now)
+
+    if any([
+        st.session_state.get("autoc_send_st_on_create", False),
+        st.session_state.get("autoc_send_agent_on_create", False),
+        st.session_state.get("autoc_send_players_on_create", False),
+        autoc_send_now,  # respect the per-gig checkbox as well
+    ]):
+        guard_key = f"autosend_guard__{gid_str}"
+        if not st.session_state.get(guard_key, False):
+            if gid_str not in st.session_state["autosend_queue"]:
+                st.session_state["autosend_queue"].append(gid_str)
+            try:
+                st.rerun()
+            except Exception:
+                _safe_rerun("autosend after edit save")
 
     # Bust caches so the next render reflects changes immediately
     st.cache_data.clear()
@@ -1045,23 +1335,23 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 # -----------------------------
 # Auto-send Sound Tech confirmation if assignment changed
 # -----------------------------
-try:
-    if (
-        not sound_provided
-        and autoc_send_now
-        and (sound_tech_id_val is not None)
-        and (str(sound_tech_id_val) != str(orig_sound_tech_id or ""))
-    ):
-        import time
-        t0 = time.perf_counter()
-        with st.status("Sending sound-tech confirmation…", state="running") as s:
-            from tools.send_soundtech_confirm import send_soundtech_confirm
-            send_soundtech_confirm(gid)
-            s.update(label="Confirmation sent", state="complete")
-        dt = time.perf_counter() - t0
-        st.toast(f"📧 Sound-tech emailed (took {dt:.1f}s).", icon="📧")
-except Exception as e:
-    st.warning(f"Auto-send failed: {e}")
+# try:
+    # if (
+        # not sound_provided
+        # and autoc_send_now
+        # and (sound_tech_id_val is not None)
+        # and (str(sound_tech_id_val) != str(orig_sound_tech_id or ""))
+    # ):
+        # import time
+        # t0 = time.perf_counter()
+        # with st.status("Sending sound-tech confirmation…", state="running") as s:
+            # from tools.send_soundtech_confirm import send_soundtech_confirm
+            # send_soundtech_confirm(gid)
+            # s.update(label="Confirmation sent", state="complete")
+        # dt = time.perf_counter() - t0
+        # st.toast(f"📧 Sound-tech emailed (took {dt:.1f}s).", icon="📧")
+# except Exception as e:
+    # st.warning(f"Auto-send failed: {e}")
    
     
 # DEBUG OUTPUT (commented) — keep for future troubleshooting if needed
