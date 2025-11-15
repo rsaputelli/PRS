@@ -89,8 +89,8 @@ if _IS_ADMIN():
         st.checkbox("Agent", key="autoc_send_agent_on_create", help="Email the agent on save")
     with c3:
         st.checkbox("Players", key="autoc_send_players_on_create", help="Email all assigned players on save")
-else:
-    st.caption("Admin detected: **False** — toggles hidden")  # temporary sanity check; remove later
+# non-admins just don’t see the toggles; no extra caption needed
+
 
 
 # ---- Persisted auto-send log (renders every run; always visible) ----
@@ -915,15 +915,6 @@ for role in ROLE_CHOICES:
                     st.session_state[f"mus_is_add_{role}"] = False
                     st.session_state[f"mus_sel_{role}"] = ""
                     st.rerun()
-
-# ------- persistent debug viewer (always shows last save) -------
-if st.session_state.get("autosend_debug_dict"):
-    with st.expander("🔎 Auto-send debug (last save)", expanded=True):
-        import json
-        st.json(st.session_state["autosend_debug_dict"])
-        # Also mirror to logs every run so it's easy to find in Cloud logs
-        print("AUTO-SEND DEBUG (last save):", json.dumps(st.session_state["autosend_debug_dict"], indent=2))
-# ---------------------------------------------------------------
 
 
 # ============================
