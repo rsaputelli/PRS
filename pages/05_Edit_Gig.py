@@ -760,9 +760,16 @@ venue_add_box = st.empty()
 # Private flag, eligibility
 c1, c2 = st.columns([1, 1])
 with c1:
-    is_private = st.checkbox("Private Event?", value=bool(row.get("is_private")), key=f"priv_{gid}")
+    # Use private_flag as the canonical DB column; fall back to any legacy is_private value if present
+    initial_private = bool(row.get("private_flag") or row.get("is_private"))
+    is_private = st.checkbox("Private Event?", value=initial_private, key=f"priv_{gid}")
 with c2:
-    eligible_1099 = st.checkbox("1099 Eligible", value=bool(row.get("eligible_1099", False)), key=f"elig1099_{gid}")
+    eligible_1099 = st.checkbox(
+        "1099 Eligible",
+        value=bool(row.get("eligible_1099", False)),
+        key=f"elig1099_{gid}",
+    )
+
 
 # Preselect newly created tech (set in previous run)
 _pre_key = f"preselect_sound_{gid}"
@@ -1094,17 +1101,80 @@ st.markdown("---")
 st.subheader("Notes")
 notes = st.text_area("Notes / Special Instructions (optional)", height=100, value=_opt_label(row.get("notes"), ""), key=f"notes_{gid}")
 
+# -----------------------------
+# Notes & Private details
+# -----------------------------
+st.markdown("---")
+st.subheader("Notes")
+notes = st.text_area(
+    "Notes / Special Instructions (optional)",
+    max_chars=1000,
+    value=_opt_label(row.get("notes"), ""),
+    key=f"notes_{gid}",
+)
+
+# Load any existing private details for this gig (from gigs_private)
+gp_row: Dict[str, object] = {}
+if bool(is_private) and _table_exists("gigs_private"):
+    gp_df = _select_df("gigs_private", "*", where_eq={"gig_id": gid_str}, limit=1)
+    if isinstance(gp_df, pd.DataFrame) and not gp_df.empty:
+        gp_row = gp_df.iloc[0].to_dict()
+
 if is_private:
     st.markdown("#### Private Event Details")
     p1, p2 = st.columns([1, 1])
     with p1:
-        private_event_type = st.text_input("Type of Event", value=_opt_label(row.get("private_event_type"), ""), key=f"pet_{gid}")
-        organizer = st.text_input("Organizer / Company", value=_opt_label(row.get("organizer"), ""), key=f"org_{gid}")
-        guest_of_honor = st.text_input("Guest(s) of Honor / Bride/Groom", value=_opt_label(row.get("guest_of_honor"), ""), key=f"goh_{gid}")
+        private_event_type = st.text_input(
+            "Type of Event",
+            value=_opt_label(
+                (gp_row.get("event_type") if gp_row else row.get("private_event_type")),
+                "",
+            ),
+            key=f"pet_{gid}",
+        )
+        organizer = st.text_input(
+            "Organizer / Company",
+            value=_opt_label(
+                (gp_row.get("organizer") if gp_row else row.get("organizer")),
+                "",
+            ),
+            key=f"org_{gid}",
+        )
+        guest_of_honor = st.text_input(
+            "Guest(s) of Honor / Bride/Groom",
+            value=_opt_label(
+                (gp_row.get("honoree") if gp_row else row.get("guest_of_honor")),
+                "",
+            ),
+            key=f"goh_{gid}",
+        )
     with p2:
-        private_contact = st.text_input("Primary Contact (name)", value=_opt_label(row.get("private_contact"), ""), key=f"pc_{gid}")
-        private_contact_info = st.text_input("Contact Info (email/phone)", value=_opt_label(row.get("private_contact_info"), ""), key=f"pci_{gid}")
-        additional_services = st.text_input("Additional Musicians/Services (optional)", value=_opt_label(row.get("additional_services"), ""), key=f"adds_{gid}")
+        private_contact = st.text_input(
+            "Primary Contact (name)",
+            value=_opt_label(
+                (gp_row.get("client_name") if gp_row else row.get("private_contact")),
+                "",
+            ),
+            key=f"pc_{gid}",
+        )
+        private_contact_info = st.text_input(
+            "Contact Info (email/phone)",
+            value=_opt_label(
+                (
+                    gp_row.get("client_email")
+                    or gp_row.get("client_phone")
+                    if gp_row
+                    else row.get("private_contact_info")
+                ),
+                "",
+            ),
+            key=f"pci_{gid}",
+        )
+        additional_services = st.text_input(
+            "Additional Musicians/Services (optional)",
+            value=_opt_label(row.get("additional_services"), ""),
+            key=f"adds_{gid}",
+        )
 
 # -----------------------------
 # Deposits (Admin)
@@ -1235,7 +1305,9 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "band_name": (band_name or None),
         "agent_id": agent_id_val,
         "venue_id": venue_id_val,
-        "sound_tech_id": sound_tech_id_val,            # selection-only
+        "sound_tech_id": sound_tech_id_val,  # selection-only
+        "private_flag": bool(is_private),
+        # keep legacy is_private for now in case the column still exists; schema filter will drop it if not
         "is_private": bool(is_private),
         "notes": (notes or None),
         "sound_by_venue_name": (sound_by_venue_name or None),   # pure text
@@ -1244,12 +1316,48 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "sound_fee": sound_fee_val,
         "eligible_1099": bool(eligible_1099) if "eligible_1099" in _table_columns("gigs") else None,
     }
+
     payload = _filter_to_schema("gigs", payload)
 
     # Update gig
     ok = _robust_update("gigs", {"id": row.get("id")}, payload)
     if not ok:
         st.stop()
+        
+    # If this is a private event, upsert private details into gigs_private
+    if bool(is_private) and _table_exists("gigs_private"):
+        try:
+            gp_payload = {
+                "gig_id": gid_str,
+                "organizer": organizer or None,
+                "event_type": private_event_type or None,
+                "honoree": guest_of_honor or None,
+                # Use the main Notes field as the contract special instructions for now
+                "special_instructions": notes or None,
+                "client_name": private_contact or None,
+            }
+
+            # Simple heuristic: if contact info looks like an email, treat as email,
+            # otherwise treat as phone.
+            if private_contact_info:
+                if "@" in private_contact_info:
+                    gp_payload["client_email"] = private_contact_info
+                else:
+                    gp_payload["client_phone"] = private_contact_info
+
+            # Initialize contract_total_amount from the gig fee if present
+            if fee:
+                try:
+                    gp_payload["contract_total_amount"] = float(fee)
+                except Exception:
+                    pass
+
+            gp_payload = _filter_to_schema("gigs_private", gp_payload)
+            if gp_payload:
+                sb.table("gigs_private").upsert(gp_payload, on_conflict="gig_id").execute()
+        except Exception as e:
+            st.error(f"Could not save private event details: {e}")
+      
 
     # --- Persist lineup (no table-exists gate) ---
     # Guard: avoid accidental full wipe unless explicitly confirmed
