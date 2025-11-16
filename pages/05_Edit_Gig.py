@@ -1099,13 +1099,6 @@ for role in ROLE_CHOICES:
 # -----------------------------
 st.markdown("---")
 st.subheader("Notes")
-notes = st.text_area("Notes / Special Instructions (optional)", height=100, value=_opt_label(row.get("notes"), ""), key=f"notes_{gid}")
-
-# -----------------------------
-# Notes & Private details
-# -----------------------------
-st.markdown("---")
-st.subheader("Notes")
 notes = st.text_area(
     "Notes / Special Instructions (optional)",
     max_chars=1000,
