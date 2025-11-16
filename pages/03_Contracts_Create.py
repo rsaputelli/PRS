@@ -108,11 +108,24 @@ def _load_private_gigs() -> List[Dict[str, Any]]:
         .execute()
     )
 
-    if resp.error:
-        st.error(f"Error loading private gigs: {resp.error.message}")
+    # Be defensive about the response shape
+    error = getattr(resp, "error", None)
+    if error:
+        msg = getattr(error, "message", None) or str(error)
+        st.error(f"Error loading private gigs: {msg}")
         return []
 
-    return resp.data or []
+    data = getattr(resp, "data", None)
+    if data is not None:
+        return data or []
+
+    # Fallbacks if your client returns raw structures
+    if isinstance(resp, list):
+        return resp
+    if isinstance(resp, dict) and "data" in resp:
+        return resp["data"] or []
+
+    return []
 
 
 def _make_option_label(row: Dict[str, Any]) -> str:

@@ -47,10 +47,19 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         .execute()
     )
 
-    if gig_resp.error:
-        raise ContractContextError(f"Error loading gig {gig_id}: {gig_resp.error.message}")
+    gig_error = getattr(gig_resp, "error", None)
+    if gig_error:
+        msg = getattr(gig_error, "message", None) or str(gig_error)
+        raise ContractContextError(f"Error loading gig {gig_id}: {msg}")
 
-    gig = gig_resp.data or {}
+    gig_data = getattr(gig_resp, "data", None)
+    if gig_data is None:
+        if isinstance(gig_resp, dict) and "data" in gig_resp:
+            gig_data = gig_resp["data"]
+        else:
+            gig_data = gig_resp  # last resort
+
+    gig = gig_data or {}
     venue = _safe_get_first(gig.get("venues"))
 
     # --- Fetch private gig row ---
@@ -62,12 +71,22 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         .execute()
     )
 
-    if priv_resp.error:
+    priv_error = getattr(priv_resp, "error", None)
+    if priv_error:
+        msg = getattr(priv_error, "message", None) or str(priv_error)
         raise ContractContextError(
-            f"Error loading gigs_private for gig {gig_id}: {priv_resp.error.message}"
+            f"Error loading gigs_private for gig {gig_id}: {msg}"
         )
 
-    private = priv_resp.data or {}
+    priv_data = getattr(priv_resp, "data", None)
+    if priv_data is None:
+        if isinstance(priv_resp, dict) and "data" in priv_resp:
+            priv_data = priv_resp["data"]
+        else:
+            priv_data = priv_resp  # last resort
+
+    private = priv_data or {}
+
 
     # --- Build flattened context ---
     ctx: Dict[str, Any] = {}
