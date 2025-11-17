@@ -15,6 +15,31 @@ def _safe_get_first(data: Optional[dict | list]) -> Optional[dict]:
         return data[0] if data else None
     return data
 
+def _resp_to_data_error(resp):
+    """
+    Safely extract (data, error) from either:
+      - new Supabase Python client (Pydantic model)
+      - old PostgrestResponse
+      - dict-based responses
+    Never touches resp.error directly (Pydantic-safe).
+    """
+    # NEW Supabase client: Pydantic model
+    if hasattr(resp, "data"):
+        data = resp.data
+    elif isinstance(resp, dict) and "data" in resp:
+        data = resp["data"]
+    else:
+        data = resp
+
+    # NEW client: error appears inside .error or errors list — rare
+    err = None
+    if hasattr(resp, "error"):
+        err = resp.error
+    elif isinstance(resp, dict) and "error" in resp:
+        err = resp["error"]
+
+    return data, err
+
 
 def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     """
@@ -61,21 +86,16 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
             repr(e),
         )
 
-    gig_error = getattr(gig_resp, "error", None)
+    # SAFE extract
+    gig_data, gig_error = _resp_to_data_error(gig_resp)
 
     if gig_error:
         msg = getattr(gig_error, "message", None) or str(gig_error)
         raise ContractContextError(f"Error loading gig {gig_id}: {msg}")
 
-    gig_data = getattr(gig_resp, "data", None)
-    if gig_data is None:
-        if isinstance(gig_resp, dict) and "data" in gig_resp:
-            gig_data = gig_resp["data"]
-        else:
-            gig_data = gig_resp  # last resort
-
     gig = gig_data or {}
     venue = _safe_get_first(gig.get("venues"))
+
 
     # --- Fetch private gig row ---
     priv_resp = (
@@ -100,20 +120,14 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
             repr(e),
         )
 
-    priv_error = getattr(priv_resp, "error", None)
+    # SAFE extract
+    priv_data, priv_error = _resp_to_data_error(priv_resp)
 
     if priv_error:
         msg = getattr(priv_error, "message", None) or str(priv_error)
         raise ContractContextError(
             f"Error loading gigs_private for gig {gig_id}: {msg}"
         )
-
-    priv_data = getattr(priv_resp, "data", None)
-    if priv_data is None:
-        if isinstance(priv_resp, dict) and "data" in priv_resp:
-            priv_data = priv_resp["data"]
-        else:
-            priv_data = priv_resp  # last resort
 
     private = priv_data or {}
 
