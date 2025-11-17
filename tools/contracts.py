@@ -47,7 +47,22 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         .execute()
     )
 
+    # TEMP DEBUG: log raw Supabase response so we can see its shape in the logs
+    try:
+        print(
+            "DEBUG [build_private_contract_context] gig_resp type=",
+            type(gig_resp),
+            "repr=",
+            repr(gig_resp),
+        )
+    except Exception as e:
+        print(
+            "DEBUG [build_private_contract_context] failed to print gig_resp:",
+            repr(e),
+        )
+
     gig_error = getattr(gig_resp, "error", None)
+
     if gig_error:
         msg = getattr(gig_error, "message", None) or str(gig_error)
         raise ContractContextError(f"Error loading gig {gig_id}: {msg}")
@@ -71,7 +86,22 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         .execute()
     )
 
+    # TEMP DEBUG: log raw private response as well
+    try:
+        print(
+            "DEBUG [build_private_contract_context] priv_resp type=",
+            type(priv_resp),
+            "repr=",
+            repr(priv_resp),
+        )
+    except Exception as e:
+        print(
+            "DEBUG [build_private_contract_context] failed to print priv_resp:",
+            repr(e),
+        )
+
     priv_error = getattr(priv_resp, "error", None)
+
     if priv_error:
         msg = getattr(priv_error, "message", None) or str(priv_error)
         raise ContractContextError(
