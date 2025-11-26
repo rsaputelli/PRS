@@ -9,28 +9,36 @@ class ContractContextError(RuntimeError):
 
 
 def _safe_get_first(data: Optional[dict | list]) -> Optional[dict]:
+    """
+    Return the first element if data is a non-empty list,
+    or data itself if it's a dict.
+    """
     if data is None:
         return None
     if isinstance(data, list):
         return data[0] if data else None
     return data
 
-def _resp_to_data_error(resp):
+
+def _resp_to_data_error(resp: Any) -> tuple[Any, Optional[Any]]:
     """
     Normalize Supabase responses across both old and new client libraries.
 
     Handles:
-      - dict
-      - Pydantic model (new client)
-      - PostgrestResponse (old client)
+      - Pydantic model (new client, typed response)
+      - dict-style responses
+      - PostgrestResponse-like objects with .data / .error
 
     Returns:
       (data, error)
     """
 
-    # NEW Supabase (Pydantic model)
-    if hasattr(resp, "model_dump"):     # Pydantic v2
-        return resp.model_dump(), None
+    # NEW Supabase (Pydantic v2 typed model)
+    if hasattr(resp, "model_dump"):
+        try:
+            return resp.model_dump(), None
+        except Exception:
+            pass  # Fall through to other strategies
 
     # NEW Supabase (dict-style)
     if isinstance(resp, dict):
@@ -38,21 +46,23 @@ def _resp_to_data_error(resp):
         err = resp.get("error")
         return data, err
 
-    # OLD supabase-py PostgrestResponse
+    # OLD supabase-py (PostgrestResponse)
     if hasattr(resp, "data"):
         data = resp.data
         err = getattr(resp, "error", None)
         return data, err
 
-    # Fallback — treat it as already-normalized
+    # Fallback — treat resp as data, no error
     return resp, None
+
+
 def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     """
     Build a merged context for contract generation for a given gig_id.
 
     Pulls from:
       - gigs
-      - gigs_private (keyed by gig_id)
+      - gigs_private
       - venues (via gigs.venues relationship)
 
     Returns a dict with:
@@ -61,6 +71,16 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     """
     if not gig_id:
         raise ContractContextError("No gig_id provided")
+
+    # DEBUG — ensure we know when this function runs
+    try:
+        print(
+            "[contracts.build_private_contract_context] CALLED",
+            "gig_id=", gig_id,
+            "sb_type=", type(sb),
+        )
+    except Exception:
+        pass
 
     # --- Fetch gig + venue ---
     gig_resp = (
@@ -77,30 +97,20 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         .execute()
     )
 
-    # TEMP DEBUG: log raw Supabase response so we can see its shape in the logs
+    # DEBUG raw response
     try:
-        print(
-            "DEBUG [build_private_contract_context] gig_resp type=",
-            type(gig_resp),
-            "repr=",
-            repr(gig_resp),
-        )
-    except Exception as e:
-        print(
-            "DEBUG [build_private_contract_context] failed to print gig_resp:",
-            repr(e),
-        )
+        print("[build_private_contract_context] gig_resp:", type(gig_resp), repr(gig_resp))
+    except Exception:
+        pass
 
-    # SAFE extract
     gig_data, gig_error = _resp_to_data_error(gig_resp)
 
     if gig_error:
         msg = getattr(gig_error, "message", None) or str(gig_error)
         raise ContractContextError(f"Error loading gig {gig_id}: {msg}")
 
-    gig = gig_data or {}
+    gig: dict = gig_data or {}
     venue = _safe_get_first(gig.get("venues"))
-
 
     # --- Fetch private gig row ---
     priv_resp = (
@@ -111,50 +121,48 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         .execute()
     )
 
-    # TEMP DEBUG: log raw private response as well
+    # DEBUG response
     try:
-        print(
-            "DEBUG [build_private_contract_context] priv_resp type=",
-            type(priv_resp),
-            "repr=",
-            repr(priv_resp),
-        )
-    except Exception as e:
-        print(
-            "DEBUG [build_private_contract_context] failed to print priv_resp:",
-            repr(e),
-        )
+        print("[build_private_contract_context] priv_resp:", type(priv_resp), repr(priv_resp))
+    except Exception:
+        pass
 
-    # SAFE extract
     priv_data, priv_error = _resp_to_data_error(priv_resp)
 
     if priv_error:
         msg = getattr(priv_error, "message", None) or str(priv_error)
-        raise ContractContextError(
-            f"Error loading gigs_private for gig {gig_id}: {msg}"
-        )
+        raise ContractContextError(f"Error loading gigs_private for gig {gig_id}: {msg}")
 
-    private = priv_data or {}
-
+    private: dict = priv_data or {}
 
     # --- Build flattened context ---
     ctx: Dict[str, Any] = {}
 
-    # Gig basics (adapt to your actual gigs schema if needed)
+    # Gig basics — mapped directly to your gigs schema
     ctx["gig_id"] = gig.get("id")
     ctx["gig_title"] = gig.get("title")
     ctx["gig_event_date"] = gig.get("event_date")
     ctx["gig_start_time"] = gig.get("start_time")
     ctx["gig_end_time"] = gig.get("end_time")
     ctx["gig_fee"] = gig.get("fee")
+    ctx["gig_total_fee"] = gig.get("total_fee")
     ctx["gig_notes"] = gig.get("notes")
-    ctx["gig_status"] = gig.get("status")
+
+    # Corrected — no "status" field in schema
+    ctx["gig_contract_status"] = gig.get("contract_status")
+    ctx["gig_closeout_status"] = gig.get("closeout_status")
+
+    # Also include sound and related fields
+    ctx["gig_sound_provided"] = gig.get("sound_provided")
+    ctx["gig_sound_by_venue_name"] = gig.get("sound_by_venue_name")
+    ctx["gig_sound_by_venue_phone"] = gig.get("sound_by_venue_phone")
+    ctx["gig_sound_fee"] = gig.get("sound_fee")
 
     # Flatten all private fields with private_ prefix
     for key, value in private.items():
         ctx[f"private_{key}"] = value
 
-    # Venue fields
+    # Venue flattening
     if venue:
         ctx["venue_name"] = venue.get("name")
         ctx["venue_address_line1"] = venue.get("address_line1")
@@ -167,7 +175,7 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         ctx["venue_contact_phone"] = venue.get("contact_phone")
         ctx["venue_contact_email"] = venue.get("contact_email")
 
-    # Keep raw nested dicts as well (useful for DOCX templating later)
+    # Keep raw nested objects (useful later for DOCX contracts)
     ctx["gig"] = gig
     ctx["private"] = private
     ctx["venue"] = venue
