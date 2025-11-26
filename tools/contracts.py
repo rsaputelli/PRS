@@ -46,8 +46,6 @@ def _resp_to_data_error(resp):
 
     # Fallback — treat it as already-normalized
     return resp, None
-
-
 def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     """
     Build a merged context for contract generation for a given gig_id.
