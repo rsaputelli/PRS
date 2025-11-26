@@ -1,8 +1,11 @@
 # tools/contracts.py
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
+# Directory where assets live
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 
 class ContractContextError(RuntimeError):
     """Raised when the contract context cannot be built for a given gig."""
@@ -285,10 +288,9 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     ctx["duration_hours"] = computed_duration_hours
 
     # --------------------------------------------------------
-    # SIGNATURE FILE PATH
+    # SIGNATURE + LOGO FILE PATHS
     # --------------------------------------------------------
-    ctx["signature_image_path"] = os.path.join(
-        ASSETS_DIR, "ray_signature.png"
-    )
+    ctx["signature_image_path"] = os.path.join(ASSETS_DIR, "ray_signature.png")
+    ctx["logo_image_path"] = os.path.join(ASSETS_DIR, "prs_logo.png")
 
     return ctx
