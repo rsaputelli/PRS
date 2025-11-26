@@ -1,4 +1,4 @@
-# pages/04_Contracts_Review_and_Send.py
+# Master Gig App.py
 import os, io, smtplib, ssl, datetime as dt
 import streamlit as st
 from email.message import EmailMessage

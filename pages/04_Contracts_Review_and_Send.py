@@ -3,7 +3,7 @@ import io
 import streamlit as st
 from docx import Document
 from docx.shared import Inches
-from tools.session_util import get_sb_client
+from supabase import create_client, Client
 from tools.contracts import build_private_contract_context
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
