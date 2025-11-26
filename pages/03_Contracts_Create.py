@@ -9,7 +9,8 @@ import streamlit as st
 from supabase import Client, create_client
 
 from tools.contracts import build_private_contract_context, ContractContextError
-
+from tools.contract_generate import render_contract_docx
+from pathlib import Path
 
 # ============================
 # Secrets / Supabase (match Enter_Gig pattern)
@@ -322,6 +323,41 @@ def main() -> None:
         return
 
     st.markdown(_render_contract_preview(ctx))
+
+    # --------------------------------------------------------
+    # Generate Filled Contract (DOCX)
+    # --------------------------------------------------------
+    st.markdown("### Generate Filled Contract (DOCX)")
+
+    template_path = "assets/PRS_Contract_Template_Full_Modernized_v2.docx"
+
+    if st.button("Generate Contract (DOCX)"):
+        try:
+            with st.spinner("Rendering contract..."):
+                output_path = render_contract_docx(ctx, template_path)
+
+            st.success("Contract DOCX generated successfully!")
+
+            with open(output_path, "rb") as f:
+                st.download_button(
+                    label="Download Contract DOCX",
+                    data=f,
+                    file_name="PRS_Contract_Filled.docx",
+                    mime=(
+                        "application/vnd.openxmlformats-"
+                        "officedocument.wordprocessingml.document"
+                    ),
+                )
+
+        except Exception as e:
+            st.error(f"Error generating contract: {e}")
+
+
+    # --------------------------------------------------------
+    # Debug expanded section
+    # --------------------------------------------------------
+    with st.expander("Show merged context (debug)", expanded=False):
+        st.json(ctx)
 
     with st.expander("Show merged context (debug)", expanded=False):
         st.json(ctx)

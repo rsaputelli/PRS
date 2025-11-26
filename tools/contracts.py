@@ -284,4 +284,11 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     ctx["reception_time"] = computed_reception_time_range_12h
     ctx["duration_hours"] = computed_duration_hours
 
+    # --------------------------------------------------------
+    # SIGNATURE FILE PATH
+    # --------------------------------------------------------
+    ctx["signature_image_path"] = os.path.join(
+        ASSETS_DIR, "ray_signature.png"
+    )
+
     return ctx
