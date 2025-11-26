@@ -5,7 +5,11 @@ from docx import Document
 from docx.shared import Inches
 from supabase import create_client, Client
 from tools.contracts import build_private_contract_context
-from lib.session_util import get_sb_client
+
+# Build Supabase client exactly like other pages
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
+sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "PRS_Contract_Template.docx")
