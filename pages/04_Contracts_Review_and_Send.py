@@ -6,10 +6,6 @@ from docx.shared import Inches
 from supabase import create_client, Client
 from tools.contracts import build_private_contract_context
 
-# Build Supabase client exactly like other pages
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
-sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "PRS_Contract_Template.docx")
@@ -88,7 +84,11 @@ def main():
         st.error("Please sign in.")
         st.stop()
 
-    sb = get_sb_client()
+    # Initialize Supabase client directly (no get_sb_client)
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
+    sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
 
     st.write("Select a gig to generate its contract:")
 
