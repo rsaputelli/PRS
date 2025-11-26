@@ -20,41 +20,48 @@ def _safe_get_first(data: Optional[dict | list]) -> Optional[dict]:
     return data
 
 
-def _resp_to_data_error(resp: Any) -> tuple[Any, Optional[Any]]:
+def _resp_to_data_error(resp: Any) -> tuple[dict, Optional[Any]]:
     """
-    Normalize Supabase responses across both old and new client libraries.
+    Fully normalize Supabase responses (typed or dict) into (data_dict, error).
 
-    Handles:
-      - Pydantic model (new client, typed response)
-      - dict-style responses
-      - PostgrestResponse-like objects with .data / .error
-
-    Returns:
-      (data, error)
+    Handles shapes like:
+        {"data": {...}, "count": null}
+        {"data": [{...}], "count": null}
+        Pydantic typed responses with model_dump()
     """
 
-    # NEW Supabase (Pydantic v2 typed model)
+    # --- 1. Convert Pydantic typed response to dict ---
     if hasattr(resp, "model_dump"):
         try:
-            return resp.model_dump(), None
+            raw = resp.model_dump()
         except Exception:
-            pass  # Fall through to other strategies
+            raw = {"_raw": resp}
+    elif isinstance(resp, dict):
+        raw = resp
+    else:
+        # Fallback: treat this as data already
+        return ({"_raw": resp}, None)
 
-    # NEW Supabase (dict-style)
-    if isinstance(resp, dict):
-        data = resp.get("data", resp)
-        err = resp.get("error")
+    # --- 2. Extract error (if any) ---
+    err = raw.get("error")
+
+    # --- 3. Extract the data wrapper ---
+    data = raw.get("data", raw)
+
+    # CASE A: single object
+    if isinstance(data, dict):
         return data, err
 
-    # OLD supabase-py (PostgrestResponse)
-    if hasattr(resp, "data"):
-        data = resp.data
-        err = getattr(resp, "error", None)
-        return data, err
+    # CASE B: single-row list
+    if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
+        return data[0], err
 
-    # Fallback — treat resp as data, no error
-    return resp, None
+    # CASE C: empty list
+    if isinstance(data, list) and len(data) == 0:
+        return {}, err
 
+    # CASE D: multi-row list (should not happen with .single())
+    return data, err
 
 def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     """
