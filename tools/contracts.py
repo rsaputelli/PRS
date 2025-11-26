@@ -187,4 +187,101 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     ctx["private"] = private
     ctx["venue"] = venue
 
+    # --------------------------------------------------------
+    # COMPUTED FIELDS FOR CONTRACT TEMPLATE
+    # --------------------------------------------------------
+
+    from datetime import datetime, time
+
+    # Helpers
+    def _to_12h(t: Optional[str]) -> Optional[str]:
+        """Convert 'HH:MM:SS' → 'H:MM AM/PM'"""
+        if not t:
+            return None
+        try:
+            return datetime.strptime(t, "%H:%M:%S").strftime("%I:%M %p").lstrip("0")
+        except Exception:
+            return t
+
+    def _parse_time(t: Optional[str]) -> Optional[time]:
+        if not t:
+            return None
+        try:
+            return datetime.strptime(t, "%H:%M:%S").time()
+        except Exception:
+            return None
+
+    # Parse date
+    event_date_raw = gig.get("event_date")
+    computed_event_date_formatted = None
+    if event_date_raw:
+        try:
+            computed_event_date_formatted = datetime.strptime(
+                event_date_raw, "%Y-%m-%d"
+            ).strftime("%B %d, %Y")
+        except Exception:
+            computed_event_date_formatted = event_date_raw
+
+    # Parse times
+    start_time_raw = gig.get("start_time")
+    end_time_raw   = gig.get("end_time")
+
+    start_time_12h = _to_12h(start_time_raw)
+    end_time_12h   = _to_12h(end_time_raw)
+
+    # Reception window
+    if start_time_12h and end_time_12h:
+        computed_reception_time_range_12h = f"{start_time_12h} – {end_time_12h}"
+    else:
+        computed_reception_time_range_12h = None
+
+    # Duration calculation (hours)
+    computed_duration_hours = None
+    start_t = _parse_time(start_time_raw)
+    end_t = _parse_time(end_time_raw)
+    if start_t and end_t:
+        # Handle past-midnight logic
+        dt_start = datetime.combine(datetime.today(), start_t)
+        dt_end = datetime.combine(datetime.today(), end_t)
+        if dt_end < dt_start:
+            dt_end = dt_end.replace(day=dt_end.day + 1)
+        duration = (dt_end - dt_start).total_seconds() / 3600
+        computed_duration_hours = round(duration, 2)
+
+    # Final payment calculation
+    deposit1 = private.get("deposit1_amount") or 0
+    deposit2 = private.get("deposit2_amount") or 0
+    contract_total = private.get("contract_total_amount") or gig.get("fee") or 0
+
+    computed_final_payment_amount = max(
+        contract_total - (deposit1 + deposit2), 0
+    )
+
+    # Has cocktails?
+    cocktails_value = private.get("cocktail_coverage")
+    if cocktails_value:
+        computed_has_cocktails = True
+        computed_cocktail_coverage = cocktails_value
+    else:
+        computed_has_cocktails = False
+        computed_cocktail_coverage = "N/A"
+
+    # --------------------------------------------------------
+    # Add to ctx
+    # --------------------------------------------------------
+    ctx["computed_event_date_formatted"] = computed_event_date_formatted
+    ctx["computed_start_time_12h"] = start_time_12h
+    ctx["computed_end_time_12h"] = end_time_12h
+    ctx["computed_reception_time_range_12h"] = computed_reception_time_range_12h
+    ctx["computed_duration_hours"] = computed_duration_hours
+
+    ctx["computed_final_payment_amount"] = computed_final_payment_amount
+    ctx["computed_has_cocktails"] = computed_has_cocktails
+    ctx["computed_cocktail_coverage"] = computed_cocktail_coverage
+
+    # Also add convenience alias for template
+    ctx["event_date_long"] = computed_event_date_formatted
+    ctx["reception_time"] = computed_reception_time_range_12h
+    ctx["duration_hours"] = computed_duration_hours
+
     return ctx
