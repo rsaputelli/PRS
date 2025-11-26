@@ -17,28 +17,35 @@ def _safe_get_first(data: Optional[dict | list]) -> Optional[dict]:
 
 def _resp_to_data_error(resp):
     """
-    Safely extract (data, error) from either:
-      - new Supabase Python client (Pydantic model)
-      - old PostgrestResponse
-      - dict-based responses
-    Never touches resp.error directly (Pydantic-safe).
+    Normalize Supabase responses across both old and new client libraries.
+
+    Handles:
+      - dict
+      - Pydantic model (new client)
+      - PostgrestResponse (old client)
+
+    Returns:
+      (data, error)
     """
-    # NEW Supabase client: Pydantic model
+
+    # NEW Supabase (Pydantic model)
+    if hasattr(resp, "model_dump"):     # Pydantic v2
+        return resp.model_dump(), None
+
+    # NEW Supabase (dict-style)
+    if isinstance(resp, dict):
+        data = resp.get("data", resp)
+        err = resp.get("error")
+        return data, err
+
+    # OLD supabase-py PostgrestResponse
     if hasattr(resp, "data"):
         data = resp.data
-    elif isinstance(resp, dict) and "data" in resp:
-        data = resp["data"]
-    else:
-        data = resp
+        err = getattr(resp, "error", None)
+        return data, err
 
-    # NEW client: error appears inside .error or errors list — rare
-    err = None
-    if hasattr(resp, "error"):
-        err = resp.error
-    elif isinstance(resp, dict) and "error" in resp:
-        err = resp["error"]
-
-    return data, err
+    # Fallback — treat it as already-normalized
+    return resp, None
 
 
 def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
