@@ -27,7 +27,7 @@ from docx.shared import Inches
         # for fmt in ("%H:%M:%S", "%H:%M"):
             # try:
                 # dt_obj = datetime.strptime(value, fmt)
-                Use %I and strip leading zero so 07:00 -> 7:00 PM
+                # Use %I and strip leading zero so 07:00 -> 7:00 PM
                 # return dt_obj.strftime("%I:%M %p").lstrip("0")
             # except ValueError:
                 # continue
