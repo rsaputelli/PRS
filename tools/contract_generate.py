@@ -89,7 +89,7 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: Path | str) -> str:
         ctx["signature_image"] = ""
 
     if logo_path and os.path.exists(logo_path):
-        ctx["logo_image"] = InlineImage(doc, logo_path, width=Inches(2.25))
+        ctx["logo_image"] = InlineImage(doc, logo_path, width=Inches(3.10))
     else:
         ctx["logo_image"] = ""
 

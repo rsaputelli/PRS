@@ -326,7 +326,10 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
 
     ctx["deposit1_display"] = _fmt_deposit(deposit1_amount)
     ctx["deposit2_display"] = _fmt_deposit(deposit2_amount)
-
+    
+    # Overtime rate (formatted)
+    overtime_raw = private.get("overtime_rate") or private.get("overtime_rate_per_hour") or private.get("private_overtime_rate_per_half_hour")
+    ctx["overtime_rate_formatted"] = _fmt_currency(overtime_raw)
 
     # --------------------------------------------------------
     # SIGNATURE + LOGO FILE PATHS
