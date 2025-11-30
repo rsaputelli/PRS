@@ -46,6 +46,12 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: str) -> str:
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Template DOCX not found: {template_path}")
 
+    # Load template FIRST
+    doc = DocxTemplate(template_path)
+
+    # Register custom filters
+    doc.jinja_env.filters["to_12h"] = jinja_filter_to_12h
+
     # Base assets path
     base_dir = os.path.dirname(os.path.dirname(__file__))
     assets_dir = os.path.join(base_dir, "assets")
@@ -53,27 +59,24 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: str) -> str:
     logo_path = os.path.join(assets_dir, "prs_logo.png")
     signature_path = os.path.join(assets_dir, "ray_signature.png")
 
-    # Load template FIRST
-    doc = DocxTemplate(template_path)
+    # Build a CLEAN rendering context for docxtpl
+    render_ctx = dict(ctx)  # shallow copy — safe
 
-    # Register custom filters
-    doc.jinja_env.filters["to_12h"] = jinja_filter_to_12h
-
-    # Add images AFTER doc exists
+    # SAFE image embeds
     if os.path.exists(logo_path):
-        ctx["prs_logo"] = InlineImage(doc, logo_path, width=Inches(2.5))
+        render_ctx["prs_logo"] = InlineImage(doc, logo_path, width=Inches(2.5))
     else:
-        ctx["prs_logo"] = ""
+        render_ctx["prs_logo"] = ""
 
     if os.path.exists(signature_path):
-        ctx["rays_signature"] = InlineImage(doc, signature_path, width=Inches(2.0))
+        render_ctx["rays_signature"] = InlineImage(doc, signature_path, width=Inches(2.0))
     else:
-        ctx["rays_signature"] = ""
+        render_ctx["rays_signature"] = ""
 
-    # Render with Jinja2 context
-    doc.render(ctx)
+    # Render with Jinja2
+    doc.render(render_ctx)
 
-    # Create temp output
+    # Output path
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
     doc.save(tmp.name)
     tmp.close()
