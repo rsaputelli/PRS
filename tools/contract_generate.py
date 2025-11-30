@@ -11,6 +11,8 @@ from pathlib import Path
 
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
+from docx2pdf import convert
+from typing import Optional
 
 # ------------------------------
 # Custom Jinja2 Filters
@@ -101,3 +103,21 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: Path | str) -> str:
     os.close(fd)
     doc.save(out_path)
     return out_path
+    
+def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = None) -> Path:
+    """
+    Convert a filled contract DOCX to PDF using docx2pdf.
+    Returns the PDF path.
+
+    NOTE: This requires Word or LibreOffice support in the environment.
+    """
+    docx_path = Path(docx_path)
+
+    if output_pdf is None:
+        output_pdf = docx_path.with_suffix(".pdf")
+    else:
+        output_pdf = Path(output_pdf)
+
+    # docx2pdf converts either file -> file OR folder -> folder
+    convert(str(docx_path), str(output_pdf))
+    return output_pdf

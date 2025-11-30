@@ -9,8 +9,9 @@ import streamlit as st
 from supabase import Client, create_client
 
 from tools.contracts import build_private_contract_context, ContractContextError, ASSETS_DIR
-from tools.contract_generate import render_contract_docx
+from tools.contract_generate import render_contract_docx, convert_contract_docx_to_pdf
 from pathlib import Path
+from tools.contract_email import send_contract_email
 
 # ============================
 # Secrets / Supabase (match Enter_Gig pattern)
@@ -361,8 +362,63 @@ def main() -> None:
 
         except Exception as e:
             st.error(f"Error generating contract: {e}")
+            
+    # --------------------------------------------------------
+    # Generate PDF + Email to Organizer
+    # --------------------------------------------------------
+    st.markdown("### Generate Contract (PDF) and Email to Organizer")
 
+    organizer_email = (
+        ctx.get("private_client_email")
+        or ctx.get("private_organizer_email")
+        or ctx.get("private_organizer")
+    )
 
+    if not organizer_email:
+        st.warning("Organizer email not found in context. Add an email in Edit Gig before using this feature.")
+    else:
+        st.info(f"Email will be sent to: **{organizer_email}**")
+
+    if st.button("Generate PDF and Email Contract"):
+        try:
+            with st.spinner("Rendering contract…"):
+                filled_docx = render_contract_docx(ctx, template_path)
+
+            with st.spinner("Converting to PDF…"):
+                filled_pdf = convert_contract_docx_to_pdf(filled_docx)
+
+            with st.spinner(f"Emailing contract to {organizer_email}…"):
+                send_contract_email(
+                    recipient_email=organizer_email,
+                    ctx=ctx,
+                    pdf_path=filled_pdf,
+                )
+
+            st.success(f"Contract PDF emailed to {organizer_email}!")
+
+            # Optional: Let user download it too
+            with open(filled_pdf, "rb") as f:
+                st.download_button(
+                    label="Download PDF",
+                    data=f.read(),
+                    file_name=f"PRS_Contract_{ctx.get('gig_id')}.pdf",
+                    mime="application/pdf",
+                )
+
+            # Optional: Save PDF path in Supabase
+            # -----------------------------------
+            # sb.table("gigs_private").update({
+            #     "contract_pdf_path": str(filled_pdf),
+            #     "contract_sent_at": dt.datetime.utcnow().isoformat(),
+            #     "contract_last_sent_at": dt.datetime.utcnow().isoformat(),
+            #     "contract_status": "sent",
+            # }).eq("gig_id", ctx.get("gig_id")).execute()
+            #
+            # st.info("Contract details updated in Supabase.")
+
+        except Exception as e:
+            st.error(f"Error generating or sending contract: {e}")
+         
     # --------------------------------------------------------
     # Debug expanded section
     # --------------------------------------------------------
