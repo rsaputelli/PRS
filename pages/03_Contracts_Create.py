@@ -369,9 +369,5 @@ def main() -> None:
     with st.expander("Show merged context (debug)", expanded=False):
         st.json(ctx)
 
-    with st.expander("Show merged context (debug)", expanded=False):
-        st.json(ctx)
-
-
 if __name__ == "__main__":
     main()
