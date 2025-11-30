@@ -53,8 +53,13 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: str) -> str:
     logo_path = os.path.join(assets_dir, "prs_logo.png")
     signature_path = os.path.join(assets_dir, "ray_signature.png")
 
-    # Add images to context (InlineImage objects)
-    # Only if file exists
+    # Load template FIRST
+    doc = DocxTemplate(template_path)
+
+    # Register custom filters
+    doc.jinja_env.filters["to_12h"] = jinja_filter_to_12h
+
+    # Add images AFTER doc exists
     if os.path.exists(logo_path):
         ctx["prs_logo"] = InlineImage(doc, logo_path, width=Inches(2.5))
     else:
@@ -65,12 +70,6 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: str) -> str:
     else:
         ctx["rays_signature"] = ""
 
-    # Load template with docxtpl
-    doc = DocxTemplate(template_path)
-
-    # Register custom filters
-    doc.jinja_env.filters["to_12h"] = jinja_filter_to_12h
-
     # Render with Jinja2 context
     doc.render(ctx)
 
@@ -80,3 +79,4 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: str) -> str:
     tmp.close()
 
     return tmp.name
+
