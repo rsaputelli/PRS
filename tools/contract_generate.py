@@ -108,7 +108,6 @@ def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = N
     """
     Convert a DOCX contract to a PDF using pypandoc (cloud-safe, no MS Word needed).
     """
-
     docx_path = Path(docx_path)
 
     if output_pdf is None:
@@ -117,6 +116,9 @@ def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = N
         output_pdf = Path(output_pdf)
 
     try:
+        # Ensure pandoc is available (downloads once if missing)
+        pypandoc.download_pandoc()
+
         pypandoc.convert_file(
             source_file=str(docx_path),
             to="pdf",
@@ -127,3 +129,4 @@ def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = N
         raise RuntimeError(f"PDF conversion failed: {e}")
 
     return output_pdf
+
