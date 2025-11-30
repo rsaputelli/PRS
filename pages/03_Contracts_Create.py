@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 import streamlit as st
 from supabase import Client, create_client
 
-from tools.contracts import build_private_contract_context, ContractContextError
+from tools.contracts import build_private_contract_context, ContractContextError, ASSETS_DIR
 from tools.contract_generate import render_contract_docx
 from pathlib import Path
 
@@ -329,8 +329,10 @@ def main() -> None:
     # --------------------------------------------------------
     st.markdown("### Generate Filled Contract (DOCX)")
 
-    template_path = "assets/PRS_Contract_Template_Full_Modernized_v2.docx"
-
+    template_path = os.path.join(
+        ASSETS_DIR,
+        "PRS_Contract_Template_Full_Modernized_v2.docx"
+    )
     if st.button("Generate Contract (DOCX)"):
         try:
             with st.spinner("Rendering contract..."):
