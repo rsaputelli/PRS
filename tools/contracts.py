@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 from datetime import timedelta
+from pathlib import Path
 
 # Directory where assets live
 ASSETS_DIR = (Path(__file__).resolve().parent.parent / "assets").resolve()
