@@ -9,3 +9,5 @@ google-auth-httplib2>=0.2.0
 docxtpl>=0.16.7
 pypandoc
 pandoc
+weasyprint
+docx2python
