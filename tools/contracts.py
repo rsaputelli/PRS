@@ -290,6 +290,45 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     ctx["duration_hours"] = computed_duration_hours
 
     # --------------------------------------------------------
+    # CURRENCY + DEPOSIT FORMATTING (for contract display)
+    # --------------------------------------------------------
+
+    def _fmt_currency(val):
+        """Format numeric as $1,500.00; return '' if missing."""
+        if val in [None, ""]:
+            return ""
+        try:
+            return f"${float(val):,.2f}"
+        except Exception:
+            return str(val)
+
+    def _fmt_deposit(val):
+        """
+        For deposits:
+        - If None, 0, '', return 'N/A'
+        - Otherwise return formatted currency
+        """
+        if val in [None, "", 0, 0.0]:
+            return "N/A"
+        try:
+            return f"${float(val):,.2f}"
+        except Exception:
+            return "N/A"
+
+    # Fee + deposits (formatted fields for template)
+    ctx["fee_formatted"] = _fmt_currency(gig.get("fee"))
+    ctx["total_fee_formatted"] = _fmt_currency(gig.get("total_fee"))
+    ctx["final_payment_formatted"] = _fmt_currency(computed_final_payment_amount)
+
+    # Deposits
+    deposit1_amount = private.get("deposit1_amount") or 0
+    deposit2_amount = private.get("deposit2_amount") or 0
+
+    ctx["deposit1_display"] = _fmt_deposit(deposit1_amount)
+    ctx["deposit2_display"] = _fmt_deposit(deposit2_amount)
+
+
+    # --------------------------------------------------------
     # SIGNATURE + LOGO FILE PATHS
     # --------------------------------------------------------
     ctx["signature_image_path"] = os.path.join(ASSETS_DIR, "ray_signature.png")
