@@ -11,8 +11,8 @@ from pathlib import Path
 
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
-from docx2pdf import convert
 from typing import Optional
+import pypandoc
 
 # ------------------------------
 # Custom Jinja2 Filters
@@ -103,14 +103,12 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: Path | str) -> str:
     os.close(fd)
     doc.save(out_path)
     return out_path
-    
+
 def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = None) -> Path:
     """
-    Convert a filled contract DOCX to PDF using docx2pdf.
-    Returns the PDF path.
-
-    NOTE: This requires Word or LibreOffice support in the environment.
+    Convert a DOCX contract to a PDF using pypandoc (cloud-safe, no MS Word needed).
     """
+
     docx_path = Path(docx_path)
 
     if output_pdf is None:
@@ -118,6 +116,14 @@ def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = N
     else:
         output_pdf = Path(output_pdf)
 
-    # docx2pdf converts either file -> file OR folder -> folder
-    convert(str(docx_path), str(output_pdf))
+    try:
+        pypandoc.convert_file(
+            source_file=str(docx_path),
+            to="pdf",
+            outputfile=str(output_pdf),
+            extra_args=["--pdf-engine=xelatex"]
+        )
+    except Exception as e:
+        raise RuntimeError(f"PDF conversion failed: {e}")
+
     return output_pdf
