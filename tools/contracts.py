@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from typing import Any, Dict, Optional
+from datetime import timedelta
 
 # Directory where assets live
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
@@ -247,7 +248,7 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         dt_start = datetime.combine(datetime.today(), start_t)
         dt_end = datetime.combine(datetime.today(), end_t)
         if dt_end < dt_start:
-            dt_end = dt_end.replace(day=dt_end.day + 1)
+            dt_end = dt_end + timedelta(days=1)
         duration = (dt_end - dt_start).total_seconds() / 3600
         computed_duration_hours = round(duration, 2)
 
