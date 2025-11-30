@@ -106,7 +106,8 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: Path | str) -> str:
 
 def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = None) -> Path:
     """
-    Convert a DOCX contract to a PDF using pypandoc (cloud-safe, no MS Word needed).
+    Convert a DOCX contract to a PDF using pypandoc + wkhtmltopdf.
+    wkhtmltopdf is available in Streamlit Cloud.
     """
     docx_path = Path(docx_path)
 
@@ -116,17 +117,18 @@ def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = N
         output_pdf = Path(output_pdf)
 
     try:
-        # Ensure pandoc is available (downloads once if missing)
+        # Ensure pandoc is available (downloads once)
         pypandoc.download_pandoc()
 
         pypandoc.convert_file(
             source_file=str(docx_path),
             to="pdf",
             outputfile=str(output_pdf),
-            extra_args=["--pdf-engine=xelatex"]
+            extra_args=["--pdf-engine=wkhtmltopdf"]
         )
     except Exception as e:
         raise RuntimeError(f"PDF conversion failed: {e}")
 
     return output_pdf
+
 
