@@ -31,7 +31,7 @@ from docx.shared import Inches
                 # return dt_obj.strftime("%I:%M %p").lstrip("0")
             # except ValueError:
                 # continue
-    Fallback: if parsing fails, just return the original
+    # Fallback: if parsing fails, just return the original
     # return value
 
 
