@@ -12,7 +12,6 @@ from tools.contracts import build_private_contract_context, ContractContextError
 from tools.contract_generate import render_contract_docx
 from pathlib import Path
 
-
 # ============================
 # Secrets / Supabase (match Enter_Gig pattern)
 # ============================
