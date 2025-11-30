@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 from datetime import timedelta
 
 # Directory where assets live
-ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
+ASSETS_DIR = (Path(__file__).resolve().parent.parent / "assets").resolve()
 
 class ContractContextError(RuntimeError):
     """Raised when the contract context cannot be built for a given gig."""

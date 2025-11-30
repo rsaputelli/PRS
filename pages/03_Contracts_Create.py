@@ -329,10 +329,12 @@ def main() -> None:
     # --------------------------------------------------------
     st.markdown("### Generate Filled Contract (DOCX)")
 
-    template_path = os.path.join(
-        ASSETS_DIR,
-        "PRS_Contract_Template_Full_Modernized_v2.docx"
-    )
+    template_path = ASSETS_DIR / "PRS_Contract_Template_Full_Modernized_v2.docx"
+
+    print("DEBUG TEMPLATE PATH:", template_path)
+    print("EXISTS:", template_path.exists())
+
+
     if st.button("Generate Contract (DOCX)"):
         try:
             with st.spinner("Rendering contract..."):
