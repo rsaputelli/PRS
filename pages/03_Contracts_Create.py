@@ -12,6 +12,7 @@ from tools.contracts import build_private_contract_context, ContractContextError
 from tools.contract_generate import render_contract_docx
 from pathlib import Path
 
+
 # ============================
 # Secrets / Supabase (match Enter_Gig pattern)
 # ============================
@@ -330,6 +331,12 @@ def main() -> None:
     st.markdown("### Generate Filled Contract (DOCX)")
 
     template_path = ASSETS_DIR / "PRS_Contract_Template_Full_Modernized_v2.docx"
+    # DEBUG: Inspect runtime paths
+    import os
+    st.write("ASSETS_DIR:", ASSETS_DIR)
+    st.write("Files in ASSETS_DIR:", os.listdir(ASSETS_DIR))
+    st.write("Template file full path:", str(template_path))
+    st.write("Exists?", os.path.exists(template_path))
 
     print("DEBUG TEMPLATE PATH:", template_path)
     print("EXISTS:", template_path.exists())
