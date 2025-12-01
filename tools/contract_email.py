@@ -97,7 +97,7 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path:
 
         gmail_send(
             subject=subject,
-            to=recipient_email,
+            to_email=recipient_email,
             text=f"Dear {organizer_name}, your Philly Rock and Soul contract is attached as a DOCX file.",
             html=body_html,
             cc=["ray@lutinemanagement.com"],
