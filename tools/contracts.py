@@ -209,6 +209,9 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
 
     from datetime import datetime as _dt
 
+    # Retrieve client fee (for percentage calculations)
+    fee_val = gig.get("fee") or 0
+
     for d in dep_rows:
         # Format date → "March 4, 2025"
         try:
@@ -217,9 +220,20 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         except Exception:
             pretty_date = d["due_date"]
 
-        # Format currency → "$1,500.00"
+        # Determine amount: percentage OR dollar
         amt = d.get("amount", 0)
-        pretty_amt = f"${float(amt):,.2f}"
+        is_pct = d.get("is_percentage", False)
+
+        if is_pct:
+            try:
+                pct = float(amt)
+                calc = (float(fee_val) * pct) / 100.0
+            except Exception:
+                calc = 0
+            pretty_amt = f"${calc:,.2f}"
+        else:
+            # Dollar deposit
+            pretty_amt = f"${float(amt):,.2f}"
 
         formatted_deposits.append({
             "seq": d.get("seq"),
@@ -228,6 +242,7 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         })
 
     ctx["deposit_schedule"] = formatted_deposits
+
 
     # --------------------------------------------------------
     # COMPUTED FIELDS FOR CONTRACT TEMPLATE
