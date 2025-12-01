@@ -82,22 +82,25 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path:
     token = uuid.uuid4().hex
 
     try:
+        # Prepare attachment using file_obj, not raw bytes
+        attachments = []
+        with open(docx_path, "rb") as f:
+            attachments.append({
+                "filename": f"PRS_Contract_{gig_id}.docx",
+                "mime": (
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                "file_obj": f,   # <-- CRITICAL FIX
+            })
+
         gmail_send(
             subject=subject,
             to=recipient_email,
             text=f"Dear {organizer_name}, your Philly Rock and Soul contract is attached as a DOCX file.",
             html=body_html,
             cc=["ray@lutinemanagement.com"],
-            attachments=[
-                {
-                    "filename": f"PRS_Contract_{gig_id}.docx",
-                    "mime": (
-                        "application/vnd.openxmlformats-officedocument."
-                        "wordprocessingml.document"
-                    ),
-                    "content": Path(str(docx_path)).read_bytes(),
-                }
-            ],
+            attachments=attachments,
         )
 
         _insert_email_audit(
