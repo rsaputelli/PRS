@@ -193,6 +193,43 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     ctx["venue"] = venue
 
     # --------------------------------------------------------
+    # DEPOSIT SCHEDULE
+    # --------------------------------------------------------
+    # Load deposits for this gig from gig_deposits
+    dep_resp = (
+        sb.table("gig_deposits")
+        .select("*")
+        .eq("gig_id", gig_id)
+        .order("seq", asc=True)
+        .execute()
+    )
+
+    dep_rows = dep_resp.data or []
+    formatted_deposits = []
+
+    from datetime import datetime as _dt
+
+    for d in dep_rows:
+        # Format date → "March 4, 2025"
+        try:
+            dt_obj = _dt.strptime(d["due_date"], "%Y-%m-%d").date()
+            pretty_date = dt_obj.strftime("%B %-d, %Y")
+        except Exception:
+            pretty_date = d["due_date"]
+
+        # Format currency → "$1,500.00"
+        amt = d.get("amount", 0)
+        pretty_amt = f"${float(amt):,.2f}"
+
+        formatted_deposits.append({
+            "seq": d.get("seq"),
+            "due_date": pretty_date,
+            "amount_formatted": pretty_amt,
+        })
+
+    ctx["deposit_schedule"] = formatted_deposits
+
+    # --------------------------------------------------------
     # COMPUTED FIELDS FOR CONTRACT TEMPLATE
     # --------------------------------------------------------
 
