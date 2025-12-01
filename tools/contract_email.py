@@ -49,9 +49,9 @@ def _insert_email_audit(*, token: str, gig_id: str, recipient_email: str, kind: 
 # ----------------------------------------------------
 # Public API: send_contract_email(...)
 # ----------------------------------------------------
-def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], pdf_path: Path):
+def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path: Path):
     """
-    Sends the finalized contract PDF to the organizer using gmail_send,
+    Sends the finalized contract DOCX to the organizer using gmail_send,
     and logs the email in email_audit (contract_email).
     """
 
@@ -72,7 +72,7 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], pdf_path: 
         <li><b>Date:</b> {event_date}</li>
     </ul>
 
-    <p>Please review and let us know if you need any changes.  
+    <p>Please review and let us know if anything needs to be adjusted.
     When ready, simply sign and return the contract.</p>
 
     <p>Thank you for choosing Philly Rock and Soul!<br/>
@@ -82,18 +82,20 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], pdf_path: 
     token = uuid.uuid4().hex
 
     try:
-        # Send email using your production email engine
         gmail_send(
             subject=subject,
             to=recipient_email,
-            text=f"Dear {organizer_name}, your Philly Rock and Soul contract is attached.",
+            text=f"Dear {organizer_name}, your Philly Rock and Soul contract is attached as a DOCX file.",
             html=body_html,
-            cc=[ "ray@lutinemanagement.com" ],   # same pattern as player confirms
+            cc=["ray@lutinemanagement.com"],
             attachments=[
                 {
-                    "filename": f"PRS_Contract_{gig_id}.pdf",
-                    "mime": "application/pdf",
-                    "content": Path(str(pdf_path)).read_bytes(),
+                    "filename": f"PRS_Contract_{gig_id}.docx",
+                    "mime": (
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                    "content": Path(str(docx_path)).read_bytes(),
                 }
             ],
         )
@@ -105,7 +107,7 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], pdf_path: 
             kind="contract_email",
             status="sent",
             detail={
-                "filename": pdf_path.name,
+                "filename": str(docx_path.name),
                 "event_type": event_type,
                 "event_date": event_date,
             },
@@ -118,9 +120,7 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], pdf_path: 
             recipient_email=recipient_email,
             kind="contract_email",
             status=f"error: {str(e)}",
-            detail={
-                "filename": pdf_path.name,
-                "error": str(e),
-            },
+            detail={"filename": docx_path.name, "error": str(e)},
         )
         raise
+

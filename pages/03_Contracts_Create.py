@@ -364,9 +364,9 @@ def main() -> None:
             st.error(f"Error generating contract: {e}")
             
     # --------------------------------------------------------
-    # Generate PDF + Email to Organizer
+    # Generate Contract (DOCX) and Email to Organizer
     # --------------------------------------------------------
-    st.markdown("### Generate Contract (PDF) and Email to Organizer")
+    st.markdown("### Generate Contract (DOCX) and Email to Organizer")
 
     organizer_email = (
         ctx.get("private_client_email")
@@ -379,45 +379,35 @@ def main() -> None:
     else:
         st.info(f"Email will be sent to: **{organizer_email}**")
 
-    if st.button("Generate PDF and Email Contract"):
+    if st.button("Generate DOCX and Email Contract"):
         try:
             with st.spinner("Rendering contract…"):
                 filled_docx = render_contract_docx(ctx, template_path)
-
-            with st.spinner("Converting to PDF…"):
-                filled_pdf = convert_contract_docx_to_pdf(filled_docx)
 
             with st.spinner(f"Emailing contract to {organizer_email}…"):
                 send_contract_email(
                     recipient_email=organizer_email,
                     ctx=ctx,
-                    pdf_path=filled_pdf,
+                    docx_path=filled_docx,
                 )
 
-            st.success(f"Contract PDF emailed to {organizer_email}!")
+            st.success(f"Contract DOCX emailed to {organizer_email}!")
 
             # Optional: Let user download it too
-            with open(filled_pdf, "rb") as f:
+            with open(filled_docx, "rb") as f:
                 st.download_button(
-                    label="Download PDF",
+                    label="Download DOCX",
                     data=f.read(),
-                    file_name=f"PRS_Contract_{ctx.get('gig_id')}.pdf",
-                    mime="application/pdf",
+                    file_name=f"PRS_Contract_{ctx.get('gig_id')}.docx",
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
                 )
-
-            # Optional: Save PDF path in Supabase
-            # -----------------------------------
-            # sb.table("gigs_private").update({
-            #     "contract_pdf_path": str(filled_pdf),
-            #     "contract_sent_at": dt.datetime.utcnow().isoformat(),
-            #     "contract_last_sent_at": dt.datetime.utcnow().isoformat(),
-            #     "contract_status": "sent",
-            # }).eq("gig_id", ctx.get("gig_id")).execute()
-            #
-            # st.info("Contract details updated in Supabase.")
 
         except Exception as e:
             st.error(f"Error generating or sending contract: {e}")
+
          
     # --------------------------------------------------------
     # Debug expanded section
