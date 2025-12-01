@@ -50,6 +50,7 @@ def _insert_email_audit(*, token: str, gig_id: str, recipient_email: str, kind: 
 # Public API: send_contract_email(...)
 # ----------------------------------------------------
 def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path: Path):
+    docx_path = Path(docx_path)
     """
     Sends the finalized contract DOCX to the organizer using gmail_send,
     and logs the email in email_audit (contract_email).
