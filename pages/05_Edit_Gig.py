@@ -1196,7 +1196,7 @@ dep_buf_key = k("deposit_buf")
 if dep_buf_key not in st.session_state:
     if not existing_deps.empty:
         seed = (
-            existing_deps.sort_values("sequence")
+            existing_deps.sort_values("seq")
             .assign(
                 sequence=lambda d: d["seq"].fillna(0).astype(int),
                 amount=lambda d: d["amount"].fillna(0.0).astype(float),
