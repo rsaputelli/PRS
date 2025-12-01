@@ -6,14 +6,11 @@ Correct merge engine using docxtpl (Jinja2 syntax).
 
 import os
 import tempfile
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from pathlib import Path
 
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
-from typing import Optional
-import pypandoc
-from weasyprint import HTML
 
 # ------------------------------
 # Custom Jinja2 Filters
@@ -105,37 +102,6 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: Path | str) -> str:
     doc.save(out_path)
     return out_path
 
-def convert_contract_docx_to_pdf(docx_path: Path, output_pdf: Optional[Path] = None) -> Path:
-    """
-    Convert DOCX → HTML → PDF using python-docx + WeasyPrint.
-    This is the only reliable PDF generation method on Streamlit Cloud.
-    """
-    from docx import Document
-    from docx2python import docx2python
-    
-    docx_path = Path(docx_path)
-
-    # Output path
-    if output_pdf is None:
-        output_pdf = docx_path.with_suffix(".pdf")
-    else:
-        output_pdf = Path(output_pdf)
-
-    try:
-        # Convert DOCX → HTML (lossless)
-        html = docx2python(str(docx_path)).html
-
-        # Write temporary HTML file
-        html_temp = docx_path.with_suffix(".html")
-        html_temp.write_text(html, encoding="utf-8")
-
-        # Convert HTML → PDF
-        HTML(filename=str(html_temp)).write_pdf(str(output_pdf))
-
-    except Exception as e:
-        raise RuntimeError(f"PDF conversion failed: {e}")
-
-    return output_pdf
 
 
 
