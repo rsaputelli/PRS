@@ -198,10 +198,10 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     # Load deposits for this gig from gig_deposits
     dep_resp = (
         sb.table("gig_deposits")
-        .select("*")
-        .eq("gig_id", gig_id)
-        .order("seq", asc=True)
-        .execute()
+          .select("*")
+          .eq("gig_id", gig_id)
+          .order("seq")     # <-- FIXED
+          .execute()
     )
 
     dep_rows = dep_resp.data or []
