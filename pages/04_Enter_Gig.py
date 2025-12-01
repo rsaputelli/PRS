@@ -1037,7 +1037,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             is_pct = bool(st.session_state.get(f"dep_pct_{i}", False))
             rows.append(_filter_to_schema("gig_deposits", {
                 "gig_id": gig_id,
-                "sequence": i + 1,
+                "seq": i + 1,
                 "due_date": due.isoformat() if isinstance(due, (date, datetime)) else due,
                 "amount": amt,
                 "is_percentage": is_pct,

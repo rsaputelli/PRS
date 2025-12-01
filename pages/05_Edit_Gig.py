@@ -1178,7 +1178,7 @@ existing_deps = pd.DataFrame()
 if table_exists:
     existing_deps = _select_df("gig_deposits", "*", where_eq={"gig_id": gid_str})
     existing_deps = (
-        existing_deps.sort_values(by="sequence")
+        existing_deps.sort_values(by="seq")
         if isinstance(existing_deps, pd.DataFrame) and not existing_deps.empty
         else pd.DataFrame()
     )
@@ -1198,7 +1198,7 @@ if dep_buf_key not in st.session_state:
         seed = (
             existing_deps.sort_values("sequence")
             .assign(
-                sequence=lambda d: d["sequence"].fillna(0).astype(int),
+                sequence=lambda d: d["seq"].fillna(0).astype(int),
                 amount=lambda d: d["amount"].fillna(0.0).astype(float),
                 is_percentage=lambda d: d["is_percentage"].fillna(False).astype(bool),
                 due_date=lambda d: d["due_date"].fillna(""),
@@ -1397,7 +1397,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     for d in dep_rows:
                         rows.append(_filter_to_schema("gig_deposits", {
                             "gig_id": gid_str,
-                            "sequence": d["sequence"],
+                            "seq": d["sequence"],
                             "due_date": d["due_date"].isoformat() if isinstance(d["due_date"], (date, datetime)) else d["due_date"],
                             "amount": float(d["amount"] or 0.0),
                             "is_percentage": bool(d["is_percentage"]),
