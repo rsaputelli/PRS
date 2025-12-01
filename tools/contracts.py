@@ -354,7 +354,8 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
 
     # Fee + deposits (formatted fields for template)
     ctx["fee_formatted"] = _fmt_currency(gig.get("fee"))
-    ctx["total_fee_formatted"] = _fmt_currency(gig.get("total_fee"))
+    ctx["total_fee_formatted"] = _fmt_currency(
+    gig.get("total_fee") if gig.get("total_fee") not in [None, "", 0] else gig.get("fee"))
     ctx["final_payment_formatted"] = _fmt_currency(computed_final_payment_amount)
 
     # Deposits
