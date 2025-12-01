@@ -9,7 +9,7 @@ import streamlit as st
 from supabase import Client, create_client
 
 from tools.contracts import build_private_contract_context, ContractContextError, ASSETS_DIR
-from tools.contract_generate import render_contract_docx, convert_contract_docx_to_pdf
+from tools.contract_generate import render_contract_docx
 from pathlib import Path
 from tools.contract_email import send_contract_email
 
