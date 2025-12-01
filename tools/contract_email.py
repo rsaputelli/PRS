@@ -83,17 +83,15 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path:
     token = uuid.uuid4().hex
 
     try:
-        # Prepare attachment using file_obj, not raw bytes
-        attachments = []
+        # Prepare attachment in PRS-required format (content=bytes)
         with open(docx_path, "rb") as f:
-            attachments.append({
-                "filename": f"PRS_Contract_{gig_id}.docx",
-                "mime": (
-                    "application/vnd.openxmlformats-officedocument."
-                    "wordprocessingml.document"
-                ),
-                "file_obj": f,   # <-- CRITICAL FIX
-            })
+            doc_bytes = f.read()
+
+        attachments = [{
+            "filename": f"PRS_Contract_{gig_id}.docx",
+            "content": doc_bytes,
+            "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }]
 
         gmail_send(
             subject=subject,
