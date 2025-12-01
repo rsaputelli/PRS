@@ -73,7 +73,7 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path:
         <li><b>Date:</b> {event_date}</li>
     </ul>
 
-    <p>Please review and let us know if anything needs to be adjusted.
+    <p>Please review the attached contract, and let me know if anything needs to be adjusted.
     When ready, simply sign and return the contract.</p>
 
     <p>We're looking forward to making this an event you and your guests will remember for a long time!</p>
@@ -86,7 +86,7 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path:
     <a href="https://www.facebook.com/phillyrockandsoul">facebook.com/phillyrockandsoul</a>
     </p>
     <p>
-    <img src="https://ghcaopwbuhyslvtqlgsw.supabase.co/storage/v1/object/public/prs-assets/logo.png" 
+    <img src="https://ghcaopwbuhyslvtqlgsw.supabase.co/storage/v1/object/public/prs-assets/prs_logo.png" 
          alt="Philly Rock and Soul" 
          style="width:180px; margin-top:10px;" />
     </p>
