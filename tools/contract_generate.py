@@ -11,6 +11,7 @@ from pathlib import Path
 
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Inches
+from datetime import datetime
 
 # ------------------------------
 # Custom Jinja2 Filters
@@ -75,6 +76,9 @@ def render_contract_docx(ctx: Dict[str, Any], template_path: Path | str) -> str:
     # Build a simple client block for the header if you want it
     ctx.setdefault("client_display_name", ctx.get("private_client_name") or "")
     ctx.setdefault("organizer_display_name", ctx.get("private_organizer") or "")
+    
+    # Dynamic signature date (date contract is generated/sent)
+    ctx.setdefault("signature_date", datetime.now().strftime("%B %d, %Y"))
 
     # --- Load template ---
     doc = DocxTemplate(template_path)

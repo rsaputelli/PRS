@@ -66,7 +66,7 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path:
     body_html = f"""
     <p>Dear {organizer_name},</p>
 
-    <p>Attached is your finalized Philly Rock and Soul performance agreement for:</p>
+    <p>Thank you for choosing Philly Rock and Soul as the entertainment for your:</p>
 
     <ul>
         <li><b>Event:</b> {event_type}</li>
@@ -76,10 +76,22 @@ def send_contract_email(*, recipient_email: str, ctx: Dict[str, Any], docx_path:
     <p>Please review and let us know if anything needs to be adjusted.
     When ready, simply sign and return the contract.</p>
 
-    <p>Thank you for choosing Philly Rock and Soul!<br/>
-    Ray</p>
-    """
+    <p>We're looking forward to making this an event you and your guests will remember for a long time!</p>
+    <p>Ray</p>
 
+    <p>Ray Saputelli<br/>
+    Philly Rock and Soul<br/>
+    484-639-9511<br/>
+    <a href="https://www.phillyrockandsoul.com">www.phillyrockandsoul.com</a><br/>
+    <a href="https://www.facebook.com/phillyrockandsoul">facebook.com/phillyrockandsoul</a>
+    </p>
+    <p>
+    <img src="https://ghcaopwbuhyslvtqlgsw.supabase.co/storage/v1/object/public/prs-assets/logo.png" 
+         alt="Philly Rock and Soul" 
+         style="width:180px; margin-top:10px;" />
+    </p>
+
+    """
     token = uuid.uuid4().hex
 
     try:
