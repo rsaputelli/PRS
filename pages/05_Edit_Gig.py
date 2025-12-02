@@ -1414,12 +1414,11 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 except Exception:
                     pass
 
-
-                gp_payload = _filter_to_schema("gigs_private", gp_payload)
-                if gp_payload:
-                    sb.table("gigs_private").upsert(gp_payload, on_conflict="gig_id").execute()
-            except Exception as e:
-                st.error(f"Could not save private event details: {e}")      
+            gp_payload = _filter_to_schema("gigs_private", gp_payload)
+            if gp_payload:
+                sb.table("gigs_private").upsert(gp_payload, on_conflict="gig_id").execute()
+        except Exception as e:
+            st.error(f"Could not save private event details: {e}")
 
     # --- Persist lineup (no table-exists gate) ---
     # Guard: avoid accidental full wipe unless explicitly confirmed
