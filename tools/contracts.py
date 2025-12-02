@@ -208,7 +208,7 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     if city_state or zip_code:
         address_lines.append(f"{city_state} {zip_code}".strip())
 
-    ctx["private_organizer_address"] = "<br>".join(address_lines) if address_lines else ""
+    ctx["private_organizer_address"] = "\n\n".join(address_lines)
 
     # --------------------------------------------------------
     # DEPOSIT SCHEDULE
