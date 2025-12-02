@@ -1116,6 +1116,7 @@ if bool(is_private) and _table_exists("gigs_private"):
 if is_private:
     st.markdown("#### Private Event Details")
     p1, p2 = st.columns([1, 1])
+
     with p1:
         private_event_type = st.text_input(
             "Type of Event",
@@ -1141,6 +1142,7 @@ if is_private:
             ),
             key=f"goh_{gid}",
         )
+
     with p2:
         private_contact = st.text_input(
             "Primary Contact (name)",
@@ -1167,6 +1169,48 @@ if is_private:
             "Additional Musicians/Services (optional)",
             value=_opt_label(row.get("additional_services"), ""),
             key=f"adds_{gid}",
+        )
+
+    # ----------------------------------------
+    # Organizer Address (NEW — FULL-WIDTH)
+    # ----------------------------------------
+    st.markdown("##### Organizer Address")
+    a1, a2 = st.columns([2, 1])
+
+    with a1:
+        st.text_input(
+            "Street Address",
+            key=f"priv_addr_street_{gid}",
+            value=_opt_label(
+                (gp_row.get("organizer_street") if gp_row else row.get("organizer_street")),
+                "",
+            ),
+        )
+        st.text_input(
+            "City",
+            key=f"priv_addr_city_{gid}",
+            value=_opt_label(
+                (gp_row.get("organizer_city") if gp_row else row.get("organizer_city")),
+                "",
+            ),
+        )
+
+    with a2:
+        st.text_input(
+            "State",
+            key=f"priv_addr_state_{gid}",
+            value=_opt_label(
+                (gp_row.get("organizer_state") if gp_row else row.get("organizer_state")),
+                "",
+            ),
+        )
+        st.text_input(
+            "Zip Code",
+            key=f"priv_addr_zip_{gid}",
+            value=_opt_label(
+                (gp_row.get("organizer_zip") if gp_row else row.get("organizer_zip")),
+                "",
+            ),
         )
 
 # -----------------------------
@@ -1303,6 +1347,10 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         # keep legacy is_private for now in case the column still exists; schema filter will drop it if not
         "is_private": bool(is_private),
         "notes": (notes or None),
+        "organizer_street": st.session_state.get(f"priv_addr_street_{gid}") or None,
+        "organizer_city": st.session_state.get(f"priv_addr_city_{gid}") or None,
+        "organizer_state": st.session_state.get(f"priv_addr_state_{gid}") or None,
+        "organizer_zip": st.session_state.get(f"priv_addr_zip_{gid}") or None,
         "sound_by_venue_name": (sound_by_venue_name or None),   # pure text
         "sound_by_venue_phone": (sound_by_venue_phone or None), # pure text (may contain email or phone)
         "sound_provided": bool(sound_provided),

@@ -716,14 +716,30 @@ is_private = st.session_state.get("is_private_in", False)
 if is_private:
     st.markdown("#### Private Event Details")
     p1, p2 = st.columns([1, 1])
+
     with p1:
         st.text_input("Type of Event (e.g., Wedding, Corporate, Birthday)", key="priv_type_in")
         st.text_input("Organizer / Company", key="priv_org_in")
         st.text_input("Guest(s) of Honor / Bride/Groom", key="priv_gh_in")
+
     with p2:
         st.text_input("Primary Contact (name)", key="priv_contact_in")
         st.text_input("Contact Info (email/phone)", key="priv_contact_info_in")
         st.text_input("Additional Musicians/Services (optional)", key="priv_addsvc_in")
+
+    # -------------------------------
+    # Organizer Address (NEW FIELDS)
+    # -------------------------------
+    st.markdown("##### Organizer Address")
+    a1, a2 = st.columns([2, 1])
+
+    with a1:
+        st.text_input("Street Address", key="priv_addr_street_in")
+        st.text_input("City", key="priv_addr_city_in")
+
+    with a2:
+        st.text_input("State", key="priv_addr_state_in")
+        st.text_input("Zip Code", key="priv_addr_zip_in")
 
 # ============================
 # Finance (Admin Only)

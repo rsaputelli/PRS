@@ -192,6 +192,24 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     ctx["private"] = private
     ctx["venue"] = venue
 
+    # ---------------------------------------------------------
+    # Private Organizer Address (Street / City / State / Zip)
+    # ---------------------------------------------------------
+    street = (gig.get("organizer_street") or "").strip()
+    city = (gig.get("organizer_city") or "").strip()
+    state = (gig.get("organizer_state") or "").strip()
+    zip_code = (gig.get("organizer_zip") or "").strip()
+
+    address_lines = []
+    if street:
+        address_lines.append(street)
+
+    city_state = ", ".join([p for p in [city, state] if p])
+    if city_state or zip_code:
+        address_lines.append(f"{city_state} {zip_code}".strip())
+
+    ctx["private_organizer_address"] = "<br>".join(address_lines) if address_lines else ""
+
     # --------------------------------------------------------
     # DEPOSIT SCHEDULE
     # --------------------------------------------------------
