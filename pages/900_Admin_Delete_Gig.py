@@ -5,40 +5,42 @@ from supabase import create_client
 
 st.set_page_config(page_title="Admin: Delete Gig", layout="wide")
 
-# ==========================================
-# Supabase Client
-# ==========================================
+# ---------------------------------------------------------
+# Supabase Client (service key for deletes)
+# ---------------------------------------------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]  # service role is required
+SUPABASE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]
 sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ==========================================
-# Admin Authentication (PRS standard)
-# ==========================================
-def role_is_admin(user_id: str) -> bool:
-    data = sb.table("profiles").select("role").eq("user_id", user_id).single().execute().data
-    return bool(data and data.get("role") == "admin")
+# ---------------------------------------------------------
+# AUTH — MATCHES EXISTING PRS APP
+# ---------------------------------------------------------
+ALLOWED_EMAILS = {
+    "ray@lutinemanagement.com",
+    "ray.saputelli@lutinemanagement.com",
+    "rjs2119@gmail.com",
+    "prsbandinfo@gmail.com",
+}
 
-user_id = st.session_state.get("user_id")
+user = st.session_state.get("user")
 
-if not user_id:
+if not user:
     st.error("Please sign in.")
     st.stop()
 
-if not role_is_admin(user_id):
-    st.error("Admins only.")
+email = user.get("email", "").lower()
+
+if email not in ALLOWED_EMAILS:
+    st.error("You do not have permission to access this page.")
     st.stop()
 
-# ==========================================
-# Page Header
-# ==========================================
+# ---------------------------------------------------------
+# UI
+# ---------------------------------------------------------
 st.title("🗑️ Admin – Delete Gig Safely (No Orphans)")
-st.warning(
-    "This will permanently delete the gig and ALL related records.\n\n"
-    "Use with extreme caution."
-)
+st.warning("This action is permanent. Use with caution.")
 
-gig_id = st.text_input("Gig ID", placeholder="Paste gig UUID here")
+gig_id = st.text_input("Gig ID", placeholder="Paste the gig UUID")
 
 CHILD_TABLES = [
     ("gig_deposits", "gig_id"),
@@ -48,17 +50,17 @@ CHILD_TABLES = [
     ("gigs_public", "gig_id"),
 ]
 
-def fetch_children(gid: str):
+def fetch_children(gid):
     out = {}
     for table, col in CHILD_TABLES:
         res = sb.table(table).select("*").eq(col, gid).execute().data or []
         out[table] = res
     return out
 
-# ==========================================
-# Preview Children
-# ==========================================
-if st.button("🔎 Preview Children (Safe)"):
+# ---------------------------------------------------------
+# Preview
+# ---------------------------------------------------------
+if st.button("🔎 Preview Children"):
     if not gig_id:
         st.error("Enter a valid gig ID.")
     else:
@@ -77,21 +79,20 @@ if st.button("🔎 Preview Children (Safe)"):
         else:
             st.error("No gig found.")
 
-# ==========================================
+# ---------------------------------------------------------
 # Delete
-# ==========================================
+# ---------------------------------------------------------
 if st.button("🗑️ Delete Gig (Irreversible!)"):
     if not gig_id:
         st.error("Enter a valid gig ID.")
     else:
         with st.spinner("Deleting..."):
             log = []
-            # children
+
             for table, col in CHILD_TABLES:
                 resp = sb.table(table).delete().eq(col, gig_id).execute()
                 log.append(f"{table}: {len(resp.data or [])} deleted")
 
-            # gig
             resp = sb.table("gigs").delete().eq("id", gig_id).execute()
             log.append(f"gigs: {len(resp.data or [])} deleted")
 
