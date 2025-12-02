@@ -1106,6 +1106,9 @@ notes = st.text_area(
     key=f"notes_{gid}",
 )
 
+# Ensure overtime_rate is always defined (public + private)
+overtime_rate = row.get("overtime_rate")
+
 # Load any existing private details for this gig (from gigs_private)
 gp_row: Dict[str, object] = {}
 if bool(is_private) and _table_exists("gigs_private"):
