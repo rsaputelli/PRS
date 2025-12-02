@@ -5,3 +5,6 @@
 /.streamlit/**         @rsaputelli
 /.github/**            @rsaputelli
 /*.py                  @rsaputelli
+# PRS database schema ownership
+PRS_schema_master.md   @RaySaputelli
+docs/schema/*          @RaySaputelli
