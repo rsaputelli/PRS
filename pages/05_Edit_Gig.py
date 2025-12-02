@@ -1173,7 +1173,7 @@ if is_private:
     # Overtime Rate (NEW FIELD)
     # -------------------------------
     overtime_rate = st.text_input(
-        "Overtime Rate (e.g., $300/hr or $150 per half-hour)",
+        "Overtime Rate (e.g., $300/hr)",
         value=_opt_label(
             (gp_row.get("overtime_rate") if gp_row else row.get("overtime_rate")),
             "",
@@ -1223,20 +1223,23 @@ if is_private:
             ),
         )
 
-        st.markdown("### Contract-Specific Details")
+# ----------------------------------------
+# Contract-Specific Details (FULL WIDTH)
+# ----------------------------------------
+st.markdown("### Contract-Specific Details")
 
-        special_instructions = st.text_area(
-            "Special Instructions (Contract Only)",
-            value=_opt_label(gp_row.get("special_instructions") if gp_row else None, ""),
-            height=120,
-            key=f"special_instr_{gid}",
-        )
+special_instructions = st.text_area(
+    "Special Instructions (Contract Only)",
+    value=_opt_label(gp_row.get("special_instructions") if gp_row else None, ""),
+    height=120,
+    key=f"special_instr_{gid}",
+)
 
-        cocktail_coverage = st.text_input(
-            "Cocktail Coverage (optional)",
-            value=_opt_label(gp_row.get("cocktail_coverage") if gp_row else None, ""),
-            key=f"cocktail_cov_{gid}",
-        )
+cocktail_coverage = st.text_input(
+    "Cocktail Coverage (optional)",
+    value=_opt_label(gp_row.get("cocktail_coverage") if gp_row else None, ""),
+    key=f"cocktail_cov_{gid}",
+)
 
 
 # -----------------------------
