@@ -21,7 +21,7 @@ if st.session_state["user"]:
     st.success(f"Signed in as {st.session_state['user']['email']}")
     if st.button("Sign out"):
         st.session_state["user"] = None
-        st.experimental_rerun()
+        st.rerun()
 else:
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
