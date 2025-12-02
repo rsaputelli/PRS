@@ -1117,50 +1117,65 @@ if is_private:
     st.markdown("#### Private Event Details")
     p1, p2 = st.columns([1, 1])
 
+    # -------------------------------
+    # Column 1
+    # -------------------------------
     with p1:
         private_event_type = st.text_input(
             "Type of Event",
             value=_opt_label(
-                (gp_row.get("event_type") if gp_row else row.get("private_event_type")),
+                (gp_row.get("event_type") if gp_row and gp_row.get("event_type") else row.get("private_event_type")),
                 "",
             ),
             key=f"pet_{gid}",
         )
+
         organizer = st.text_input(
             "Organizer / Company",
             value=_opt_label(
-                (gp_row.get("organizer") if gp_row else row.get("organizer")),
+                (gp_row.get("organizer") if gp_row and gp_row.get("organizer") else row.get("organizer")),
                 "",
             ),
             key=f"org_{gid}",
         )
+
         guest_of_honor = st.text_input(
             "Guest(s) of Honor / Bride/Groom",
             value=_opt_label(
-                (gp_row.get("honoree") if gp_row else row.get("guest_of_honor")),
+                (gp_row.get("honoree") if gp_row and gp_row.get("honoree") else row.get("guest_of_honor")),
                 "",
             ),
             key=f"goh_{gid}",
         )
 
+    # -------------------------------
+    # Column 2
+    # -------------------------------
     with p2:
         private_contact = st.text_input(
             "Primary Contact (name)",
             value=_opt_label(
-                (gp_row.get("client_name") if gp_row else row.get("private_contact")),
+                (gp_row.get("client_name") if gp_row and gp_row.get("client_name") else row.get("private_contact")),
                 "",
             ),
             key=f"pc_{gid}",
         )
+
         private_client_email = st.text_input(
             "Client Email",
-            value=_opt_label(gp_row.get("client_email") if gp_row else None, ""),
+            value=_opt_label(
+                (gp_row.get("client_email") if gp_row and gp_row.get("client_email") else row.get("client_email")),
+                "",
+            ),
             key=f"client_email_{gid}",
         )
 
         private_client_phone = st.text_input(
             "Client Phone",
-            value=_opt_label(gp_row.get("client_phone") if gp_row else None, ""),
+            value=_opt_label(
+                (gp_row.get("client_phone") if gp_row and gp_row.get("client_phone") else row.get("client_phone")),
+                "",
+            ),
             key=f"client_phone_{gid}",
         )
 
@@ -1169,20 +1184,21 @@ if is_private:
             value=_opt_label(row.get("additional_services"), ""),
             key=f"adds_{gid}",
         )
+
     # -------------------------------
-    # Overtime Rate (NEW FIELD)
+    # Overtime Rate
     # -------------------------------
     overtime_rate = st.text_input(
         "Overtime Rate (e.g., $300/hr)",
         value=_opt_label(
-            (gp_row.get("overtime_rate") if gp_row else row.get("overtime_rate")),
+            (gp_row.get("overtime_rate") if gp_row and gp_row.get("overtime_rate") else row.get("overtime_rate")),
             "",
         ),
         key=f"otrate_{gid}",
     )
 
     # ----------------------------------------
-    # Organizer Address (NEW — FULL-WIDTH)
+    # Organizer Address (FULL WIDTH)
     # ----------------------------------------
     st.markdown("##### Organizer Address")
     a1, a2 = st.columns([2, 1])
@@ -1192,15 +1208,16 @@ if is_private:
             "Street Address",
             key=f"priv_addr_street_{gid}",
             value=_opt_label(
-                (gp_row.get("organizer_street") if gp_row else row.get("organizer_street")),
+                (gp_row.get("organizer_street") if gp_row and gp_row.get("organizer_street") else row.get("organizer_street")),
                 "",
             ),
         )
+
         st.text_input(
             "City",
             key=f"priv_addr_city_{gid}",
             value=_opt_label(
-                (gp_row.get("organizer_city") if gp_row else row.get("organizer_city")),
+                (gp_row.get("organizer_city") if gp_row and gp_row.get("organizer_city") else row.get("organizer_city")),
                 "",
             ),
         )
@@ -1210,15 +1227,16 @@ if is_private:
             "State",
             key=f"priv_addr_state_{gid}",
             value=_opt_label(
-                (gp_row.get("organizer_state") if gp_row else row.get("organizer_state")),
+                (gp_row.get("organizer_state") if gp_row and gp_row.get("organizer_state") else row.get("organizer_state")),
                 "",
             ),
         )
+
         st.text_input(
             "Zip Code",
             key=f"priv_addr_zip_{gid}",
             value=_opt_label(
-                (gp_row.get("organizer_zip") if gp_row else row.get("organizer_zip")),
+                (gp_row.get("organizer_zip") if gp_row and gp_row.get("organizer_zip") else row.get("organizer_zip")),
                 "",
             ),
         )
