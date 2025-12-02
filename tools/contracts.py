@@ -160,9 +160,16 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     ctx["gig_total_fee"] = gig.get("total_fee")
     ctx["gig_notes"] = gig.get("notes")
 
+    # Organizer address fields (NEW)
+    ctx["organizer_street"] = gig.get("organizer_street")
+    ctx["organizer_city"] = gig.get("organizer_city")
+    ctx["organizer_state"] = gig.get("organizer_state")
+    ctx["organizer_zip"] = gig.get("organizer_zip")
+
     # Corrected — no "status" field in schema
     ctx["gig_contract_status"] = gig.get("contract_status")
     ctx["gig_closeout_status"] = gig.get("closeout_status")
+
 
     # Also include sound and related fields
     ctx["gig_sound_provided"] = gig.get("sound_provided")
