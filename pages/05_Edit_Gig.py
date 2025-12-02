@@ -1347,10 +1347,10 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         # keep legacy is_private for now in case the column still exists; schema filter will drop it if not
         "is_private": bool(is_private),
         "notes": (notes or None),
-        # "organizer_street": st.session_state.get(f"priv_addr_street_{gid}") or None,
-        # "organizer_city": st.session_state.get(f"priv_addr_city_{gid}") or None,
-        # "organizer_state": st.session_state.get(f"priv_addr_state_{gid}") or None,
-        # "organizer_zip": st.session_state.get(f"priv_addr_zip_{gid}") or None,
+        "organizer_street": st.session_state.get(f"priv_addr_street_{gid}") or None,
+        "organizer_city": st.session_state.get(f"priv_addr_city_{gid}") or None,
+        "organizer_state": st.session_state.get(f"priv_addr_state_{gid}") or None,
+        "organizer_zip": st.session_state.get(f"priv_addr_zip_{gid}") or None,
         "sound_by_venue_name": (sound_by_venue_name or None),   # pure text
         "sound_by_venue_phone": (sound_by_venue_phone or None), # pure text (may contain email or phone)
         "sound_provided": bool(sound_provided),
