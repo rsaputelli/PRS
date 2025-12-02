@@ -724,9 +724,10 @@ if is_private:
 
     with p2:
         st.text_input("Primary Contact (name)", key="priv_contact_in")
-        st.text_input("Contact Info (email/phone)", key="priv_contact_info_in")
+        st.text_input("Client Email", key="priv_client_email_in", placeholder="email")
+        st.text_input("Client Phone", key="priv_client_phone_in", placeholder="phone")
         st.text_input("Additional Musicians/Services (optional)", key="priv_addsvc_in")
-
+        
     # -------------------------------
     # Organizer Address (NEW FIELDS)
     # -------------------------------
@@ -740,6 +741,32 @@ if is_private:
     with a2:
         st.text_input("State", key="priv_addr_state_in")
         st.text_input("Zip Code", key="priv_addr_zip_in")
+
+    st.markdown("### Contract-Specific Details")
+
+    priv_special_instructions_in = st.text_area(
+        "Special Instructions (Contract Only)",
+        placeholder="Run of show, ceremony info, dinner/cocktail coverage, timing, etc.",
+        height=120,
+        key="priv_special_instructions_in",
+    )
+
+    priv_cocktail_coverage_in = st.text_input(
+        "Cocktail Coverage (optional)",
+        placeholder="e.g. Trio for cocktail hour",
+        key="priv_cocktail_coverage_in",
+    )      
+        
+    # -------------------------------
+    # Overtime Rate (NEW FIELD)
+    # -------------------------------
+    st.markdown("##### Overtime Rate")
+    st.text_input(
+        "Overtime Rate (e.g., $300/hr)",
+        key="priv_ot_rate_in",
+        placeholder="Optional"
+    )
+      
 
 # ============================
 # Finance (Admin Only)
@@ -1012,13 +1039,19 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "sound_by_venue_name": st.session_state.get("sv_name_in") or None,
         "sound_by_venue_phone": st.session_state.get("sv_phone_in") or None,
         "sound_fee": float(_sfee_val) if (_sfee_val is not None and _sfee_val != 0.0) else None,
+        "organizer_street": st.session_state.get("priv_addr_street_in") or None,
+        "organizer_city": st.session_state.get("priv_addr_city_in") or None,
+        "organizer_state": st.session_state.get("priv_addr_state_in") or None,
+        "organizer_zip": st.session_state.get("priv_addr_zip_in") or None,
+        "overtime_rate": st.session_state.get("priv_ot_rate_in") or None,
         # private block (only if is_private)
-        "private_event_type": st.session_state.get("priv_type_in") or None if st.session_state.get("is_private_in") else None,
-        "organizer": st.session_state.get("priv_org_in") or None if st.session_state.get("is_private_in") else None,
-        "guest_of_honor": st.session_state.get("priv_gh_in") or None if st.session_state.get("is_private_in") else None,
-        "private_contact": st.session_state.get("priv_contact_in") or None if st.session_state.get("is_private_in") else None,
-        "private_contact_info": st.session_state.get("priv_contact_info_in") or None if st.session_state.get("is_private_in") else None,
-        "additional_services": st.session_state.get("priv_addsvc_in") or None if st.session_state.get("is_private_in") else None,
+        # "private_event_type": st.session_state.get("priv_type_in") or None if st.session_state.get("is_private_in") else None,
+        # "organizer": st.session_state.get("priv_org_in") or None if st.session_state.get("is_private_in") else None,
+        # "guest_of_honor": st.session_state.get("priv_gh_in") or None if st.session_state.get("is_private_in") else None,
+        # "private_contact": st.session_state.get("priv_contact_in") or None if st.session_state.get("is_private_in") else None,
+        # "private_contact_info": st.session_state.get("priv_contact_info_in") or None if st.session_state.get("is_private_in") else None,
+        # "additional_services": st.session_state.get("priv_addsvc_in") or None if st.session_state.get("is_private_in") else None,
+        # "overtime_rate": st.session_state.get("priv_ot_rate_in") or None,        
     }
     gig_payload = _filter_to_schema("gigs", gig_payload)
 
@@ -1028,6 +1061,52 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         st.stop()
 
     gig_id = str(new_gig.get("id", ""))
+
+    # ------------------------------------------------------------
+    # Save private gig details into gigs_private
+    # ------------------------------------------------------------
+    if st.session_state.get("is_private_in", False) and _table_exists("gigs_private"):
+        try:
+            gp_payload = {
+                "gig_id": gig_id,
+                "organizer": st.session_state.get("priv_org_in") or None,
+                "event_type": st.session_state.get("priv_type_in") or None,
+                "honoree": st.session_state.get("priv_gh_in") or None,
+                "special_instructions": st.session_state.get("priv_special_instructions_in") or None,
+                "cocktail_coverage": st.session_state.get("priv_cocktail_coverage_in") or None,
+                "client_name": st.session_state.get("priv_contact_in") or None,
+            }
+
+            # Separate email + phone
+            email = st.session_state.get("priv_client_email_in")
+            phone = st.session_state.get("priv_client_phone_in")
+            if email:
+                gp_payload["client_email"] = email
+            if phone:
+                gp_payload["client_phone"] = phone
+
+            # Mailing address assembly (optional)
+            street = st.session_state.get("priv_addr_street_in")
+            city = st.session_state.get("priv_addr_city_in")
+            state_val = st.session_state.get("priv_addr_state_in")
+            zip_val = st.session_state.get("priv_addr_zip_in")
+            lines = []
+            if street:
+                lines.append(street)
+            if city or state_val or zip_val:
+                line2 = ", ".join([c for c in [city, state_val] if c])
+                if zip_val:
+                    line2 = f"{line2} {zip_val}".strip()
+                lines.append(line2)
+            if lines:
+                gp_payload["client_mailing_address"] = "\n".join(lines)
+
+            gp_payload = _filter_to_schema("gigs_private", gp_payload)
+            if gp_payload:
+                sb.table("gigs_private").upsert(gp_payload, on_conflict="gig_id").execute()
+
+        except Exception as e:
+            st.error(f"Could not save private gig details: {e}")
 
     # gig_musicians
     if _table_exists("gig_musicians"):

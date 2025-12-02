@@ -145,11 +145,16 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
         msg = getattr(priv_error, "message", None) or str(priv_error)
         raise ContractContextError(f"Error loading gigs_private for gig {gig_id}: {msg}")
         
-    # If gigs_private has no row, create an empty placeholder so contract can still render
-    if not priv_data:
-        private = {}
+    # Normalize priv_data from Supabase (may be list, dict, or None)
+    if isinstance(priv_data, list):
+        if len(priv_data) == 0:
+            private = {}
+        else:
+            private = priv_data[0]
+    elif isinstance(priv_data, dict):
+        private = priv_data
     else:
-        private = priv_data[0]    
+        private = {}   
 
     # --- Build flattened context ---
     ctx: Dict[str, Any] = {}

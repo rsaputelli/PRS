@@ -1152,24 +1152,34 @@ if is_private:
             ),
             key=f"pc_{gid}",
         )
-        private_contact_info = st.text_input(
-            "Contact Info (email/phone)",
-            value=_opt_label(
-                (
-                    gp_row.get("client_email")
-                    or gp_row.get("client_phone")
-                    if gp_row
-                    else row.get("private_contact_info")
-                ),
-                "",
-            ),
-            key=f"pci_{gid}",
+        private_client_email = st.text_input(
+            "Client Email",
+            value=_opt_label(gp_row.get("client_email") if gp_row else None, ""),
+            key=f"client_email_{gid}",
         )
+
+        private_client_phone = st.text_input(
+            "Client Phone",
+            value=_opt_label(gp_row.get("client_phone") if gp_row else None, ""),
+            key=f"client_phone_{gid}",
+        )
+
         additional_services = st.text_input(
             "Additional Musicians/Services (optional)",
             value=_opt_label(row.get("additional_services"), ""),
             key=f"adds_{gid}",
         )
+    # -------------------------------
+    # Overtime Rate (NEW FIELD)
+    # -------------------------------
+    overtime_rate = st.text_input(
+        "Overtime Rate (e.g., $300/hr or $150 per half-hour)",
+        value=_opt_label(
+            (gp_row.get("overtime_rate") if gp_row else row.get("overtime_rate")),
+            "",
+        ),
+        key=f"otrate_{gid}",
+    )
 
     # ----------------------------------------
     # Organizer Address (NEW — FULL-WIDTH)
@@ -1212,6 +1222,22 @@ if is_private:
                 "",
             ),
         )
+
+        st.markdown("### Contract-Specific Details")
+
+        special_instructions = st.text_area(
+            "Special Instructions (Contract Only)",
+            value=_opt_label(gp_row.get("special_instructions") if gp_row else None, ""),
+            height=120,
+            key=f"special_instr_{gid}",
+        )
+
+        cocktail_coverage = st.text_input(
+            "Cocktail Coverage (optional)",
+            value=_opt_label(gp_row.get("cocktail_coverage") if gp_row else None, ""),
+            key=f"cocktail_cov_{gid}",
+        )
+
 
 # -----------------------------
 # Deposits (Admin)
@@ -1356,6 +1382,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "sound_provided": bool(sound_provided),
         "sound_fee": sound_fee_val,
         "eligible_1099": bool(eligible_1099) if "eligible_1099" in _table_columns("gigs") else None,
+        "overtime_rate": overtime_rate or None,
     }
 
     payload = _filter_to_schema("gigs", payload)
@@ -1373,18 +1400,12 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 "organizer": organizer or None,
                 "event_type": private_event_type or None,
                 "honoree": guest_of_honor or None,
-                # Use the main Notes field as the contract special instructions for now
-                "special_instructions": notes or None,
+                "special_instructions": special_instructions or None,
+                "cocktail_coverage": cocktail_coverage or None,
                 "client_name": private_contact or None,
+                "client_email": private_client_email or None,
+                "client_phone": private_client_phone or None,
             }
-
-            # Simple heuristic: if contact info looks like an email, treat as email,
-            # otherwise treat as phone.
-            if private_contact_info:
-                if "@" in private_contact_info:
-                    gp_payload["client_email"] = private_contact_info
-                else:
-                    gp_payload["client_phone"] = private_contact_info
 
             # Initialize contract_total_amount from the gig fee if present
             if fee:
@@ -1393,12 +1414,12 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 except Exception:
                     pass
 
-            gp_payload = _filter_to_schema("gigs_private", gp_payload)
-            if gp_payload:
-                sb.table("gigs_private").upsert(gp_payload, on_conflict="gig_id").execute()
-        except Exception as e:
-            st.error(f"Could not save private event details: {e}")
-      
+
+                gp_payload = _filter_to_schema("gigs_private", gp_payload)
+                if gp_payload:
+                    sb.table("gigs_private").upsert(gp_payload, on_conflict="gig_id").execute()
+            except Exception as e:
+                st.error(f"Could not save private event details: {e}")      
 
     # --- Persist lineup (no table-exists gate) ---
     # Guard: avoid accidental full wipe unless explicitly confirmed
