@@ -144,8 +144,12 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     if priv_error:
         msg = getattr(priv_error, "message", None) or str(priv_error)
         raise ContractContextError(f"Error loading gigs_private for gig {gig_id}: {msg}")
-
-    private: dict = priv_data or {}
+        
+    # If gigs_private has no row, create an empty placeholder so contract can still render
+    if not priv_data:
+        private = {}
+    else:
+        private = priv_data[0]    
 
     # --- Build flattened context ---
     ctx: Dict[str, Any] = {}
@@ -405,9 +409,15 @@ def build_private_contract_context(sb, gig_id: str) -> Dict[str, Any]:
     ctx["deposit1_display"] = _fmt_deposit(deposit1_amount)
     ctx["deposit2_display"] = _fmt_deposit(deposit2_amount)
     
-    # Overtime rate (formatted)
-    overtime_raw = private.get("overtime_rate") or private.get("overtime_rate_per_hour") or private.get("private_overtime_rate_per_half_hour")
+    # Overtime rate always comes from gigs (not gigs_private)
+    overtime_raw = gig.get("overtime_rate")
+    ctx["overtime_rate"] = overtime_raw
     ctx["overtime_rate_formatted"] = _fmt_currency(overtime_raw)
+    # Contract-specific private gig details
+    ctx["special_instructions"] = private.get("special_instructions") or ""
+    ctx["cocktail_coverage"] = private.get("cocktail_coverage") or ""
+    ctx["client_email"] = private.get("client_email") or ""
+    ctx["client_phone"] = private.get("client_phone") or ""    
 
     # --------------------------------------------------------
     # SIGNATURE + LOGO FILE PATHS
