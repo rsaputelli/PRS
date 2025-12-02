@@ -5,48 +5,41 @@ from supabase import create_client
 
 st.set_page_config(page_title="Admin: Delete Gig", layout="wide")
 
-# ===============================================================
-# 🔐 ACCESS CONTROL — LOCKED TO RAY ONLY
-# ===============================================================
-ALLOWED_EMAILS = {
-    "ray@lutinemanagement.com",
-    "ray.saputelli@lutinemanagement.com",
-	"rjs2119@gmail.com",
-	"prsbandinfo@gmail.com",
-}
-
-user = st.session_state.get("user")
-
-if not user or "email" not in user:
-    st.error("You must be logged in to access this page.")
-    st.stop()
-
-if user["email"].lower() not in ALLOWED_EMAILS:
-    st.error("You do not have permission to view this page.")
-    st.stop()
-
-# ===============================================================
-# Supabase Client (Service Role — server-side only)
-# ===============================================================
+# ==========================================
+# Supabase Client
+# ==========================================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_SERVICE_ROLE_KEY"]
+SUPABASE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]  # service role is required
 sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ===============================================================
+# ==========================================
+# Admin Authentication (PRS standard)
+# ==========================================
+def role_is_admin(user_id: str) -> bool:
+    data = sb.table("profiles").select("role").eq("user_id", user_id).single().execute().data
+    return bool(data and data.get("role") == "admin")
+
+user_id = st.session_state.get("user_id")
+
+if not user_id:
+    st.error("Please sign in.")
+    st.stop()
+
+if not role_is_admin(user_id):
+    st.error("Admins only.")
+    st.stop()
+
+# ==========================================
 # Page Header
-# ===============================================================
+# ==========================================
 st.title("🗑️ Admin – Delete Gig Safely (No Orphans)")
 st.warning(
-    "This tool **permanently deletes** gigs and all related records.\n\n"
-    "**Use with extreme caution.**"
+    "This will permanently delete the gig and ALL related records.\n\n"
+    "Use with extreme caution."
 )
 
-# ===============================================================
-# Input
-# ===============================================================
-gig_id = st.text_input("Gig ID", placeholder="e.g., 415645ad-a89d-4bde-8b55-5ab5292041d1")
+gig_id = st.text_input("Gig ID", placeholder="Paste gig UUID here")
 
-# All dependent tables
 CHILD_TABLES = [
     ("gig_deposits", "gig_id"),
     ("gig_payments", "gig_id"),
@@ -55,68 +48,53 @@ CHILD_TABLES = [
     ("gigs_public", "gig_id"),
 ]
 
-# ===============================================================
-# Helper: Fetch children
-# ===============================================================
-def fetch_children(gig_id: str):
-    results = {}
-    for table, column in CHILD_TABLES:
-        res = sb.table(table).select("*").eq(column, gig_id).execute()
-        results[table] = res.data or []
-    return results
+def fetch_children(gid: str):
+    out = {}
+    for table, col in CHILD_TABLES:
+        res = sb.table(table).select("*").eq(col, gid).execute().data or []
+        out[table] = res
+    return out
 
-# ===============================================================
-# PREVIEW
-# ===============================================================
+# ==========================================
+# Preview Children
+# ==========================================
 if st.button("🔎 Preview Children (Safe)"):
     if not gig_id:
-        st.error("Enter a Gig ID first.")
+        st.error("Enter a valid gig ID.")
     else:
-        st.subheader("Child Records Found:")
         children = fetch_children(gig_id)
-        empty = True
+        st.subheader("Related Records")
 
         for table, rows in children.items():
+            st.write(f"**{table}**: {len(rows)}")
             if rows:
-                empty = False
-                st.markdown(f"**{table}: {len(rows)} rows**")
                 st.json(rows)
 
-        gig_res = sb.table("gigs").select("*").eq("id", gig_id).execute()
-
-        st.subheader("Gig Record:")
-        if gig_res.data:
-            st.json(gig_res.data)
+        gig = sb.table("gigs").select("*").eq("id", gig_id).execute().data
+        st.subheader("Gig Record")
+        if gig:
+            st.json(gig)
         else:
-            st.error("No gig found with that ID.")
+            st.error("No gig found.")
 
-        if empty and not gig_res.data:
-            st.info("No records found in any table.")
-
-# ===============================================================
-# DELETE
-# ===============================================================
+# ==========================================
+# Delete
+# ==========================================
 if st.button("🗑️ Delete Gig (Irreversible!)"):
     if not gig_id:
-        st.error("Enter a Gig ID first.")
+        st.error("Enter a valid gig ID.")
     else:
-        with st.spinner("Deleting…"):
+        with st.spinner("Deleting..."):
             log = []
+            # children
+            for table, col in CHILD_TABLES:
+                resp = sb.table(table).delete().eq(col, gig_id).execute()
+                log.append(f"{table}: {len(resp.data or [])} deleted")
 
-            # Delete children first
-            for table, column in CHILD_TABLES:
-                resp = sb.table(table).delete().eq(column, gig_id).execute()
-                deleted = len(resp.data or [])
-                log.append(f"{table}: deleted {deleted}")
-
-            # Delete main gig
+            # gig
             resp = sb.table("gigs").delete().eq("id", gig_id).execute()
-            deleted_gig = len(resp.data or [])
-            log.append(f"gigs: deleted {deleted_gig}")
+            log.append(f"gigs: {len(resp.data or [])} deleted")
 
-        st.success("Gig deletion complete.")
-        st.subheader("Deletion Log")
-        for entry in log:
-            st.write("• " + entry)
-
-        st.info("✔ All related rows removed — no orphans remain.")
+        st.success("Deletion complete.")
+        for line in log:
+            st.write("• " + line)
