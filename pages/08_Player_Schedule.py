@@ -1,17 +1,27 @@
+# pages/08_Player_Schedule.py
+
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from datetime import datetime, time
 from typing import List, Dict, Optional
-from supabase import Client, create_client  # (currently unused, but harmless)
 
 from lib.ui_header import render_header
-# from lib.calendar_utils import make_ics_download
-# from lib.email_utils import _fetch_musicians_map
-from Master_Gig_App import _select_df, _IS_ADMIN, _get_logged_in_user
+from lib.email_utils import _fetch_musicians_map
+from Master_Gig_App import _select_df, _get_logged_in_user
 
 
-def fmt_time_range(start, end):
+def fmt_date(d) -> str:
+    """Simple human-readable date formatter, similar to Schedule View."""
+    if d is None or (isinstance(d, float) and pd.isna(d)):
+        return ""
+    try:
+        return pd.to_datetime(d).strftime("%a %b %-d, %Y")
+    except Exception:
+        return str(d)
+
+
+def fmt_time_range(start, end) -> str:
     """Safe time range formatter (HH:MM–HH:MM)."""
     if not start and not end:
         return ""
@@ -25,18 +35,8 @@ def fmt_time_range(start, end):
         return ""
 
 
-def fmt_date(d):
-    """Mirror Schedule View's human-readable date format."""
-    if d is None or (isinstance(d, float) and pd.isna(d)):
-        return ""
-    try:
-        return pd.to_datetime(d).strftime("%a %b %-d, %Y")
-    except Exception:
-        return str(d)
-
-
 # ======================================================
-# Page Header
+# Page Header / Auth
 # ======================================================
 render_header("Schedule (Fee-Free View)")
 
@@ -46,8 +46,8 @@ if not user:
     st.stop()
 
 user_email = user.get("email")
-user_name  = user.get("full_name", user_email)
-user_id    = str(user.get("id"))
+user_name = user.get("full_name", user_email)
+user_id = str(user.get("id"))
 
 st.markdown(f"**Logged in as:** {user_name}")
 
@@ -111,11 +111,12 @@ search_text = st.text_input("Search gigs (title, venue, players)", "").strip().l
 # My Gigs filter
 # ======================================================
 gm = _select_df("gig_musicians", "*")
-gm["musician_id"] = gm["musician_id"].astype(str)
+if not gm.empty:
+    gm["musician_id"] = gm["musician_id"].astype(str)
 
-if mode == "My Gigs Only":
-    my_gig_ids = gm.loc[gm["musician_id"] == user_id, "gig_id"].astype(str).unique()
-    gigs_df = gigs_df[gigs_df["id"].astype(str).isin(my_gig_ids)]
+    if mode == "My Gigs Only":
+        my_gig_ids = gm.loc[gm["musician_id"] == user_id, "gig_id"].astype(str).unique()
+        gigs_df = gigs_df[gigs_df["id"].astype(str).isin(my_gig_ids)]
 
 
 # ======================================================
@@ -128,13 +129,12 @@ if gigs_df.empty:
 # Sort chronologically
 gigs_df = gigs_df.sort_values("event_date")
 
-
 for _, g in gigs_df.iterrows():
     gid = str(g["id"])
     title = g.get("title", "(untitled)")
-    date  = g.get("event_date")
+    date = g.get("event_date")
     start = g.get("start_time")
-    end   = g.get("end_time")
+    end = g.get("end_time")
     status = g.get("contract_status")
 
     # Venue
@@ -143,20 +143,27 @@ for _, g in gigs_df.iterrows():
     venue_addr = venue.iloc[0]["address"] if not venue.empty else ""
 
     # Lineup
-    gm_rows = gm[gm["gig_id"].astype(str) == gid]
-    lineup_ids = gm_rows["musician_id"].astype(str).tolist()
-    mus_map = _fetch_musicians_map(lineup_ids)
-    lineup_text = ", ".join([
-        f"{mus_map[mid]['name']} ({gm_rows.loc[gm_rows['musician_id']==mid,'role'].iloc[0]})"
-        for mid in lineup_ids if mid in mus_map
-    ])
+    gm_rows = gm[gm["gig_id"].astype(str) == gid] if not gm.empty else pd.DataFrame()
+    lineup_ids = gm_rows["musician_id"].astype(str).tolist() if not gm_rows.empty else []
+    mus_map = _fetch_musicians_map(lineup_ids) if lineup_ids else {}
+    lineup_parts = []
+    for mid in lineup_ids:
+        if mid in mus_map:
+            name = mus_map[mid].get("name") or mus_map[mid].get("display_name") or "(unknown)"
+            role_series = gm_rows.loc[gm_rows["musician_id"] == mid, "role"]
+            role = role_series.iloc[0] if not role_series.empty else ""
+            if role:
+                lineup_parts.append(f"{name} ({role})")
+            else:
+                lineup_parts.append(name)
+    lineup_text = ", ".join(lineup_parts)
 
     # Additional lineup-based search filtering
     if search_text:
         full_text = " ".join([
-            title.lower(),
-            venue_name.lower(),
-            lineup_text.lower()
+            str(title).lower(),
+            str(venue_name).lower(),
+            lineup_text.lower(),
         ])
         if search_text not in full_text:
             continue
@@ -169,18 +176,8 @@ for _, g in gigs_df.iterrows():
     st.write(f"**Status:** {status}")
     st.write(f"**When:** {fmt_date(date)} — {fmt_time_range(start, end)}")
     st.write(f"**Venue:** {venue_name}<br>{venue_addr}", unsafe_allow_html=True)
-    st.write(f"**Lineup:** {lineup_text}")
+    st.write(f"**Lineup:** {lineup_text or '(none)'}")
     if notes_public.strip():
         st.write(f"**Notes:** {notes_public}")
-
-    # ICS download button
-    ics_bytes = make_ics_download(gid)
-    if ics_bytes:
-        st.download_button(
-            "Download ICS",
-            data=ics_bytes,
-            file_name=f"{title}.ics",
-            mime="text/calendar"
-        )
 
     st.markdown("---")
