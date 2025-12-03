@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 from supabase import Client, create_client  # (currently unused, but harmless)
 
 from lib.ui_header import render_header
-from lib.calendar_utils import make_ics_download
+# from lib.calendar_utils import make_ics_download
 from lib.email_utils import _fetch_musicians_map
 from Master_Gig_App import _select_df, _IS_ADMIN, _get_logged_in_user
 
