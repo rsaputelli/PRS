@@ -4,16 +4,19 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Optional
 
-# --- FIX: Ensure root directory is in module path ---
-import sys, os
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+import sys
+from pathlib import Path
+
+# Ensure root folder (/prs) is importable
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 
 from Master_Gig_App import _select_df, _IS_ADMIN, _get_logged_in_user
-
+from lib.ui_header import render_header
+from lib.email_utils import _fetch_musicians_map
 
 # ======================================================
 # Page Access
