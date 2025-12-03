@@ -92,17 +92,20 @@ render_header("Edit Musicians")
 # SAVE LOGIC
 # ==========================================
 def _save_musician(payload: Dict[str, Any], musician_id: Optional[str] = None):
-    """Insert or update musician."""
+    """Insert or update musician using supabase-py v2 safe APIResponse access."""
     if musician_id:
         resp = sb.table("musicians").update(payload).eq("id", musician_id).execute()
     else:
         resp = sb.table("musicians").insert(payload).execute()
 
-    # Correct APIResponse error handling
-    if resp.error is not None:
-        raise Exception(resp.error)
+    # Convert to dict so we can safely inspect error field
+    raw = resp.model_dump()
 
-    return resp.data
+    if raw.get("error"):
+        # bubble the supabase error text up
+        raise Exception(str(raw["error"]))
+
+    return raw.get("data", [])
 
 
 # ==========================================
