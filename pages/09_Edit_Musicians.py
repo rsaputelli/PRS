@@ -92,14 +92,18 @@ render_header("Edit Musicians")
 # SAVE LOGIC
 # ==========================================
 def _save_musician(payload: Dict[str, Any], musician_id: Optional[str] = None):
+    """Insert or update musician."""
     if musician_id:
         resp = sb.table("musicians").update(payload).eq("id", musician_id).execute()
     else:
         resp = sb.table("musicians").insert(payload).execute()
 
-    if resp.get("error"):
-        raise Exception(resp["error"])
-    return resp
+    # Correct APIResponse error handling
+    if resp.error is not None:
+        raise Exception(resp.error)
+
+    return resp.data
+
 
 # ==========================================
 # LOAD ALL MUSICIANS
