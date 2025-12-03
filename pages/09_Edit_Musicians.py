@@ -3,14 +3,17 @@
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
-from supabase import create_client, Client
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import List, Dict, Optional
+
+# --- FIX: Ensure root directory is in module path ---
+import sys, os
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from Master_Gig_App import _select_df, _IS_ADMIN, _get_logged_in_user
 
-from lib.ui_header import render_header
-from lib.ui_format import fmt_date
 
 # ======================================================
 # Page Access
