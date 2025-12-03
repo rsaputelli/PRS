@@ -4,16 +4,12 @@
 import os
 from datetime import datetime, date, time, timedelta
 from typing import Optional, Dict, List, Set
-import random
-import traceback
 
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
-from lib.calendar_utils import upsert_band_calendar_event
-
 
 # -----------------------------
 # Page config
@@ -46,25 +42,6 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
         )
     except Exception as e:
         st.warning(f"Could not attach Supabase session. ({e})")
-        
-# ---- Process pending calendar upsert (rerun-proof) ----
-try:
-    from lib.calendar_utils import upsert_band_calendar_event as _upsert_band_calendar_event_for_queue
-    _pending = st.session_state.pop("pending_cal_upsert", None)
-    if _pending:
-        res = _upsert_band_calendar_event_for_queue(
-            _pending["gig_id"],
-            sb,
-            _pending.get("calendar_name", "Philly Rock and Soul"),
-        )
-        if isinstance(res, dict) and res.get("error"):
-            st.error(f"Calendar upsert (queued) failed: {res.get('error')} (stage: {res.get('stage')})")
-        else:
-            action = (res or {}).get("action", "updated")
-            st.info(f"Queued calendar event {action} for gig {_pending['gig_id']}.")
-except Exception as e:
-    st.error(f"Calendar upsert processor error: {e}")
-        
 
 # -----------------------------
 # Auth/admin gate BEFORE header
@@ -130,230 +107,6 @@ if not IS_ADMIN:
 # Header AFTER gate
 # -----------------------------
 render_header(title="Edit Gig", emoji="✏️")
-
-# === Email autosend toggles — init keys (shared with Enter Gig) ===
-for _k, _default in [
-    ("autoc_send_st_on_create", True),
-    ("autoc_send_agent_on_create", True),
-    ("autoc_send_players_on_create", True),
-]:
-    if _k not in st.session_state:
-        st.session_state[_k] = _default
-
-def _IS_ADMIN() -> bool:
-    # Reuse the existing admin flag for this page
-    return bool(IS_ADMIN)
-
-# === Email autosend toggles UI (admin-only) ===
-if _IS_ADMIN():
-    st.markdown("### Auto-send on Save")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.checkbox("Sound tech", key="autoc_send_st_on_create", help="Email the sound tech on save")
-    with c2:
-        st.checkbox("Agent", key="autoc_send_agent_on_create", help="Email the agent on save")
-    with c3:
-        st.checkbox("Players", key="autoc_send_players_on_create", help="Email all assigned players on save")
-# non-admins just don’t see the toggles; no extra caption needed
-
-# ---- Persisted auto-send log (renders every run; always visible) ----
-st.session_state.setdefault("autosend_log", [])      # list[dict]
-st.session_state.setdefault("autosend_last", None)   # last entry dict
-st.session_state.setdefault("__last_trace", "")      # last raw traceback text
-st.session_state.setdefault("autosend_queue", [])    # queue of gig_id strings
-
-def _autosend_log_add(entry: dict):
-    try:
-        st.session_state["autosend_log"].append(entry)
-        if len(st.session_state["autosend_log"]) > 50:
-            st.session_state["autosend_log"] = st.session_state["autosend_log"][-50:]
-        st.session_state["autosend_last"] = entry
-        if entry.get("trace"):
-            st.session_state["__last_trace"] = entry["trace"]
-    except Exception as _e:
-        st.write(f"Autosend logger failed: {_e!s}")
-
-def _log(channel: str, msg: str, trace: str | None = None):
-    _autosend_log_add({
-        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "run_id": f"{random.randint(0, 2**32-1):08x}",
-        "channel": channel,
-        "msg": msg,
-        "trace": trace,
-    })
-
-with st.expander("Auto-send log (persists across reruns)", expanded=True):
-    log = st.session_state["autosend_log"]
-    if not log:
-        st.markdown("_No entries yet in this session._")
-    else:
-        for i, e in enumerate(log, 1):
-            ts   = e.get("ts","")
-            rid  = e.get("run_id","-")
-            chan = e.get("channel","-")
-            msg  = e.get("msg","")
-            st.markdown(f"**{i}. {ts} [{rid}] {chan}** — {msg}")
-            if e.get("trace"):
-                st.code(e["trace"])
-
-# ---------- Autosend helpers ----------
-def _safe_rerun(why: str = ""):
-    """Prefer st.rerun(); never call experimental_rerun."""
-    try:
-        st.rerun()
-    except Exception:
-        # If rerun genuinely fails (rare), just continue this run.
-        # The queue runner at top will still process on the next user action.
-        pass
-
-def _autosend_once(stage: str, gig_id: str) -> bool:
-    """True the first time per (stage,gig) for this session; False thereafter."""
-    k = f"autosend_once::{stage}::{gig_id}"
-    if st.session_state.get(k):
-        return False
-    st.session_state[k] = True
-    return True
-
-# ===== AUTOSEND RUNTIME (queue + resumable per-channel) =====
-def _autosend_run_for(gig_id_str: str):
-    # Snapshot (for log)
-    snap = {
-        "is_admin": bool(_IS_ADMIN()),
-        "toggles": {
-            "agent": bool(st.session_state.get("autoc_send_agent_on_create", False)),
-            "soundtech": bool(
-                st.session_state.get("autoc_send_st_on_create", False)
-                or st.session_state.get(f"edit_autoc_send_now_{gig_id_str}", False)
-            ),
-            "players": bool(st.session_state.get("autoc_send_players_on_create", False)),
-        },
-        "gig_id_str": gig_id_str,
-    }
-    _log("snapshot", f"{snap}")
-
-    # Per-gig progress
-    prog_key = f"autosend_progress__{gig_id_str}"
-    prog = st.session_state.get(prog_key)
-    if not isinstance(prog, dict):
-        prog = {"st": False, "agent": False, "players": False}
-    st.session_state[prog_key] = prog
-
-    def _need_more() -> bool:
-        return not all(prog.values())
-
-    def _mark_done(channel: str):
-        prog[channel] = True
-        st.session_state[prog_key] = prog
-
-    def _bump_and_rerun(reason: str):
-        _log("system", f"Bump+rerun: {reason}")
-        _safe_rerun(reason)
-
-    # === 1) Sound tech ===
-    _enabled_st = (
-        _IS_ADMIN()
-        and (st.session_state.get("autoc_send_st_on_create", False)
-             or st.session_state.get(f"edit_autoc_send_now_{gig_id_str}", False))
-        and not st.session_state.get("sound_by_venue_in", False)
-    )
-    if not _enabled_st:
-        _log(
-            "Sound-tech confirmation",
-            f"SKIPPED: is_admin={_IS_ADMIN()}, "
-            f"toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
-            f"edit_flag={st.session_state.get(f'edit_autoc_send_now_{gig_id_str}', False)}, "
-            f"sound_by_venue={st.session_state.get('sound_by_venue_in', False)}",
-        )
-        _mark_done("st")
-    elif not prog["st"] and _autosend_once("soundtech", gig_id_str):
-        _log("Sound-tech confirmation", "Calling sender...")
-        try:
-            from tools.send_soundtech_confirm import send_soundtech_confirm
-            send_soundtech_confirm(gig_id_str)
-            st.toast("📧 Sound-tech emailed.", icon="📧")
-            _log("Sound-tech confirmation", "Sent OK.")
-        except Exception:
-            tr = traceback.format_exc()
-            _log("Sound-tech confirmation", "Send failed", tr)
-            st.error("Sound-tech autosend failed — see log above.")
-            st.code(tr)
-        finally:
-            _mark_done("st")
-            if _need_more():
-                _bump_and_rerun("advance to agent")
-                return
-
-    # === 2) Agent ===
-    _enabled_agent = _IS_ADMIN() and st.session_state.get("autoc_send_agent_on_create", False)
-    if not _enabled_agent:
-        _log(
-            "Agent confirmation",
-            f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_agent_on_create', False)}",
-        )
-        _mark_done("agent")
-    elif not prog["agent"] and _autosend_once("agent", gig_id_str):
-        _log("Agent confirmation", "Calling sender...")
-        try:
-            from tools.send_agent_confirm import send_agent_confirm
-            send_agent_confirm(gig_id_str)
-            st.toast("📧 Agent emailed.", icon="📧")
-            _log("Agent confirmation", "Sent OK.")
-        except Exception:
-            tr = traceback.format_exc()
-            _log("Agent confirmation", "Send failed", tr)
-            st.error("Agent autosend failed — see log above.")
-            st.code(tr)
-        finally:
-            _mark_done("agent")
-            if _need_more():
-                _bump_and_rerun("advance to players")
-                return
-
-    # === 3) Players (PATCHED: only newly added players get emails) ===
-    _enabled_players = _IS_ADMIN() and st.session_state.get("autoc_send_players_on_create", False)
-    if not _enabled_players:
-        _log(
-            "Player confirmations",
-            f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_players_on_create', False)}",
-        )
-        _mark_done("players")
-    elif not prog["players"] and _autosend_once("players", gig_id_str):
-        _log("Player confirmations", "Calling sender (patched for added players)...")
-        try:
-            # Retrieve added players diff from earlier patch
-            added_ids = st.session_state.get(f"added_players_{gig_id_str}", set()) or set()
-
-            if added_ids:
-                from tools.send_player_confirms import send_player_confirms
-                send_player_confirms(gig_id_str, only_players=list(added_ids))
-                st.toast(f"📧 Player emails sent to newly added players only.", icon="📧")
-                _log("Player confirmations", f"Sent to added players: {added_ids}")
-            else:
-                _log("Player confirmations", "No newly added players — skipping email send.")
-        except Exception:
-            tr = traceback.format_exc()
-            _log("Player confirmations", "Send failed", tr)
-            st.error("Player autosend failed — see log above.")
-            st.code(tr)
-        finally:
-            _mark_done("players")
-            if _need_more():
-                _bump_and_rerun("advance to done")
-                return
-
-    # Done: pop from queue and set a guard for this gig (prevents dupes)
-    if not _need_more():
-        _log("system", "Autosend complete (all channels).")
-        st.session_state[f"autosend_guard__{gig_id_str}"] = True
-        if (
-            st.session_state["autosend_queue"]
-            and st.session_state["autosend_queue"][0] == gig_id_str
-        ):
-            st.session_state["autosend_queue"] = st.session_state["autosend_queue"][1:]
-
-# Run the queue head (if any) every run (independent of form state)
-if st.session_state["autosend_queue"]:
-    _autosend_run_for(st.session_state["autosend_queue"][0])
 
 # -----------------------------
 # Data helpers (cached)
@@ -562,22 +315,10 @@ def _load_gigs() -> pd.DataFrame:
         df["event_date"] = pd.to_datetime(df["event_date"], errors="coerce").dt.date
     return df
 
-# PATCH: Contract Status Filter
-st.markdown("### Filter Gigs")
-status_filter = st.multiselect(
-    "Show gigs with status:",
-    ["Pending", "Hold", "Confirmed"],
-    default=["Pending", "Hold", "Confirmed"],
-)
-
 gigs = _load_gigs()
 if gigs.empty:
     st.info("No gigs found.")
     st.stop()
-
-# PATCH: Apply status filter
-if "contract_status" in gigs.columns:
-    gigs = gigs[gigs["contract_status"].isin(status_filter)]
 
 from datetime import timedelta as _td
 
@@ -628,41 +369,13 @@ def _label_row(r: pd.Series) -> str:
     parts = [p for p in [dt_str, title, venue_txt, fee_txt] if p]
     return " | ".join(parts)
 
-# Sort for display, but use gig ID (stable) as the selectbox value
 gigs = gigs.sort_values(by=["_start_dt"], ascending=[True])
-
-# Ensure ID is string so it's stable across reloads
-if "id" not in gigs.columns:
-    st.error("Gig table missing 'id' column; cannot continue.")
-    st.stop()
-gigs["id"] = gigs["id"].astype(str)
-
-# Build labels keyed by gig_id
-labels = {}
-for _, r in gigs.iterrows():
-    gid_val = r["id"]
-    labels[gid_val] = _label_row(r)
-
-opts = list(labels.keys())
-
-sel_gid = st.selectbox(
-    "Select a gig to edit",
-    options=opts,
-    format_func=lambda g: labels.get(g, str(g)),
-)
-
-# Row for the selected gig (by ID, not by position)
-row = gigs[gigs["id"] == sel_gid].iloc[0]
-gid = str(sel_gid)
-gid_str = str(sel_gid)
-
-# If we just saved this gig on the previous run, drop any per-gig widget state
-# so all widgets rehydrate from the current DB row instead of stale values.
-just_saved_gid = st.session_state.pop("_edit_just_saved_gid", None)
-if just_saved_gid == gid:
-    for key in list(st.session_state.keys()):
-        if key.endswith(f"_{gid}"):
-            del st.session_state[key]
+opts = list(gigs.index)
+labels = {idx: _label_row(gigs.loc[idx]) for idx in opts}
+sel_idx = st.selectbox("Select a gig to edit", options=opts, format_func=lambda i: labels.get(i, str(i)))
+row = gigs.loc[sel_idx]
+gid = str(row.get("id") or f"edit-{sel_idx}")
+gid_str = str(row.get("id") or gid)
 
 # ------------------------------------------------------------------
 # Per-gig widget keys + gig-switch cleanup (place this right here)
@@ -672,28 +385,20 @@ if just_saved_gid == gid:
 def k(name: str) -> str:
     return f"{name}_{gid}"
 
+# If the selected gig changed, purge stale state from prior gig
 prev_gid = st.session_state.get("_edit_prev_gid")
-just_saved_gid = st.session_state.pop("_edit_just_saved_gid", None)
-
-def _clear_per_gig_state(target_gid: str):
-    """Remove all widget keys for a specific gig so widgets rehydrate from DB."""
-    if not target_gid:
-        return
-    for key in list(st.session_state.keys()):
-        # All per-gig widgets use the pattern f"{name}_{gid}"
-        if key.endswith(f"_{target_gid}"):
-            st.session_state.pop(key, None)
-
-# If we switched gigs, clear state for the previous gig
 if prev_gid is not None and prev_gid != gid:
-    _clear_per_gig_state(prev_gid)
-
-# If we just saved this gig, clear its widget state so it rehydrates from the DB row
-if just_saved_gid == gid:
-    _clear_per_gig_state(gid)
-
+    stale_keys = [
+        key for key in list(st.session_state.keys())
+        if key.startswith("edit_role_")
+        or key.startswith("edit_soundtech_")
+        or key.startswith("edit_lineup_form_")
+        or key.endswith("_lineup_buf")        # if you buffer lineup edits
+        or key.endswith("_lineup_buf_gid")    # if you buffer lineup edits
+    ]
+    for sk in stale_keys:
+        st.session_state.pop(sk, None)
 st.session_state["_edit_prev_gid"] = gid
-
 
 # -----------------------------
 # Edit form
@@ -778,16 +483,9 @@ venue_add_box = st.empty()
 # Private flag, eligibility
 c1, c2 = st.columns([1, 1])
 with c1:
-    # Use private_flag as the canonical DB column; fall back to any legacy is_private value if present
-    initial_private = bool(row.get("private_flag") or row.get("is_private"))
-    is_private = st.checkbox("Private Event?", value=initial_private, key=f"priv_{gid}")
+    is_private = st.checkbox("Private Event?", value=bool(row.get("is_private")), key=f"priv_{gid}")
 with c2:
-    eligible_1099 = st.checkbox(
-        "1099 Eligible",
-        value=bool(row.get("eligible_1099", False)),
-        key=f"elig1099_{gid}",
-    )
-
+    eligible_1099 = st.checkbox("1099 Eligible", value=bool(row.get("eligible_1099", False)), key=f"elig1099_{gid}")
 
 # Preselect newly created tech (set in previous run)
 _pre_key = f"preselect_sound_{gid}"
@@ -803,8 +501,6 @@ def _fmt_sound(x: str) -> str:
     if x == SOUND_ADD: return "(+ Add New Sound Tech)"
     return sound_labels.get(x, x)
 sound_provided = st.checkbox("Venue provides sound?", value=bool(row.get("sound_provided")), key=f"edit_sound_provided_{gid}")
-# Keep this in sync with Enter Gig's `sound_by_venue_in` flag
-st.session_state["sound_by_venue_in"] = bool(sound_provided)
 
 cur_sid = str(row.get("sound_tech_id")) if pd.notna(row.get("sound_tech_id")) else ""
 cur_sid = st.session_state.get(f"sound_sel_{gid}", cur_sid)
@@ -857,16 +553,6 @@ assigned_df = _table_exists("gig_musicians") and _select_df(
     "gig_musicians", "*", where_eq={"gig_id": gid_str}
 )
 assigned_df = assigned_df if isinstance(assigned_df, pd.DataFrame) else pd.DataFrame()
-
-# PATCH: Capture old players before editing
-old_player_ids = set()
-if isinstance(assigned_df, pd.DataFrame) and not assigned_df.empty:
-    try:
-        old_player_ids = set(
-            assigned_df["musician_id"].dropna().astype(str).tolist()
-        )
-    except Exception:
-        old_player_ids = set()
 
 # --- DIAGNOSTIC: verify gig_id + rowcount + RLS errors on cold start --- Keep for future troubleshooting if needed
 # st.caption(f"DBG gid_str={gid_str}")
@@ -992,12 +678,6 @@ for idx, role in enumerate(ROLE_CHOICES):
 
         role_add_boxes[role] = st.empty()
 
-# === end of role-assignment loop ===
-
-# PATCH: Determine newly added players
-new_player_ids = {p["musician_id"] for p in lineup if p["musician_id"]}
-added_player_ids = new_player_ids - old_player_ids
-st.session_state[f"added_players_{gid_str}"] = added_player_ids
 
 # -----------------------------
 # Inline “Add New …” sub-forms
@@ -1133,169 +813,19 @@ for role in ROLE_CHOICES:
 # -----------------------------
 st.markdown("---")
 st.subheader("Notes")
-notes = st.text_area(
-    "Notes / Special Instructions (optional)",
-    max_chars=1000,
-    value=_opt_label(row.get("notes"), ""),
-    key=f"notes_{gid}",
-)
-
-# Ensure overtime_rate is always defined (public + private)
-overtime_rate = row.get("overtime_rate")
-
-# Load any existing private details for this gig (from gigs_private)
-gp_row: Dict[str, object] = {}
-if bool(is_private) and _table_exists("gigs_private"):
-    gp_df = _select_df("gigs_private", "*", where_eq={"gig_id": gid_str}, limit=1)
-    if isinstance(gp_df, pd.DataFrame) and not gp_df.empty:
-        gp_row = gp_df.iloc[0].to_dict()
+notes = st.text_area("Notes / Special Instructions (optional)", height=100, value=_opt_label(row.get("notes"), ""), key=f"notes_{gid}")
 
 if is_private:
     st.markdown("#### Private Event Details")
     p1, p2 = st.columns([1, 1])
-
-    # -------------------------------
-    # Column 1
-    # -------------------------------
     with p1:
-        private_event_type = st.text_input(
-            "Type of Event",
-            value=_opt_label(
-                (gp_row.get("event_type") if gp_row and gp_row.get("event_type") else row.get("private_event_type")),
-                "",
-            ),
-            key=f"pet_{gid}",
-        )
-
-        organizer = st.text_input(
-            "Organizer / Company",
-            value=_opt_label(
-                (gp_row.get("organizer") if gp_row and gp_row.get("organizer") else row.get("organizer")),
-                "",
-            ),
-            key=f"org_{gid}",
-        )
-
-        guest_of_honor = st.text_input(
-            "Guest(s) of Honor / Bride/Groom",
-            value=_opt_label(
-                (gp_row.get("honoree") if gp_row and gp_row.get("honoree") else row.get("guest_of_honor")),
-                "",
-            ),
-            key=f"goh_{gid}",
-        )
-
-    # -------------------------------
-    # Column 2
-    # -------------------------------
+        private_event_type = st.text_input("Type of Event", value=_opt_label(row.get("private_event_type"), ""), key=f"pet_{gid}")
+        organizer = st.text_input("Organizer / Company", value=_opt_label(row.get("organizer"), ""), key=f"org_{gid}")
+        guest_of_honor = st.text_input("Guest(s) of Honor / Bride/Groom", value=_opt_label(row.get("guest_of_honor"), ""), key=f"goh_{gid}")
     with p2:
-        private_contact = st.text_input(
-            "Primary Contact (name)",
-            value=_opt_label(
-                (gp_row.get("client_name") if gp_row and gp_row.get("client_name") else row.get("private_contact")),
-                "",
-            ),
-            key=f"pc_{gid}",
-        )
-
-        private_client_email = st.text_input(
-            "Client Email",
-            value=_opt_label(
-                (gp_row.get("client_email") if gp_row and gp_row.get("client_email") else row.get("client_email")),
-                "",
-            ),
-            key=f"client_email_{gid}",
-        )
-
-        private_client_phone = st.text_input(
-            "Client Phone",
-            value=_opt_label(
-                (gp_row.get("client_phone") if gp_row and gp_row.get("client_phone") else row.get("client_phone")),
-                "",
-            ),
-            key=f"client_phone_{gid}",
-        )
-
-        additional_services = st.text_input(
-            "Additional Musicians/Services (optional)",
-            value=_opt_label(row.get("additional_services"), ""),
-            key=f"adds_{gid}",
-        )
-
-    # -------------------------------
-    # Overtime Rate
-    # -------------------------------
-    overtime_rate = st.text_input(
-        "Overtime Rate (e.g., $300/hr)",
-        value=_opt_label(
-            (gp_row.get("overtime_rate") if gp_row and gp_row.get("overtime_rate") else row.get("overtime_rate")),
-            "",
-        ),
-        key=f"otrate_{gid}",
-    )
-
-    # ----------------------------------------
-    # Organizer Address (FULL WIDTH)
-    # ----------------------------------------
-    st.markdown("##### Organizer Address")
-    a1, a2 = st.columns([2, 1])
-
-    with a1:
-        st.text_input(
-            "Street Address",
-            key=f"priv_addr_street_{gid}",
-            value=_opt_label(
-                (gp_row.get("organizer_street") if gp_row and gp_row.get("organizer_street") else row.get("organizer_street")),
-                "",
-            ),
-        )
-
-        st.text_input(
-            "City",
-            key=f"priv_addr_city_{gid}",
-            value=_opt_label(
-                (gp_row.get("organizer_city") if gp_row and gp_row.get("organizer_city") else row.get("organizer_city")),
-                "",
-            ),
-        )
-
-    with a2:
-        st.text_input(
-            "State",
-            key=f"priv_addr_state_{gid}",
-            value=_opt_label(
-                (gp_row.get("organizer_state") if gp_row and gp_row.get("organizer_state") else row.get("organizer_state")),
-                "",
-            ),
-        )
-
-        st.text_input(
-            "Zip Code",
-            key=f"priv_addr_zip_{gid}",
-            value=_opt_label(
-                (gp_row.get("organizer_zip") if gp_row and gp_row.get("organizer_zip") else row.get("organizer_zip")),
-                "",
-            ),
-        )
-
-# ----------------------------------------
-# Contract-Specific Details (FULL WIDTH)
-# ----------------------------------------
-st.markdown("### Contract-Specific Details")
-
-special_instructions = st.text_area(
-    "Special Instructions (Contract Only)",
-    value=_opt_label(gp_row.get("special_instructions") if gp_row else None, ""),
-    height=120,
-    key=f"special_instr_{gid}",
-)
-
-cocktail_coverage = st.text_input(
-    "Cocktail Coverage (optional)",
-    value=_opt_label(gp_row.get("cocktail_coverage") if gp_row else None, ""),
-    key=f"cocktail_cov_{gid}",
-)
-
+        private_contact = st.text_input("Primary Contact (name)", value=_opt_label(row.get("private_contact"), ""), key=f"pc_{gid}")
+        private_contact_info = st.text_input("Contact Info (email/phone)", value=_opt_label(row.get("private_contact_info"), ""), key=f"pci_{gid}")
+        additional_services = st.text_input("Additional Musicians/Services (optional)", value=_opt_label(row.get("additional_services"), ""), key=f"adds_{gid}")
 
 # -----------------------------
 # Deposits (Admin)
@@ -1306,7 +836,7 @@ existing_deps = pd.DataFrame()
 if table_exists:
     existing_deps = _select_df("gig_deposits", "*", where_eq={"gig_id": gid_str})
     existing_deps = (
-        existing_deps.sort_values(by="seq")
+        existing_deps.sort_values(by="sequence")
         if isinstance(existing_deps, pd.DataFrame) and not existing_deps.empty
         else pd.DataFrame()
     )
@@ -1324,9 +854,9 @@ dep_buf_key = k("deposit_buf")
 if dep_buf_key not in st.session_state:
     if not existing_deps.empty:
         seed = (
-            existing_deps.sort_values("seq")
+            existing_deps.sort_values("sequence")
             .assign(
-                sequence=lambda d: d["seq"].fillna(0).astype(int),
+                sequence=lambda d: d["sequence"].fillna(0).astype(int),
                 amount=lambda d: d["amount"].fillna(0.0).astype(float),
                 is_percentage=lambda d: d["is_percentage"].fillna(False).astype(bool),
                 due_date=lambda d: d["due_date"].fillna(""),
@@ -1426,57 +956,21 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "band_name": (band_name or None),
         "agent_id": agent_id_val,
         "venue_id": venue_id_val,
-        "sound_tech_id": sound_tech_id_val,  # selection-only
-        "private_flag": bool(is_private),
-        # keep legacy is_private for now in case the column still exists; schema filter will drop it if not
+        "sound_tech_id": sound_tech_id_val,            # selection-only
         "is_private": bool(is_private),
         "notes": (notes or None),
-        "organizer_street": st.session_state.get(f"priv_addr_street_{gid}") or None,
-        "organizer_city": st.session_state.get(f"priv_addr_city_{gid}") or None,
-        "organizer_state": st.session_state.get(f"priv_addr_state_{gid}") or None,
-        "organizer_zip": st.session_state.get(f"priv_addr_zip_{gid}") or None,
         "sound_by_venue_name": (sound_by_venue_name or None),   # pure text
         "sound_by_venue_phone": (sound_by_venue_phone or None), # pure text (may contain email or phone)
         "sound_provided": bool(sound_provided),
         "sound_fee": sound_fee_val,
         "eligible_1099": bool(eligible_1099) if "eligible_1099" in _table_columns("gigs") else None,
-        "overtime_rate": overtime_rate or None,
     }
-
     payload = _filter_to_schema("gigs", payload)
 
     # Update gig
     ok = _robust_update("gigs", {"id": row.get("id")}, payload)
     if not ok:
         st.stop()
-        
-    # If this is a private event, upsert private details into gigs_private
-    if bool(is_private) and _table_exists("gigs_private"):
-        try:
-            gp_payload = {
-                "gig_id": gid_str,
-                "organizer": organizer or None,
-                "event_type": private_event_type or None,
-                "honoree": guest_of_honor or None,
-                "special_instructions": special_instructions or None,
-                "cocktail_coverage": cocktail_coverage or None,
-                "client_name": private_contact or None,
-                "client_email": private_client_email or None,
-                "client_phone": private_client_phone or None,
-            }
-
-            # Initialize contract_total_amount from the gig fee if present
-            if fee:
-                try:
-                    gp_payload["contract_total_amount"] = float(fee)
-                except Exception:
-                    pass
-
-            gp_payload = _filter_to_schema("gigs_private", gp_payload)
-            if gp_payload:
-                sb.table("gigs_private").upsert(gp_payload, on_conflict="gig_id").execute()
-        except Exception as e:
-            st.error(f"Could not save private event details: {e}")
 
     # --- Persist lineup (no table-exists gate) ---
     # Guard: avoid accidental full wipe unless explicitly confirmed
@@ -1523,7 +1017,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     for d in dep_rows:
                         rows.append(_filter_to_schema("gig_deposits", {
                             "gig_id": gid_str,
-                            "seq": d["sequence"],
+                            "sequence": d["sequence"],
                             "due_date": d["due_date"].isoformat() if isinstance(d["due_date"], (date, datetime)) else d["due_date"],
                             "amount": float(d["amount"] or 0.0),
                             "is_percentage": bool(d["is_percentage"]),
@@ -1543,59 +1037,6 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         else:
             st.info("Deposits were not persisted because the 'gig_deposits' table is missing.")
 
-    # ---- Queue calendar upsert for this gig and also run immediately ----
-    try:
-        gid = gid_str.strip()
-        if not gid:
-            raise ValueError("Missing gig_id for calendar upsert")
-        st.session_state["pending_cal_upsert"] = {
-            "gig_id": gid,
-            "calendar_name": "Philly Rock and Soul",  # must match calendar_utils
-        }
-    except Exception as e:
-        st.warning(f"Could not queue calendar upsert: {e}")
-
-    try:
-        res = upsert_band_calendar_event(
-            gig_id=gid_str,
-            sb=sb,
-            calendar_name="Philly Rock and Soul",  # keep this exact name
-        )
-        if isinstance(res, dict) and res.get("error"):
-            st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
-        else:
-            action = (res or {}).get("action", "updated")
-            ev_id  = (res or {}).get("eventId")
-            st.success(f"PRS Calendar {action}.")
-            if ev_id:
-                st.caption(f"Event ID: {ev_id}")
-    except Exception as e:
-        st.error(f"Calendar upsert exception: {e}")
-
-    # ---- Queue autosend (sound-tech / agent / players) if toggled/selected ----
-    # Persist the per-gig sound-tech-on-save flag so the autosend runner can see it
-    st.session_state[f"edit_autoc_send_now_{gid_str}"] = bool(autoc_send_now)
-
-    if any([
-        st.session_state.get("autoc_send_st_on_create", False),
-        st.session_state.get("autoc_send_agent_on_create", False),
-        st.session_state.get("autoc_send_players_on_create", False),
-        autoc_send_now,  # respect the per-gig checkbox as well
-    ]):
-        guard_key = f"autosend_guard__{gid_str}"
-        if not st.session_state.get(guard_key, False):
-            if gid_str not in st.session_state["autosend_queue"]:
-                st.session_state["autosend_queue"].append(gid_str)
-            try:
-                st.rerun()
-            except Exception:
-                _safe_rerun("autosend after edit save")
-
-        ...
-    # any lineup / deposit post-save checks
-
-    # Remember which gig was just saved so we can refresh its widget state on the next run
-    st.session_state["_edit_just_saved_gid"] = gid_str
 
     # Bust caches so the next render reflects changes immediately
     st.cache_data.clear()
@@ -1604,23 +1045,23 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 # -----------------------------
 # Auto-send Sound Tech confirmation if assignment changed
 # -----------------------------
-# try:
-    # if (
-        # not sound_provided
-        # and autoc_send_now
-        # and (sound_tech_id_val is not None)
-        # and (str(sound_tech_id_val) != str(orig_sound_tech_id or ""))
-    # ):
-        # import time
-        # t0 = time.perf_counter()
-        # with st.status("Sending sound-tech confirmation…", state="running") as s:
-            # from tools.send_soundtech_confirm import send_soundtech_confirm
-            # send_soundtech_confirm(gid)
-            # s.update(label="Confirmation sent", state="complete")
-        # dt = time.perf_counter() - t0
-        # st.toast(f"📧 Sound-tech emailed (took {dt:.1f}s).", icon="📧")
-# except Exception as e:
-    # st.warning(f"Auto-send failed: {e}")
+try:
+    if (
+        not sound_provided
+        and autoc_send_now
+        and (sound_tech_id_val is not None)
+        and (str(sound_tech_id_val) != str(orig_sound_tech_id or ""))
+    ):
+        import time
+        t0 = time.perf_counter()
+        with st.status("Sending sound-tech confirmation…", state="running") as s:
+            from tools.send_soundtech_confirm import send_soundtech_confirm
+            send_soundtech_confirm(gid)
+            s.update(label="Confirmation sent", state="complete")
+        dt = time.perf_counter() - t0
+        st.toast(f"📧 Sound-tech emailed (took {dt:.1f}s).", icon="📧")
+except Exception as e:
+    st.warning(f"Auto-send failed: {e}")
    
     
 # DEBUG OUTPUT (commented) — keep for future troubleshooting if needed

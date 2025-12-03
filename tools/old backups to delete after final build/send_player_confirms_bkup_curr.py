@@ -73,7 +73,7 @@ def _sb_admin() -> Client:
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
     res = (
         _sb().table("gigs")
-        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id, notes, sound_by_venue_name, closeout_notes")
+        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id, notes")
         .eq("id", gig_id).limit(1).execute()
     )
     rows = res.data or []
@@ -268,92 +268,35 @@ def _utc_naive(dt_aware: dt.datetime) -> dt.datetime:
     """Convert aware -> UTC -> naive (for helpers that expect naive UTC)."""
     return dt_aware.astimezone(dt.timezone.utc).replace(tzinfo=None)
 
-def _ics_escape(text: str) -> str:
-    if not text:
-        return ""
-    # RFC5545 escaping: backslash, comma, semicolon, and newlines
-    return (
-        str(text)
-        .replace("\\", "\\\\")
-        .replace("\r\n", "\\n")
-        .replace("\n", "\\n")
-        .replace(",", "\\,")
-        .replace(";", "\\;")
-    )
-
 def _fallback_ics_bytes(uid: str, starts_at: dt.datetime, ends_at: dt.datetime,
-                        summary: str, location: str, description: str,
-                        tzname: str = "America/New_York") -> bytes:
-    """
-    Outlook-friendly fallback ICS:
-    - Includes a VTIMEZONE block for America/New_York
-    - Uses DTSTART;TZID=America/New_York / DTEND;TZID=America/New_York
-    - Escapes text per RFC5545
-    """
-    from zoneinfo import ZoneInfo
-
-    tz = ZoneInfo(tzname)
-    starts_local = starts_at.astimezone(tz) if starts_at.tzinfo else starts_at.replace(tzinfo=tz)
-    ends_local = ends_at.astimezone(tz) if ends_at.tzinfo else ends_at.replace(tzinfo=tz)
-
-    def _fmt_local(d: dt.datetime) -> str:
-        return d.strftime("%Y%m%dT%H%M%S")
-
-    dtstamp = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-
+                        summary: str, location: str, description: str) -> bytes:
+    """Simple RFC5545-compliant ICS (UTC naive inputs)."""
+    def _fmt(d: dt.datetime) -> str:
+        return d.strftime("%Y%m%dT%H%M%SZ")
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
         "PRODID:-//PRS//Player Confirm//EN",
         "CALSCALE:GREGORIAN",
         "METHOD:REQUEST",
-        "BEGIN:VTIMEZONE",
-        f"TZID:{tzname}",
-        f"X-LIC-LOCATION:{tzname}",
-        "BEGIN:DAYLIGHT",
-        "TZOFFSETFROM:-0500",
-        "TZOFFSETTO:-0400",
-        "TZNAME:EDT",
-        "DTSTART:19700308T020000",
-        "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU",
-        "END:DAYLIGHT",
-        "BEGIN:STANDARD",
-        "TZOFFSETFROM:-0400",
-        "TZOFFSETTO:-0500",
-        "TZNAME:EST",
-        "DTSTART:19701101T020000",
-        "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU",
-        "END:STANDARD",
-        "END:VTIMEZONE",
         "BEGIN:VEVENT",
         f"UID:{uid}",
-        f"DTSTAMP:{dtstamp}",
-        f"DTSTART;TZID={tzname}:{_fmt_local(starts_local)}",
-        f"DTEND;TZID={tzname}:{_fmt_local(ends_local)}",
-        f"SUMMARY:{_ics_escape(summary)}",
-        f"LOCATION:{_ics_escape(location)}".rstrip(),
-        "DESCRIPTION:" + _ics_escape(description),
+        f"DTSTAMP:{_fmt(dt.datetime.utcnow())}",
+        f"DTSTART:{_fmt(starts_at)}",
+        f"DTEND:{_fmt(ends_at)}",
+        f"SUMMARY:{summary}",
+        f"LOCATION:{location}".rstrip(),
+        "DESCRIPTION:" + description.replace("\n", "\\n"),
         "END:VEVENT",
         "END:VCALENDAR",
-        "",
+        ""
     ]
     return ("\r\n".join(lines)).encode("utf-8")
 
 # -----------------------------
 # Public API (minimal edits elsewhere)
 # -----------------------------
-def send_player_confirms(
-    gig_id: str,
-    only_players: Optional[Iterable[str]] = None,
-    cc: Optional[list[str]] = None
-) -> None:
-    """
-    Send player confirmation emails.
-
-    If only_players is provided, email ONLY those musicians.
-    If omitted/None, email ALL players assigned to the gig.
-    ICS/calendar logic remains unchanged for all players.
-    """
+def send_player_confirms(gig_id: str, musician_ids: Optional[Iterable[str]] = None, cc: Optional[list[str]] = None) -> None:
     gig_id = str(gig_id)
     gig = _fetch_gig(gig_id)
 
@@ -379,14 +322,11 @@ def send_player_confirms(
             ordered_ids.append(smid)
         roles_by_mid[smid] = _nz(r.get("role"))
 
-    # --- PATCH: only email selected players, but maintain full ICS context ---
-    if only_players is None:
-        # Default behavior: email everyone
+    # Who to send to
+    if musician_ids is None:
         target_ids = ordered_ids[:]
     else:
-        # Filter to the explicitly-specified set
-        only_players_set = {str(x) for x in only_players if x}
-        target_ids = [mid for mid in ordered_ids if mid in only_players_set]
+        target_ids = [str(x) for x in musician_ids if x]
 
     # Fetch musician data for the full lineup (so we can render "other players")
     mus_map = _fetch_musicians_map(ordered_ids)
@@ -456,6 +396,7 @@ def send_player_confirms(
         alt = _nz(gig.get("sound_by_venue_name"))
         if alt:
             soundtech_name = alt
+          
 
     for mid in target_ids:
         token = uuid.uuid4().hex
@@ -544,11 +485,11 @@ def send_player_confirms(
 
             if starts_at_aware and not ends_at_aware:
                 ends_at_aware = starts_at_aware + dt.timedelta(hours=3)
-
+                
             # Cross-midnight fix: if end <= start, roll end to next day
             if starts_at_aware and ends_at_aware and ends_at_aware <= starts_at_aware:
                 ends_at_aware = ends_at_aware + dt.timedelta(days=1)
-
+               
             if starts_at_aware and ends_at_aware:
                 starts_at_built = starts_at_aware.isoformat()
                 ends_at_built = ends_at_aware.isoformat()
@@ -571,11 +512,6 @@ def send_player_confirms(
                 description = ("You’re confirmed for " + title).strip()
                 if desc_lines:
                     description += "\n\n" + "\n".join(desc_lines)
-                # === Add gig Notes into ICS description ===
-                notes_ics = ""
-                if notes_present:
-                    notes_ics = _ics_escape(notes_raw)
-                    description += "\n\nNotes:\n" + notes_ics
 
                 try:
                     ics_bytes = make_ics_bytes(
@@ -586,11 +522,11 @@ def send_player_confirms(
                         description=description,
                     )
                 except Exception:
-                    # Fallback: generate Outlook-friendly ICS with timezone
+                    # Fallback: generate minimal ICS in UTC naive
                     ics_bytes = _fallback_ics_bytes(
                         uid=f"{uuid.uuid4().hex}@prs",
-                        starts_at=starts_at_aware,
-                        ends_at=ends_at_aware,
+                        starts_at=_utc_naive(starts_at_aware),
+                        ends_at=_utc_naive(ends_at_aware),
                         summary=summary,
                         location=location,
                         description=description,

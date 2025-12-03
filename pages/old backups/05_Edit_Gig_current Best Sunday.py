@@ -309,7 +309,7 @@ def _autosend_run_for(gig_id_str: str):
                 _bump_and_rerun("advance to players")
                 return
 
-    # === 3) Players (PATCHED: only newly added players get emails) ===
+    # === 3) Players ===
     _enabled_players = _IS_ADMIN() and st.session_state.get("autoc_send_players_on_create", False)
     if not _enabled_players:
         _log(
@@ -318,18 +318,12 @@ def _autosend_run_for(gig_id_str: str):
         )
         _mark_done("players")
     elif not prog["players"] and _autosend_once("players", gig_id_str):
-        _log("Player confirmations", "Calling sender (patched for added players)...")
+        _log("Player confirmations", "Calling sender...")
         try:
-            # Retrieve added players diff from earlier patch
-            added_ids = st.session_state.get(f"added_players_{gig_id_str}", set()) or set()
-
-            if added_ids:
-                from tools.send_player_confirms import send_player_confirms
-                send_player_confirms(gig_id_str, only_players=list(added_ids))
-                st.toast(f"📧 Player emails sent to newly added players only.", icon="📧")
-                _log("Player confirmations", f"Sent to added players: {added_ids}")
-            else:
-                _log("Player confirmations", "No newly added players — skipping email send.")
+            from tools.send_player_confirms import send_player_confirms
+            send_player_confirms(gig_id_str)
+            st.toast("📧 Players emailed.", icon="📧")
+            _log("Player confirmations", "Sent OK.")
         except Exception:
             tr = traceback.format_exc()
             _log("Player confirmations", "Send failed", tr)
@@ -562,22 +556,10 @@ def _load_gigs() -> pd.DataFrame:
         df["event_date"] = pd.to_datetime(df["event_date"], errors="coerce").dt.date
     return df
 
-# PATCH: Contract Status Filter
-st.markdown("### Filter Gigs")
-status_filter = st.multiselect(
-    "Show gigs with status:",
-    ["Pending", "Hold", "Confirmed"],
-    default=["Pending", "Hold", "Confirmed"],
-)
-
 gigs = _load_gigs()
 if gigs.empty:
     st.info("No gigs found.")
     st.stop()
-
-# PATCH: Apply status filter
-if "contract_status" in gigs.columns:
-    gigs = gigs[gigs["contract_status"].isin(status_filter)]
 
 from datetime import timedelta as _td
 
@@ -778,16 +760,9 @@ venue_add_box = st.empty()
 # Private flag, eligibility
 c1, c2 = st.columns([1, 1])
 with c1:
-    # Use private_flag as the canonical DB column; fall back to any legacy is_private value if present
-    initial_private = bool(row.get("private_flag") or row.get("is_private"))
-    is_private = st.checkbox("Private Event?", value=initial_private, key=f"priv_{gid}")
+    is_private = st.checkbox("Private Event?", value=bool(row.get("is_private")), key=f"priv_{gid}")
 with c2:
-    eligible_1099 = st.checkbox(
-        "1099 Eligible",
-        value=bool(row.get("eligible_1099", False)),
-        key=f"elig1099_{gid}",
-    )
-
+    eligible_1099 = st.checkbox("1099 Eligible", value=bool(row.get("eligible_1099", False)), key=f"elig1099_{gid}")
 
 # Preselect newly created tech (set in previous run)
 _pre_key = f"preselect_sound_{gid}"
@@ -857,16 +832,6 @@ assigned_df = _table_exists("gig_musicians") and _select_df(
     "gig_musicians", "*", where_eq={"gig_id": gid_str}
 )
 assigned_df = assigned_df if isinstance(assigned_df, pd.DataFrame) else pd.DataFrame()
-
-# PATCH: Capture old players before editing
-old_player_ids = set()
-if isinstance(assigned_df, pd.DataFrame) and not assigned_df.empty:
-    try:
-        old_player_ids = set(
-            assigned_df["musician_id"].dropna().astype(str).tolist()
-        )
-    except Exception:
-        old_player_ids = set()
 
 # --- DIAGNOSTIC: verify gig_id + rowcount + RLS errors on cold start --- Keep for future troubleshooting if needed
 # st.caption(f"DBG gid_str={gid_str}")
@@ -992,12 +957,6 @@ for idx, role in enumerate(ROLE_CHOICES):
 
         role_add_boxes[role] = st.empty()
 
-# === end of role-assignment loop ===
-
-# PATCH: Determine newly added players
-new_player_ids = {p["musician_id"] for p in lineup if p["musician_id"]}
-added_player_ids = new_player_ids - old_player_ids
-st.session_state[f"added_players_{gid_str}"] = added_player_ids
 
 # -----------------------------
 # Inline “Add New …” sub-forms
@@ -1133,169 +1092,19 @@ for role in ROLE_CHOICES:
 # -----------------------------
 st.markdown("---")
 st.subheader("Notes")
-notes = st.text_area(
-    "Notes / Special Instructions (optional)",
-    max_chars=1000,
-    value=_opt_label(row.get("notes"), ""),
-    key=f"notes_{gid}",
-)
-
-# Ensure overtime_rate is always defined (public + private)
-overtime_rate = row.get("overtime_rate")
-
-# Load any existing private details for this gig (from gigs_private)
-gp_row: Dict[str, object] = {}
-if bool(is_private) and _table_exists("gigs_private"):
-    gp_df = _select_df("gigs_private", "*", where_eq={"gig_id": gid_str}, limit=1)
-    if isinstance(gp_df, pd.DataFrame) and not gp_df.empty:
-        gp_row = gp_df.iloc[0].to_dict()
+notes = st.text_area("Notes / Special Instructions (optional)", height=100, value=_opt_label(row.get("notes"), ""), key=f"notes_{gid}")
 
 if is_private:
     st.markdown("#### Private Event Details")
     p1, p2 = st.columns([1, 1])
-
-    # -------------------------------
-    # Column 1
-    # -------------------------------
     with p1:
-        private_event_type = st.text_input(
-            "Type of Event",
-            value=_opt_label(
-                (gp_row.get("event_type") if gp_row and gp_row.get("event_type") else row.get("private_event_type")),
-                "",
-            ),
-            key=f"pet_{gid}",
-        )
-
-        organizer = st.text_input(
-            "Organizer / Company",
-            value=_opt_label(
-                (gp_row.get("organizer") if gp_row and gp_row.get("organizer") else row.get("organizer")),
-                "",
-            ),
-            key=f"org_{gid}",
-        )
-
-        guest_of_honor = st.text_input(
-            "Guest(s) of Honor / Bride/Groom",
-            value=_opt_label(
-                (gp_row.get("honoree") if gp_row and gp_row.get("honoree") else row.get("guest_of_honor")),
-                "",
-            ),
-            key=f"goh_{gid}",
-        )
-
-    # -------------------------------
-    # Column 2
-    # -------------------------------
+        private_event_type = st.text_input("Type of Event", value=_opt_label(row.get("private_event_type"), ""), key=f"pet_{gid}")
+        organizer = st.text_input("Organizer / Company", value=_opt_label(row.get("organizer"), ""), key=f"org_{gid}")
+        guest_of_honor = st.text_input("Guest(s) of Honor / Bride/Groom", value=_opt_label(row.get("guest_of_honor"), ""), key=f"goh_{gid}")
     with p2:
-        private_contact = st.text_input(
-            "Primary Contact (name)",
-            value=_opt_label(
-                (gp_row.get("client_name") if gp_row and gp_row.get("client_name") else row.get("private_contact")),
-                "",
-            ),
-            key=f"pc_{gid}",
-        )
-
-        private_client_email = st.text_input(
-            "Client Email",
-            value=_opt_label(
-                (gp_row.get("client_email") if gp_row and gp_row.get("client_email") else row.get("client_email")),
-                "",
-            ),
-            key=f"client_email_{gid}",
-        )
-
-        private_client_phone = st.text_input(
-            "Client Phone",
-            value=_opt_label(
-                (gp_row.get("client_phone") if gp_row and gp_row.get("client_phone") else row.get("client_phone")),
-                "",
-            ),
-            key=f"client_phone_{gid}",
-        )
-
-        additional_services = st.text_input(
-            "Additional Musicians/Services (optional)",
-            value=_opt_label(row.get("additional_services"), ""),
-            key=f"adds_{gid}",
-        )
-
-    # -------------------------------
-    # Overtime Rate
-    # -------------------------------
-    overtime_rate = st.text_input(
-        "Overtime Rate (e.g., $300/hr)",
-        value=_opt_label(
-            (gp_row.get("overtime_rate") if gp_row and gp_row.get("overtime_rate") else row.get("overtime_rate")),
-            "",
-        ),
-        key=f"otrate_{gid}",
-    )
-
-    # ----------------------------------------
-    # Organizer Address (FULL WIDTH)
-    # ----------------------------------------
-    st.markdown("##### Organizer Address")
-    a1, a2 = st.columns([2, 1])
-
-    with a1:
-        st.text_input(
-            "Street Address",
-            key=f"priv_addr_street_{gid}",
-            value=_opt_label(
-                (gp_row.get("organizer_street") if gp_row and gp_row.get("organizer_street") else row.get("organizer_street")),
-                "",
-            ),
-        )
-
-        st.text_input(
-            "City",
-            key=f"priv_addr_city_{gid}",
-            value=_opt_label(
-                (gp_row.get("organizer_city") if gp_row and gp_row.get("organizer_city") else row.get("organizer_city")),
-                "",
-            ),
-        )
-
-    with a2:
-        st.text_input(
-            "State",
-            key=f"priv_addr_state_{gid}",
-            value=_opt_label(
-                (gp_row.get("organizer_state") if gp_row and gp_row.get("organizer_state") else row.get("organizer_state")),
-                "",
-            ),
-        )
-
-        st.text_input(
-            "Zip Code",
-            key=f"priv_addr_zip_{gid}",
-            value=_opt_label(
-                (gp_row.get("organizer_zip") if gp_row and gp_row.get("organizer_zip") else row.get("organizer_zip")),
-                "",
-            ),
-        )
-
-# ----------------------------------------
-# Contract-Specific Details (FULL WIDTH)
-# ----------------------------------------
-st.markdown("### Contract-Specific Details")
-
-special_instructions = st.text_area(
-    "Special Instructions (Contract Only)",
-    value=_opt_label(gp_row.get("special_instructions") if gp_row else None, ""),
-    height=120,
-    key=f"special_instr_{gid}",
-)
-
-cocktail_coverage = st.text_input(
-    "Cocktail Coverage (optional)",
-    value=_opt_label(gp_row.get("cocktail_coverage") if gp_row else None, ""),
-    key=f"cocktail_cov_{gid}",
-)
-
+        private_contact = st.text_input("Primary Contact (name)", value=_opt_label(row.get("private_contact"), ""), key=f"pc_{gid}")
+        private_contact_info = st.text_input("Contact Info (email/phone)", value=_opt_label(row.get("private_contact_info"), ""), key=f"pci_{gid}")
+        additional_services = st.text_input("Additional Musicians/Services (optional)", value=_opt_label(row.get("additional_services"), ""), key=f"adds_{gid}")
 
 # -----------------------------
 # Deposits (Admin)
@@ -1306,7 +1115,7 @@ existing_deps = pd.DataFrame()
 if table_exists:
     existing_deps = _select_df("gig_deposits", "*", where_eq={"gig_id": gid_str})
     existing_deps = (
-        existing_deps.sort_values(by="seq")
+        existing_deps.sort_values(by="sequence")
         if isinstance(existing_deps, pd.DataFrame) and not existing_deps.empty
         else pd.DataFrame()
     )
@@ -1324,9 +1133,9 @@ dep_buf_key = k("deposit_buf")
 if dep_buf_key not in st.session_state:
     if not existing_deps.empty:
         seed = (
-            existing_deps.sort_values("seq")
+            existing_deps.sort_values("sequence")
             .assign(
-                sequence=lambda d: d["seq"].fillna(0).astype(int),
+                sequence=lambda d: d["sequence"].fillna(0).astype(int),
                 amount=lambda d: d["amount"].fillna(0.0).astype(float),
                 is_percentage=lambda d: d["is_percentage"].fillna(False).astype(bool),
                 due_date=lambda d: d["due_date"].fillna(""),
@@ -1426,57 +1235,21 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "band_name": (band_name or None),
         "agent_id": agent_id_val,
         "venue_id": venue_id_val,
-        "sound_tech_id": sound_tech_id_val,  # selection-only
-        "private_flag": bool(is_private),
-        # keep legacy is_private for now in case the column still exists; schema filter will drop it if not
+        "sound_tech_id": sound_tech_id_val,            # selection-only
         "is_private": bool(is_private),
         "notes": (notes or None),
-        "organizer_street": st.session_state.get(f"priv_addr_street_{gid}") or None,
-        "organizer_city": st.session_state.get(f"priv_addr_city_{gid}") or None,
-        "organizer_state": st.session_state.get(f"priv_addr_state_{gid}") or None,
-        "organizer_zip": st.session_state.get(f"priv_addr_zip_{gid}") or None,
         "sound_by_venue_name": (sound_by_venue_name or None),   # pure text
         "sound_by_venue_phone": (sound_by_venue_phone or None), # pure text (may contain email or phone)
         "sound_provided": bool(sound_provided),
         "sound_fee": sound_fee_val,
         "eligible_1099": bool(eligible_1099) if "eligible_1099" in _table_columns("gigs") else None,
-        "overtime_rate": overtime_rate or None,
     }
-
     payload = _filter_to_schema("gigs", payload)
 
     # Update gig
     ok = _robust_update("gigs", {"id": row.get("id")}, payload)
     if not ok:
         st.stop()
-        
-    # If this is a private event, upsert private details into gigs_private
-    if bool(is_private) and _table_exists("gigs_private"):
-        try:
-            gp_payload = {
-                "gig_id": gid_str,
-                "organizer": organizer or None,
-                "event_type": private_event_type or None,
-                "honoree": guest_of_honor or None,
-                "special_instructions": special_instructions or None,
-                "cocktail_coverage": cocktail_coverage or None,
-                "client_name": private_contact or None,
-                "client_email": private_client_email or None,
-                "client_phone": private_client_phone or None,
-            }
-
-            # Initialize contract_total_amount from the gig fee if present
-            if fee:
-                try:
-                    gp_payload["contract_total_amount"] = float(fee)
-                except Exception:
-                    pass
-
-            gp_payload = _filter_to_schema("gigs_private", gp_payload)
-            if gp_payload:
-                sb.table("gigs_private").upsert(gp_payload, on_conflict="gig_id").execute()
-        except Exception as e:
-            st.error(f"Could not save private event details: {e}")
 
     # --- Persist lineup (no table-exists gate) ---
     # Guard: avoid accidental full wipe unless explicitly confirmed
@@ -1523,7 +1296,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     for d in dep_rows:
                         rows.append(_filter_to_schema("gig_deposits", {
                             "gig_id": gid_str,
-                            "seq": d["sequence"],
+                            "sequence": d["sequence"],
                             "due_date": d["due_date"].isoformat() if isinstance(d["due_date"], (date, datetime)) else d["due_date"],
                             "amount": float(d["amount"] or 0.0),
                             "is_percentage": bool(d["is_percentage"]),
