@@ -609,8 +609,21 @@ def _compose_span(row):
         end_dt += _td(days=1)
     return (pd.Timestamp(start_dt), pd.Timestamp(end_dt))
 
-spans = gigs.apply(_compose_span, axis=1, result_type="expand")
-gigs["_start_dt"] = pd.to_datetime(spans[0], errors="coerce")
+# ======================================================
+# Safe span expansion (fixes KeyError on empty DataFrame)
+# ======================================================
+if gigs.empty:
+    gigs["_start_dt"] = pd.NaT
+    gigs["_end_dt"]   = pd.NaT
+else:
+    spans = gigs.apply(
+        lambda r: pd.Series(_compose_span(r), index=["_start_dt_raw", "_end_dt_raw"]),
+        axis=1
+    )
+
+    gigs["_start_dt"] = pd.to_datetime(spans["_start_dt_raw"], errors="coerce")
+    gigs["_end_dt"]   = pd.to_datetime(spans["_end_dt_raw"], errors="coerce")
+
 
 def _label_row(r: pd.Series) -> str:
     dt_str = r.get("event_date")
