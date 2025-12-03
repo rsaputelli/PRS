@@ -8,15 +8,34 @@ from typing import Optional
 
 import sys
 from pathlib import Path
+import importlib.util
 
+# ======================================================
 # Ensure root folder (/prs) is importable
+# ======================================================
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from Master_Gig_App import _select_df, _IS_ADMIN, _get_logged_in_user
+# ======================================================
+# Safe load of Master_Gig_App (filename contains spaces)
+# ======================================================
+mgapp_path = ROOT / "Master_Gig_App.py"   # exact filename
+spec = importlib.util.spec_from_file_location("Master_Gig_App", mgapp_path)
+mgapp = importlib.util.module_from_spec(spec)
+sys.modules["Master_Gig_App"] = mgapp
+spec.loader.exec_module(mgapp)
+
+_select_df = mgapp._select_df
+_get_logged_in_user = mgapp._get_logged_in_user
+_IS_ADMIN = mgapp._IS_ADMIN
+
+# ======================================================
+# Normal library imports
+# ======================================================
 from lib.ui_header import render_header
 from lib.email_utils import _fetch_musicians_map
+
 
 # ======================================================
 # Page Access
