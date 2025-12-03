@@ -3,181 +3,156 @@
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
-from datetime import datetime, time
-from typing import List, Dict, Optional
+from datetime import datetime, date, time
+from typing import Optional, Dict, Any
 
+import os
+from supabase import create_client, Client
+
+# ==========================================
+# Supabase Auth — identical to Edit Gig / Schedule View
+# ==========================================
+
+def _get_secret(name: str, required=False) -> Optional[str]:
+    val = st.secrets.get(name) or os.environ.get(name)
+    if required and not val:
+        st.error(f"Missing required secret: {name}")
+        st.stop()
+    return val
+
+SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
+SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
+sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+# Restore session if tokens present
+if (
+    "sb_access_token" in st.session_state
+    and st.session_state["sb_access_token"]
+    and "sb_refresh_token" in st.session_state
+    and st.session_state["sb_refresh_token"]
+):
+    try:
+        sb.auth.set_session(
+            access_token=st.session_state["sb_access_token"],
+            refresh_token=st.session_state["sb_refresh_token"],
+        )
+    except Exception:
+        st.error("Your session has expired. Please log in again.")
+        st.stop()
+
+# Auth gate
+if "user" not in st.session_state or not st.session_state["user"]:
+    st.error("Please log in from the Login page.")
+    st.stop()
+
+USER = st.session_state["user"]
+
+# ==========================================
+# Local _select_df — same as Schedule View
+# ==========================================
+def _select_df(table: str, *, where_eq: dict | None = None, limit: int | None = None):
+    q = sb.table(table).select("*")
+    if where_eq:
+        for col, val in where_eq.items():
+            q = q.eq(col, val)
+    if limit:
+        q = q.limit(limit)
+    resp = q.execute()
+    return pd.DataFrame(resp.data or [])
+
+# ==========================================
+# Header
+# ==========================================
 from lib.ui_header import render_header
-from lib.email_utils import _fetch_musicians_map
-from Master_Gig_App import _select_df, _get_logged_in_user
+render_header("My Schedule")
 
+# ==========================================
+# Helpers for formatting (same as Schedule View)
+# ==========================================
 
-def fmt_date(d) -> str:
-    """Simple human-readable date formatter, similar to Schedule View."""
-    if d is None or (isinstance(d, float) and pd.isna(d)):
+def fmt_date(val):
+    if not val or pd.isna(val):
         return ""
     try:
-        return pd.to_datetime(d).strftime("%a %b %-d, %Y")
+        return pd.to_datetime(val).strftime("%a %b %-d, %Y")
     except Exception:
-        return str(d)
+        return str(val)
 
+def fmt_time_range(start_raw, end_raw):
+    def to_t(t):
+        if not t or pd.isna(t):
+            return None
+        try:
+            return datetime.strptime(t, "%H:%M:%S").strftime("%-I:%M %p")
+        except:
+            return str(t)
 
-def fmt_time_range(start, end) -> str:
-    """Safe time range formatter (HH:MM–HH:MM)."""
-    if not start and not end:
-        return ""
-    try:
-        s = str(start)[:5] if start else ""
-        e = str(end)[:5] if end else ""
-        if s == e:
-            return s
-        return f"{s}–{e}"
-    except Exception:
-        return ""
+    st = to_t(start_raw)
+    en = to_t(end_raw)
+    if st and en:
+        return f"{st}–{en}"
+    return st or ""
 
+# ==========================================
+# Load gigs the logged-in player is assigned to
+# ==========================================
 
-# ======================================================
-# Page Header / Auth
-# ======================================================
-render_header("Schedule (Fee-Free View)")
+email = USER.get("email", "").strip().lower()
 
-user = _get_logged_in_user()
-if not user:
-    st.error("You must be logged in to view this page.")
+if not email:
+    st.error("Could not determine your email address.")
     st.stop()
 
-user_email = user.get("email")
-user_name = user.get("full_name", user_email)
-user_id = str(user.get("id"))
+# Step 1: find musician ID
+mus_df = sb.table("musicians").select("*").eq("email", email).execute()
+musician_rows = mus_df.data or []
 
-st.markdown(f"**Logged in as:** {user_name}")
-
-
-# ======================================================
-# View selector
-# ======================================================
-mode = st.radio(
-    "View:",
-    ["My Gigs Only", "All Gigs"],
-    horizontal=True,
-)
-
-
-# ======================================================
-# Contract Status Filter
-# ======================================================
-status_filter = st.multiselect(
-    "Show gigs with status:",
-    ["Pending", "Hold", "Confirmed"],
-    default=["Pending", "Hold", "Confirmed"],
-)
-
-
-# ======================================================
-# Load gigs
-# ======================================================
-gigs_df = _select_df("gigs", "*")
-if gigs_df.empty:
-    st.info("No gigs available.")
+if not musician_rows:
+    st.warning("You are logged in, but no musician record is associated with your email.")
     st.stop()
 
-# Convert date
-if "event_date" in gigs_df.columns:
-    gigs_df["event_date"] = pd.to_datetime(
-        gigs_df["event_date"], errors="coerce"
-    ).dt.date
+musician = musician_rows[0]
+musician_id = musician["id"]
 
-# Apply status filter
-if "contract_status" in gigs_df.columns:
-    gigs_df = gigs_df[gigs_df["contract_status"].isin(status_filter)]
+# Step 2: find gigs assigned to this musician
+assign_df = sb.table("gig_musicians").select("*").eq("musician_id", musician_id).execute()
+assign_rows = assign_df.data or []
 
-
-# ======================================================
-# Upcoming Only Filter
-# ======================================================
-upcoming_only = st.checkbox("Show upcoming gigs only", value=True)
-today = datetime.today().date()
-
-if upcoming_only:
-    gigs_df = gigs_df[gigs_df["event_date"] >= today]
-
-
-# ======================================================
-# Search Bar
-# ======================================================
-search_text = st.text_input("Search gigs (title, venue, players)", "").strip().lower()
-
-
-# ======================================================
-# My Gigs filter
-# ======================================================
-gm = _select_df("gig_musicians", "*")
-if not gm.empty:
-    gm["musician_id"] = gm["musician_id"].astype(str)
-
-    if mode == "My Gigs Only":
-        my_gig_ids = gm.loc[gm["musician_id"] == user_id, "gig_id"].astype(str).unique()
-        gigs_df = gigs_df[gigs_df["id"].astype(str).isin(my_gig_ids)]
-
-
-# ======================================================
-# Render gigs
-# ======================================================
-if gigs_df.empty:
-    st.info("No gigs match your filters.")
+if not assign_rows:
+    st.info("You have no scheduled gigs.")
     st.stop()
 
-# Sort chronologically
-gigs_df = gigs_df.sort_values("event_date")
+gig_ids = [row["gig_id"] for row in assign_rows]
 
-for _, g in gigs_df.iterrows():
-    gid = str(g["id"])
-    title = g.get("title", "(untitled)")
-    date = g.get("event_date")
-    start = g.get("start_time")
-    end = g.get("end_time")
-    status = g.get("contract_status")
+# Step 3: load gigs
+gigs = _select_df("gigs").query("id in @gig_ids")
 
-    # Venue
-    venue = _select_df("venues", "*", where_eq={"id": g.get("venue_id")}, limit=1)
-    venue_name = venue.iloc[0]["name"] if not venue.empty else "(venue)"
-    venue_addr = venue.iloc[0]["address"] if not venue.empty else ""
+if gigs.empty:
+    st.info("You have no scheduled gigs.")
+    st.stop()
 
-    # Lineup
-    gm_rows = gm[gm["gig_id"].astype(str) == gid] if not gm.empty else pd.DataFrame()
-    lineup_ids = gm_rows["musician_id"].astype(str).tolist() if not gm_rows.empty else []
-    mus_map = _fetch_musicians_map(lineup_ids) if lineup_ids else {}
-    lineup_parts = []
-    for mid in lineup_ids:
-        if mid in mus_map:
-            name = mus_map[mid].get("name") or mus_map[mid].get("display_name") or "(unknown)"
-            role_series = gm_rows.loc[gm_rows["musician_id"] == mid, "role"]
-            role = role_series.iloc[0] if not role_series.empty else ""
-            if role:
-                lineup_parts.append(f"{name} ({role})")
-            else:
-                lineup_parts.append(name)
-    lineup_text = ", ".join(lineup_parts)
+# Sort by date/time
+gigs["_sdt"] = pd.to_datetime(gigs["event_date"], errors="coerce")
+gigs = gigs.sort_values("_sdt")
 
-    # Additional lineup-based search filtering
-    if search_text:
-        full_text = " ".join([
-            str(title).lower(),
-            str(venue_name).lower(),
-            lineup_text.lower(),
-        ])
-        if search_text not in full_text:
-            continue
+# ==========================================
+# Display
+# ==========================================
 
-    # Notes
-    notes_public = g.get("notes") or ""
+st.markdown("### Your Upcoming Gigs")
 
-    # Card UI
-    st.markdown("### " + title)
-    st.write(f"**Status:** {status}")
-    st.write(f"**When:** {fmt_date(date)} — {fmt_time_range(start, end)}")
-    st.write(f"**Venue:** {venue_name}<br>{venue_addr}", unsafe_allow_html=True)
-    st.write(f"**Lineup:** {lineup_text or '(none)'}")
-    if notes_public.strip():
-        st.write(f"**Notes:** {notes_public}")
+for _, r in gigs.iterrows():
+    dt = fmt_date(r.get("event_date"))
+    time_range = fmt_time_range(r.get("start_time"), r.get("end_time"))
+    title = r.get("title") or "(untitled)"
+    venue = r.get("venue_name") or ""  # If you want venue lookup, we can add it
 
-    st.markdown("---")
+    st.markdown(
+        f"""
+        **{dt}**  
+        **{title}**  
+        {time_range}  
+        {venue}  
+        ---
+        """
+    )
