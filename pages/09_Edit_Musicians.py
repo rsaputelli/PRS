@@ -72,6 +72,19 @@ if not _IS_ADMIN():
     st.stop()
 
 # ==========================================
+# TEMPORARY ADMIN LIST (for testing only)
+# ==========================================
+PRS_ADMINS = {
+    "ray@lutinemanagement.com",
+    "ray.saputelli@lutinemanagement.com",
+    "prsbandinfo@gmail.com",
+    "rjs2119@gmail.com",
+}
+
+def _IS_ADMIN():
+    return USER.get("email") in PRS_ADMINS
+
+# ==========================================
 # Page Header
 # ==========================================
 from lib.ui_header import render_header
