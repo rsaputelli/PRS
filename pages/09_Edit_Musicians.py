@@ -61,20 +61,6 @@ def _select_df(table: str, *, where_eq: dict | None = None, limit: int | None = 
     return pd.DataFrame(resp.data or [])
 
 # ==========================================
-# Admin Gate
-# ==========================================
-def _IS_ADMIN() -> bool:
-    admins = st.secrets.get("PRS_ADMINS", [])
-    return USER.get("email") in admins
-
-if not _IS_ADMIN():
-    st.error("You do not have permission to edit musician records.")
-    st.stop()
-
-def _IS_ADMIN():
-    return USER.get("email") in PRS_ADMINS
-    
-# ==========================================
 # TEMPORARY ADMIN LIST (for testing only)
 # ==========================================
 PRS_ADMINS = {
@@ -83,7 +69,16 @@ PRS_ADMINS = {
     "prsbandinfo@gmail.com",
     "rjs2119@gmail.com",
 }
-   
+
+# ==========================================
+# Admin Gate (only using temporary list)
+# ==========================================
+def _IS_ADMIN():
+    return USER.get("email") in PRS_ADMINS
+
+if not _IS_ADMIN():
+    st.error("You do not have permission to edit musician records.")
+    st.stop()
 
 # ==========================================
 # Page Header
