@@ -71,6 +71,9 @@ if not _IS_ADMIN():
     st.error("You do not have permission to edit musician records.")
     st.stop()
 
+def _IS_ADMIN():
+    return USER.get("email") in PRS_ADMINS
+    
 # ==========================================
 # TEMPORARY ADMIN LIST (for testing only)
 # ==========================================
@@ -80,9 +83,7 @@ PRS_ADMINS = {
     "prsbandinfo@gmail.com",
     "rjs2119@gmail.com",
 }
-
-def _IS_ADMIN():
-    return USER.get("email") in PRS_ADMINS
+   
 
 # ==========================================
 # Page Header
