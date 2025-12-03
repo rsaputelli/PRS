@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
 mgapp_path = ROOT / "Master_Gig_App.py"   # exact filename
 spec = importlib.util.spec_from_file_location("Master_Gig_App", mgapp_path)
 mgapp = importlib.util.module_from_spec(spec)
-sys.modules["Master_Gig_App"] = mgapp
+sys.modules["Master Gig App"] = mgapp
 spec.loader.exec_module(mgapp)
 
 _select_df = mgapp._select_df
