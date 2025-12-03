@@ -20,8 +20,8 @@ if str(ROOT) not in sys.path:
 # ======================================================
 # Safe load of Master_Gig_App (filename contains spaces)
 # ======================================================
-mgapp_path = ROOT / "Master_Gig_App.py"   # exact filename
-spec = importlib.util.spec_from_file_location("Master_Gig_App", mgapp_path)
+mgapp_path = ROOT / "Master Gig App.py"   # exact filename
+spec = importlib.util.spec_from_file_location("Master Gig App", mgapp_path)
 mgapp = importlib.util.module_from_spec(spec)
 sys.modules["Master Gig App"] = mgapp
 spec.loader.exec_module(mgapp)
