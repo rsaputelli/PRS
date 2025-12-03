@@ -712,8 +712,8 @@ st.text_area(
     key="notes_in",
 )
 
-is_private = st.session_state.get("is_private_in", False)
-if is_private:
+if st.session_state.get("is_private_in", False):
+
     st.markdown("#### Private Event Details")
     p1, p2 = st.columns([1, 1])
 
