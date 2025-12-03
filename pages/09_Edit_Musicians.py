@@ -86,7 +86,7 @@ if not _IS_ADMIN():
 from lib.ui_header import render_header
 render_header("Edit Musicians")
 
-from lib.email_utils import _fetch_musicians_map  # optional for future auto-fill
+#from lib.email_utils import _fetch_musicians_map  # optional for future auto-fill
 
 # ==========================================
 # SAVE LOGIC
