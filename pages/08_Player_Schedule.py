@@ -8,11 +8,23 @@ from typing import List, Dict, Optional
 from supabase import Client, create_client
 
 from lib.ui_header import render_header  # if used elsewhere
-from lib.ui_format import fmt_date, fmt_time_range
+from lib.ui_format import fmt_date
 from lib.calendar_utils import make_ics_download
 from lib.email_utils import _fetch_musicians_map
 from Master_Gig_App import _select_df, _IS_ADMIN, _get_logged_in_user
 
+def fmt_time_range(start, end):
+    """Safe time range formatter (HH:MM–HH:MM)."""
+    if not start and not end:
+        return ""
+    try:
+        s = str(start)[:5] if start else ""
+        e = str(end)[:5] if end else ""
+        if s == e:
+            return s
+        return f"{s}–{e}"
+    except Exception:
+        return ""
 
 # ======================================================
 # Page Header
