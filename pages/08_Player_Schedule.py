@@ -1,17 +1,15 @@
-# pages/08_Player_Schedule.py
-
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from datetime import datetime, time
 from typing import List, Dict, Optional
-from supabase import Client, create_client
+from supabase import Client, create_client  # (currently unused, but harmless)
 
-from lib.ui_header import render_header  # if used elsewhere
-from lib.ui_format import fmt_date
+from lib.ui_header import render_header
 from lib.calendar_utils import make_ics_download
 from lib.email_utils import _fetch_musicians_map
 from Master_Gig_App import _select_df, _IS_ADMIN, _get_logged_in_user
+
 
 def fmt_time_range(start, end):
     """Safe time range formatter (HH:MM–HH:MM)."""
@@ -25,6 +23,17 @@ def fmt_time_range(start, end):
         return f"{s}–{e}"
     except Exception:
         return ""
+
+
+def fmt_date(d):
+    """Mirror Schedule View's human-readable date format."""
+    if d is None or (isinstance(d, float) and pd.isna(d)):
+        return ""
+    try:
+        return pd.to_datetime(d).strftime("%a %b %-d, %Y")
+    except Exception:
+        return str(d)
+
 
 # ======================================================
 # Page Header
