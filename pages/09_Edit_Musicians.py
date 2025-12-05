@@ -101,7 +101,7 @@ def _save_musician(payload: Dict[str, Any], musician_id: Optional[str] = None):
     raw = resp.model_dump()
 
     # DEBUG: show what Supabase actually returned
-    st.write("DEBUG_SAVE_RESPONSE", raw)
+    # st.write("DEBUG_SAVE_RESPONSE", raw)
 
     # Hard error if Supabase reports an error
     if raw.get("error"):
