@@ -92,20 +92,31 @@ render_header("Edit Musicians")
 # SAVE LOGIC
 # ==========================================
 def _save_musician(payload: Dict[str, Any], musician_id: Optional[str] = None):
-    """Insert or update musician using supabase-py v2 safe APIResponse access."""
+    """Insert or update musician using supabase-py v2, with debug + row-count check."""
     if musician_id:
         resp = sb.table("musicians").update(payload).eq("id", musician_id).execute()
     else:
         resp = sb.table("musicians").insert(payload).execute()
 
-    # Convert to dict so we can safely inspect error field
     raw = resp.model_dump()
 
+    # DEBUG: show what Supabase actually returned
+    st.write("DEBUG_SAVE_RESPONSE", raw)
+
+    # Hard error if Supabase reports an error
     if raw.get("error"):
-        # bubble the supabase error text up
         raise Exception(str(raw["error"]))
 
-    return raw.get("data", [])
+    data = raw.get("data") or []
+
+    # If we expected an update but got no data back, treat that as a failure for now
+    if musician_id and not data:
+        raise Exception(
+            f"Supabase update affected 0 rows for id={musician_id}. "
+            f"Payload={payload}"
+        )
+
+    return data
 
 
 # ==========================================
