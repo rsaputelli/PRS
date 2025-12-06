@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Optional, Dict, Any
 import os
+from lib.auth import is_logged_in, current_user, IS_ADMIN
 
 # ==========================================
 # Supabase Client (matches Musicians / Edit Gig)
@@ -40,26 +41,19 @@ if (
         st.stop()
 
 # Auth gate
-if "user" not in st.session_state or not st.session_state["user"]:
+if not is_logged_in():
     st.error("Please sign in from the Login page.")
     st.stop()
 
-USER = st.session_state["user"]
+USER = current_user()
+
 
 # ==========================================
-# TEMP ADMIN LIST (until global gating refactor)
+#ADMIN 
 # ==========================================
-PRS_ADMINS = {
-    "ray@lutinemanagement.com",
-    "ray.saputelli@lutinemanagement.com",
-    "prsbandinfo@gmail.com",
-    "rjs2119@gmail.com",
-}
 
-def _IS_ADMIN():
-    return USER.get("email") in PRS_ADMINS
+if not IS_ADMIN():
 
-if not _IS_ADMIN():
     st.error("You do not have permission to edit venues.")
     st.stop()
 
