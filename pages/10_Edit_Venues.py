@@ -141,21 +141,39 @@ if action == "Edit Existing":
 # ==========================================
 st.markdown("### Venue Details")
 with st.form("venue_form"):
+
     name = st.text_input("Venue Name", row.get("name", ""))
-    address = st.text_area("Address", row.get("address", ""))
-    phone = st.text_input("Phone", row.get("phone", ""))
-    email = st.text_input("Email", row.get("email", ""))
-    website = st.text_input("Website", row.get("website", ""))
+
+    # Address fields (schema accurate)
+    address_line1 = st.text_input("Address Line 1", row.get("address_line1", ""))
+    address_line2 = st.text_input("Address Line 2", row.get("address_line2", ""))
+    city = st.text_input("City", row.get("city", ""))
+    state = st.text_input("State", row.get("state", ""))
+    postal_code = st.text_input("Postal Code", row.get("postal_code", ""))
+    country = st.text_input("Country", row.get("country", "USA"))
+
+    # Contact fields
+    contact_name = st.text_input("Contact Name", row.get("contact_name", ""))
+    contact_phone = st.text_input("Contact Phone", row.get("contact_phone", ""))
+    contact_email = st.text_input("Contact Email", row.get("contact_email", ""))
+
+    notes = st.text_area("Notes", row.get("notes", ""))
 
     submitted = st.form_submit_button("Save Venue")
-
+    
 if submitted:
     payload = {
         "name": name or None,
-        "address": address or None,
-        "phone": phone or None,
-        "email": email or None,
-        "website": website or None,
+        "address_line1": address_line1 or None,
+        "address_line2": address_line2 or None,
+        "city": city or None,
+        "state": state or None,
+        "postal_code": postal_code or None,
+        "country": country or "USA",
+        "contact_name": contact_name or None,
+        "contact_phone": contact_phone or None,
+        "contact_email": contact_email or None,
+        "notes": notes or None,
         "updated_at": datetime.utcnow().isoformat(),
     }
 
@@ -165,3 +183,4 @@ if submitted:
         st.balloons()
     except Exception as e:
         st.error(f"Error saving venue: {e}")
+
