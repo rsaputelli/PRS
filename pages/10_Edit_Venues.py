@@ -47,6 +47,19 @@ if not is_logged_in():
 
 USER = current_user()
 
+# DEBUG ------------------------------------------------------------------
+st.write("DEBUG USER EMAIL:", USER.get("email"))
+st.write("DEBUG PRS_ADMINS LOADED:", st.secrets.get("PRS_ADMINS"))
+# ------------------------------------------------------------------------
+
+# ==========================================
+# ADMIN 
+# ==========================================
+if not IS_ADMIN():
+    st.error("You do not have permission to edit venues.")
+    st.stop()
+
+
 
 # ==========================================
 #ADMIN 
