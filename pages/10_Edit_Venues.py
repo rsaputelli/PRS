@@ -50,6 +50,7 @@ USER = current_user()
 # DEBUG ------------------------------------------------------------------
 st.write("DEBUG USER EMAIL:", USER.get("email"))
 st.write("DEBUG PRS_ADMINS LOADED:", st.secrets.get("PRS_ADMINS"))
+st.write("DEBUG ALL SECRETS:", dict(st.secrets))
 # ------------------------------------------------------------------------
 
 # ==========================================
