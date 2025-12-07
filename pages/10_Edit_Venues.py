@@ -8,6 +8,14 @@ from typing import Optional, Dict, Any
 import os
 from lib.auth import is_logged_in, current_user, IS_ADMIN
 
+import json
+
+st.write("DEBUG ALL SECRETS (RAW):")
+try:
+    st.json({k: v for k, v in st.secrets.items()})
+except Exception as e:
+    st.write("ERROR READING SECRETS:", str(e))
+
 # ==========================================
 # Supabase Client (matches Musicians / Edit Gig)
 # ==========================================
