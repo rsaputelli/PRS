@@ -12,6 +12,7 @@ from tools.send_player_confirms import _insert_email_audit
 from lib.calendar_utils import upsert_band_calendar_event
 from lib.ui_header import render_header
 from lib.ui_format import format_currency  # kept for parity / future use
+from lib.auth import IS_ADMIN
 
 # ============================
 # Page config + Auth gate
@@ -71,18 +72,18 @@ for _k, _default in [
         st.session_state[_k] = _default
 
 # --- Safe admin accessor (must exist before any calls) ---
-def _IS_ADMIN() -> bool:
-    u = st.session_state.get("user") or {}
-    return bool(
-        st.session_state.get("IS_ADMIN",
-            st.session_state.get("is_admin",
-                u.get("is_admin", True)  # default True so toggles render if unknown
-            )
-        )
-    )
+# def _IS_ADMIN() -> bool:
+    # u = st.session_state.get("user") or {}
+    # return bool(
+        # st.session_state.get("IS_ADMIN",
+            # st.session_state.get("is_admin",
+                # u.get("is_admin", True)  # default True so toggles render if unknown
+            # )
+        # )
+    # )
 
 # === Email autosend toggles UI (admin-only) ===
-if _IS_ADMIN():
+if IS_ADMIN():
     st.markdown("### Auto-send on Save")
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -160,7 +161,7 @@ def _autosend_once(stage: str, gig_id: str) -> bool:
 def _autosend_run_for(gig_id_str: str):
     # Snapshot (for log)
     snap = {
-        "is_admin": bool(_IS_ADMIN()),
+        "is_admin": bool(IS_ADMIN()),
         "toggles": {
             "agent": bool(st.session_state.get("autoc_send_agent_on_create", False)),
             "soundtech": bool(st.session_state.get("autoc_send_st_on_create", False)),
@@ -187,11 +188,11 @@ def _autosend_run_for(gig_id_str: str):
         _safe_rerun()
 
     # ---- Channel 1: Sound-tech ----
-    _enabled_st = (_IS_ADMIN() and st.session_state.get("autoc_send_st_on_create", False)
+    _enabled_st = (IS_ADMIN() and st.session_state.get("autoc_send_st_on_create", False)
                    and not st.session_state.get("sound_by_venue_in", False))
     if not _enabled_st:
         _log("Sound-tech confirmation",
-             f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
+             f"SKIPPED: is_admin={IS_ADMIN()}, toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
              f"sound_by_venue={st.session_state.get('sound_by_venue_in', False)}")
         _mark_done("st")
     elif not prog["st"] and _autosend_once("soundtech", gig_id_str):
@@ -213,10 +214,10 @@ def _autosend_run_for(gig_id_str: str):
                 return
 
     # ---- Channel 2: Agent ----
-    _enabled_agent = (_IS_ADMIN() and st.session_state.get("autoc_send_agent_on_create", False))
+    _enabled_agent = (IS_ADMIN() and st.session_state.get("autoc_send_agent_on_create", False))
     if not _enabled_agent:
         _log("Agent confirmation",
-             f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_agent_on_create', False)}")
+             f"SKIPPED: is_admin={IS_ADMIN()}, toggle={st.session_state.get('autoc_send_agent_on_create', False)}")
         _mark_done("agent")
     elif not prog["agent"] and _autosend_once("agent", gig_id_str):
         _log("Agent confirmation", "Calling sender...")
@@ -237,10 +238,10 @@ def _autosend_run_for(gig_id_str: str):
                 return
 
     # ---- Channel 3: Players ----
-    _enabled_players = (_IS_ADMIN() and st.session_state.get("autoc_send_players_on_create", False))
+    _enabled_players = (IS_ADMIN() and st.session_state.get("autoc_send_players_on_create", False))
     if not _enabled_players:
         _log("Player confirmations",
-             f"SKIPPED: is_admin={_IS_ADMIN()}, toggle={st.session_state.get('autoc_send_players_on_create', False)}")
+             f"SKIPPED: is_admin={IS_ADMIN()}, toggle={st.session_state.get('autoc_send_players_on_create', False)}")
         _mark_done("players")
     elif not prog["players"]:
         try:
@@ -772,7 +773,7 @@ if st.session_state.get("is_private_in", False):
 # Finance (Admin Only)
 # ============================
 deposit_rows: List[Dict] = []
-if _IS_ADMIN():
+if IS_ADMIN():
     st.markdown("---")
     st.subheader("Finance (Admin Only)")
     add_deps = st.number_input(
@@ -1123,7 +1124,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             _insert_rows("gig_musicians", gm_rows)
 
     # gig_deposits
-    if _IS_ADMIN() and _table_exists("gig_deposits"):
+    if IS_ADMIN() and _table_exists("gig_deposits"):
         rows: List[Dict] = []
         n = int(st.session_state.get("num_deposits", 0))
         for i in range(n):
