@@ -145,46 +145,86 @@ else:
 # ===============================
 # DISPLAY
 # ===============================
-
 if df.empty:
     st.info("No gigs found.")
     st.stop()
 
-# Normalize dates
+# ---- Normalize date ----
 if "event_date" in df.columns:
     df["event_date"] = pd.to_datetime(df["event_date"]).dt.date
 
+# ---- AM/PM time formatting ----
+def _fmt_time(val):
+    if not val:
+        return ""
+    try:
+        return pd.to_datetime(val, format="%H:%M:%S").strftime("%I:%M %p")
+    except Exception:
+        try:
+            return pd.to_datetime(val).strftime("%I:%M %p")
+        except Exception:
+            return str(val)
 
-# Hide sensitive columns for non-admin users
-protected_cols = ["fee", "sound_fee", "agent_commission"]
+if "start_time" in df.columns:
+    df["start_time"] = df["start_time"].apply(_fmt_time)
 
-if not IS_ADMIN():
-    for col in protected_cols:
-        if col in df.columns:
-            df.drop(columns=[col], inplace=True)
+if "end_time" in df.columns:
+    df["end_time"] = df["end_time"].apply(_fmt_time)
 
+# ---- Build simplified display table ----
+display_rows = []
+for _, row in df.iterrows():
+    display_rows.append({
+        "Date": row.get("event_date"),
+        "Title": row.get("title", ""),
+        "Start": row.get("start_time", ""),
+        "End": row.get("end_time", ""),
+        "Status": row.get("contract_status", ""),
+    })
 
-# Final reorder
-preferred_cols = [
-    "event_date",
-    "title",
-    "venue_name",
-    "start_time",
-    "end_time",
-    "city",
-    "state",
-]
+clean_df = pd.DataFrame(display_rows)
 
-visible_cols = [c for c in preferred_cols if c in df.columns]
-remaining = [c for c in df.columns if c not in visible_cols]
-
-df = df[visible_cols + remaining]
-
+# ---- Sort ----
+clean_df = clean_df.sort_values(["Date", "Start"], ascending=[True, True], ignore_index=True)
 
 # ===============================
 # RENDER TABLE
 # ===============================
-
 st.subheader("Gigs")
-st.dataframe(df, use_container_width=True)
 
+# ===============================
+# OPTIONAL STATUS SELECTOR (admin only)
+# ===============================
+if role == "admin":
+    st.write("Update gig status:")
+
+    for i, row in df.iterrows():   # USE FULL df BECAUSE IT CONTAINS gig_id
+        gig_id = row.get("id")
+        gig_date = row.get("event_date")
+        gig_title = row.get("title")
+        current_status = (row.get("contract_status") or "").capitalize()
+
+        if current_status not in ["Confirmed", "Pending", "Hold"]:
+            current_status = "Pending"
+
+        new_status = st.selectbox(
+            f"{gig_date} – {gig_title}",
+            ["Confirmed", "Pending", "Hold"],
+            index=["Confirmed", "Pending", "Hold"].index(current_status),
+            key=f"status_{gig_id}",
+        )
+
+        # Save status change
+        if new_status != current_status:
+            try:
+                sb.table("gigs").update({"contract_status": new_status}) \
+                    .eq("id", gig_id) \
+                    .execute()
+                st.success(f"Updated status for {gig_title} to {new_status}")
+            except Exception as e:
+                st.error(f"Failed to update status: {e}")
+
+    st.markdown("---")
+
+# Display the simplified table
+st.dataframe(clean_df, use_container_width=True, hide_index=True)
