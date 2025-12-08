@@ -3,6 +3,7 @@
 from __future__ import annotations
 import streamlit as st
 from supabase import create_client
+from lib.auth import is_logged_in, current_user, IS_ADMIN
 
 st.set_page_config(page_title="Admin – Delete Gig", layout="wide")
 
@@ -14,28 +15,25 @@ SUPABASE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]
 sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ---------------------------------------------------------
-# AUTH — MATCHES PRS LOGIN MODEL
+# AUTH — Unified PRS Login + Admin Gate
 # ---------------------------------------------------------
-ALLOWED_EMAILS = {
-    "ray@lutinemanagement.com",
-    "ray.saputelli@lutinemanagement.com",
-    "prsbandinfo@gmail.com",
-    "rjs2119@gmail.com",
-}
 
-user = st.session_state.get("user")
-if not user:
+# Login required
+if not is_logged_in():
     st.error("Please sign in.")
     st.stop()
 
-email = user.get("email", "").lower()
-if email not in ALLOWED_EMAILS:
+USER = current_user()
+
+# Admin required
+if not IS_ADMIN():
     st.error("You do not have permission to access this page.")
     st.stop()
 
 # ---------------------------------------------------------
 # UI
 # ---------------------------------------------------------
+
 st.title("🗑️ Admin – Delete Gig Safely (No Orphans)")
 st.warning("This action is permanent. Use with caution.")
 
