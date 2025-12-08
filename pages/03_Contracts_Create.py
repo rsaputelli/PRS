@@ -40,7 +40,23 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
         )
     except Exception as e:
         st.warning(f"Could not attach session; proceeding with limited access. ({e})")
+        
+# ============================
+# AUTH + ADMIN GATE (Unified PRS model)
+# ============================
+from lib.auth import is_logged_in, current_user, IS_ADMIN
 
+# Require login
+if not is_logged_in():
+    st.error("Please sign in from the Login page.")
+    st.stop()
+
+USER = current_user()
+
+# Require admin
+if not IS_ADMIN():
+    st.error("You do not have permission to access the Contracts page.")
+    st.stop()
 
 # ============================
 # Helpers
