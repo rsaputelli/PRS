@@ -13,7 +13,6 @@ from supabase import create_client, Client
 # ==========================================
 # Supabase Client (matches Musicians / Edit Gig)
 # ==========================================
-from supabase import create_client, Client
 
 def _get_secret(name: str, required=False) -> Optional[str]:
     val = st.secrets.get(name) or os.environ.get(name)
@@ -49,17 +48,13 @@ if not is_logged_in():
 
 USER = current_user()
 
-# DEBUG ------------------------------------------------------------------
-# --- DEBUG: SEE WHAT SECRETS ARE ACTUALLY LOADED ---
-st.write("DEBUG ALL SECRET ROOT KEYS:", list(st.secrets.keys()))
-for key in st.secrets.keys():
-    st.write("ROOT KEY:", key, "| VALUE:", st.secrets.get(key))
-# ----------------------------------------------------
-
-st.write("DEBUG USER EMAIL:", USER.get("email"))
-st.write("DEBUG PRS_ADMINS LOADED:", st.secrets.get("PRS_ADMINS"))
-st.write("DEBUG ALL SECRETS:", dict(st.secrets))
-# ------------------------------------------------------------------------
+# DEBUG ---------------------------------------------------------
+# st.write("DEBUG USER EMAIL:", USER.get("email"))
+# st.write("DEBUG PRS_ADMINS LOADED:", st.secrets.get("PRS_ADMINS"))
+# st.write("DEBUG ALL SECRET ROOT KEYS:", list(st.secrets.keys()))
+# for key in st.secrets.keys():
+#     st.write("ROOT KEY:", key, "| VALUE:", st.secrets.get(key))
+# ---------------------------------------------------------------
 
 # ==========================================
 # ADMIN 
