@@ -110,21 +110,51 @@ else:
 # QUERY GIGS
 # ===============================
 def load_gigs_for_user(email: str):
-    """Lookup gigs where this user is booked."""
+    """
+    Lookup gigs where this user is booked.
+    Ensures venue fields exist.
+    """
     try:
         res = sb.rpc("get_player_gigs", {"player_email": email}).execute()
-        return pd.DataFrame(res.data or [])
+        df = pd.DataFrame(res.data or [])
+
+        # Guarantee venue-related columns exist
+        for col in ["venue_name", "venue_text", "location"]:
+            if col not in df.columns:
+                df[col] = ""
+
+        return df
+
     except Exception:
         return pd.DataFrame()
 
 
 def load_all_gigs():
+    """
+    Full gig list WITH venue fields (exact parity with Schedule View).
+    """
     try:
-        res = sb.table("gigs").select("*").order("event_date", desc=False).execute()
+        res = (
+            sb.table("gigs")
+            .select(
+                """
+                id,
+                title,
+                event_date,
+                start_time,
+                end_time,
+                contract_status,
+                venue_name,
+                venue_text,
+                location
+                """
+            )
+            .order("event_date", desc=False)
+            .execute()
+        )
         return pd.DataFrame(res.data or [])
     except Exception:
         return pd.DataFrame()
-
 
 # Load the appropriate dataset
 if mode == "My Gigs":
