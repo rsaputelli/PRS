@@ -177,6 +177,7 @@ for _, row in df.iterrows():
     display_rows.append({
         "Date": row.get("event_date"),
         "Title": row.get("title", ""),
+        "Venue": row.get("venue_name", ""),  # <-- FIX ADDED
         "Start": row.get("start_time", ""),
         "End": row.get("end_time", ""),
         "Status": row.get("contract_status", ""),
@@ -186,23 +187,6 @@ clean_df = pd.DataFrame(display_rows)
 
 # ---- Sort ----
 clean_df = clean_df.sort_values(["Date", "Start"], ascending=[True, True], ignore_index=True)
-
-# ===============================
-# FUTURE / ALL GIGS FILTER (NEW)
-# ===============================
-st.markdown("### Date Filter")
-
-future_filter = st.radio(
-    "Show:",
-    ["Future gigs only", "All gigs"],
-    index=0,
-    horizontal=True,
-)
-
-today = pd.Timestamp.today().date()
-
-if future_filter == "Future gigs only":
-    clean_df = clean_df[clean_df["Date"] >= today]
 
 # ===============================
 # RENDER TABLE — OPTION B (venue search, status, future only)
