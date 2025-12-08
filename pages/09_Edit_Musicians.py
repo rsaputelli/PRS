@@ -8,7 +8,12 @@ from typing import Optional, Dict, Any
 import os
 
 # ==========================================
-# Supabase: identical to Edit Gig / Schedule View
+# Auth (Unified PRS Auth System)
+# ==========================================
+from lib.auth import is_logged_in, current_user, IS_ADMIN
+
+# ==========================================
+# Supabase Client (matches Edit Gig / Schedule View)
 # ==========================================
 from supabase import create_client, Client
 
@@ -40,12 +45,18 @@ if (
         st.error("Your session has expired. Please log in again.")
         st.stop()
 
-# Auth gate
-if "user" not in st.session_state or not st.session_state["user"]:
+# ==========================================
+# LOGIN + ADMIN GATE
+# ==========================================
+if not is_logged_in():
     st.error("Please sign in from the Login page.")
     st.stop()
 
-USER = st.session_state["user"]
+USER = current_user()
+
+if not IS_ADMIN():
+    st.error("You do not have permission to edit musician records.")
+    st.stop()
 
 # ==========================================
 # Local utilities (match Schedule View)
@@ -60,25 +71,7 @@ def _select_df(table: str, *, where_eq: dict | None = None, limit: int | None = 
     resp = q.execute()
     return pd.DataFrame(resp.data or [])
 
-# ==========================================
-# TEMPORARY ADMIN LIST (for testing only)
-# ==========================================
-PRS_ADMINS = {
-    "ray@lutinemanagement.com",
-    "ray.saputelli@lutinemanagement.com",
-    "prsbandinfo@gmail.com",
-    "rjs2119@gmail.com",
-}
 
-# ==========================================
-# Admin Gate (only using temporary list)
-# ==========================================
-def _IS_ADMIN():
-    return USER.get("email") in PRS_ADMINS
-
-if not _IS_ADMIN():
-    st.error("You do not have permission to edit musician records.")
-    st.stop()
 
 # ==========================================
 # Page Header
