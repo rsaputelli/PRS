@@ -17,11 +17,16 @@ from lib.auth import IS_ADMIN
 # ============================
 # Page config + Auth gate
 # ============================
-# Safe admin accessor (works even if IS_ADMIN isn't defined yet)
-
 st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
+
+# --- Login Gate ---
 if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
+    st.stop()
+
+# --- Admin Gate (MUST run before header/UI) ---
+if not IS_ADMIN():
+    st.error("You do not have permission to enter gigs.")
     st.stop()
 
 render_header(title="Enter Gig", emoji="")
