@@ -205,65 +205,70 @@ if future_filter == "Future gigs only":
     clean_df = clean_df[clean_df["Date"] >= today]
 
 # ===============================
-# RENDER TABLE
+# RENDER TABLE — OPTION B (venue search, status, future only)
 # ===============================
 
-st.subheader("Gigs")
+st.subheader("Date Filter")
+date_scope = st.radio(
+    "Show:",
+    ["Future gigs only", "All gigs"],
+    index=0,
+    horizontal=True,
+)
+
+# Apply future-only filter
+today = datetime.today().date()
+if date_scope == "Future gigs only":
+    clean_df = clean_df[clean_df["Date"] >= today]
 
 # ===============================
-# GLOBAL FILTER BAR (visible to all users)
+# FILTER BAR
 # ===============================
 st.subheader("Filters")
 
-colf1, colf2, colf3 = st.columns([1, 1, 2])
+col1, col2, col3 = st.columns([1, 1, 2])
 
-# Status filter
-with colf1:
+# --- Contract status filter ---
+with col1:
     status_filter = st.multiselect(
         "Contract status",
         ["Pending", "Hold", "Confirmed"],
         default=["Pending", "Hold", "Confirmed"],
     )
 
-# Upcoming-only toggle
-with colf2:
-    upcoming_only = st.toggle("Upcoming only", value=True)
+# --- Search by venue only ---
+with col2:
+    venue_search = st.text_input("Search venue", "").strip().lower()
 
-# Search filter (title/venue/notes)
-with colf3:
-    search_txt = st.text_input("Search gigs", "")
+# (third column intentionally unused for spacing)
 
-# --- APPLY FILTERS ---
+# ===============================
+# APPLY FILTERS
+# ===============================
+
 filtered_df = clean_df.copy()
 
-# Normalize capitalization
-if "contract_status" in filtered_df.columns:
-    filtered_df["contract_status"] = (
-        filtered_df["contract_status"]
-        .fillna("Pending")
-        .str.capitalize()
-    )
+# --- Status filter ---
+if status_filter:
+    filtered_df = filtered_df[filtered_df["Status"].isin(status_filter)]
 
-# Status filter
-filtered_df = filtered_df[
-    filtered_df["contract_status"].isin(status_filter)
-]
+# --- Venue search filter ---
+if venue_search:
+    # Need original df to find venue names — pull from df
+    # Build lookup: Title -> Venue
+    venue_map = {}
+    for _, row in df.iterrows():
+        venue_map[row.get("title", "")] = (row.get("venue_name") or "").lower()
 
-# Upcoming filter
-if upcoming_only and "event_date" in filtered_df.columns:
-    today = pd.Timestamp.today().date()
-    filtered_df = filtered_df[filtered_df["event_date"] >= today]
+    def match_venue(title):
+        v = venue_map.get(title, "")
+        return venue_search in v
 
-# Search filter
-if search_txt:
-    txt = search_txt.lower()
-    mask = (
-        filtered_df.astype(str)
-        .apply(lambda row: txt in row.to_string().lower(), axis=1)
-    )
-    filtered_df = filtered_df[mask]
+    filtered_df = filtered_df[filtered_df["Title"].apply(match_venue)]
 
+# ===============================
+# FINAL TABLE DISPLAY
+# ===============================
 
-# Display the simplified table
+st.subheader("Gigs")
 st.dataframe(filtered_df, use_container_width=True, hide_index=True)
-
