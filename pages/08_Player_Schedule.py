@@ -188,43 +188,82 @@ clean_df = pd.DataFrame(display_rows)
 clean_df = clean_df.sort_values(["Date", "Start"], ascending=[True, True], ignore_index=True)
 
 # ===============================
+# FUTURE / ALL GIGS FILTER (NEW)
+# ===============================
+st.markdown("### Date Filter")
+
+future_filter = st.radio(
+    "Show:",
+    ["Future gigs only", "All gigs"],
+    index=0,
+    horizontal=True,
+)
+
+today = pd.Timestamp.today().date()
+
+if future_filter == "Future gigs only":
+    clean_df = clean_df[clean_df["Date"] >= today]
+
+# ===============================
 # RENDER TABLE
 # ===============================
+
 st.subheader("Gigs")
 
 # ===============================
-# OPTIONAL STATUS SELECTOR (admin only)
+# GLOBAL FILTER BAR (visible to all users)
 # ===============================
-if role == "admin":
-    st.write("Update gig status:")
+st.subheader("Filters")
 
-    for i, row in df.iterrows():   # USE FULL df BECAUSE IT CONTAINS gig_id
-        gig_id = row.get("id")
-        gig_date = row.get("event_date")
-        gig_title = row.get("title")
-        current_status = (row.get("contract_status") or "").capitalize()
+colf1, colf2, colf3 = st.columns([1, 1, 2])
 
-        if current_status not in ["Confirmed", "Pending", "Hold"]:
-            current_status = "Pending"
+# Status filter
+with colf1:
+    status_filter = st.multiselect(
+        "Contract status",
+        ["Pending", "Hold", "Confirmed"],
+        default=["Pending", "Hold", "Confirmed"],
+    )
 
-        new_status = st.selectbox(
-            f"{gig_date} – {gig_title}",
-            ["Confirmed", "Pending", "Hold"],
-            index=["Confirmed", "Pending", "Hold"].index(current_status),
-            key=f"status_{gig_id}",
-        )
+# Upcoming-only toggle
+with colf2:
+    upcoming_only = st.toggle("Upcoming only", value=True)
 
-        # Save status change
-        if new_status != current_status:
-            try:
-                sb.table("gigs").update({"contract_status": new_status}) \
-                    .eq("id", gig_id) \
-                    .execute()
-                st.success(f"Updated status for {gig_title} to {new_status}")
-            except Exception as e:
-                st.error(f"Failed to update status: {e}")
+# Search filter (title/venue/notes)
+with colf3:
+    search_txt = st.text_input("Search gigs", "")
 
-    st.markdown("---")
+# --- APPLY FILTERS ---
+filtered_df = clean_df.copy()
+
+# Normalize capitalization
+if "contract_status" in filtered_df.columns:
+    filtered_df["contract_status"] = (
+        filtered_df["contract_status"]
+        .fillna("Pending")
+        .str.capitalize()
+    )
+
+# Status filter
+filtered_df = filtered_df[
+    filtered_df["contract_status"].isin(status_filter)
+]
+
+# Upcoming filter
+if upcoming_only and "event_date" in filtered_df.columns:
+    today = pd.Timestamp.today().date()
+    filtered_df = filtered_df[filtered_df["event_date"] >= today]
+
+# Search filter
+if search_txt:
+    txt = search_txt.lower()
+    mask = (
+        filtered_df.astype(str)
+        .apply(lambda row: txt in row.to_string().lower(), axis=1)
+    )
+    filtered_df = filtered_df[mask]
+
 
 # Display the simplified table
-st.dataframe(clean_df, use_container_width=True, hide_index=True)
+st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+
