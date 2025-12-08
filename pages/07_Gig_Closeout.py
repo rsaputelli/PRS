@@ -21,6 +21,24 @@ for k in ("SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE
 
 st.set_page_config(page_title="Gig Closeout", layout="wide")
 
+# ===============================
+# AUTH + ADMIN GATE (Unified PRS Model)
+# ===============================
+from lib.auth import is_logged_in, current_user, IS_ADMIN
+
+# Require login
+if not is_logged_in():
+    st.error("Please sign in from the Login page.")
+    st.stop()
+
+USER = current_user()
+
+# Require admin
+if not IS_ADMIN():
+    st.error("You do not have permission to access Gig Closeout.")
+    st.stop()
+
+
 # ---------- config guard ----------
 missing = []
 if not os.environ.get("SUPABASE_URL"):
