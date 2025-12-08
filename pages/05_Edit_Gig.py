@@ -72,6 +72,14 @@ except Exception as e:
 if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
     st.stop()
+    
+# -----------------------------
+# ADMIN GATE (must be here)
+# -----------------------------
+if not IS_ADMIN:
+    st.error("You do not have permission to edit gigs.")
+    st.stop()
+    
 
 def _norm_admin_emails(raw):
     if raw is None:
