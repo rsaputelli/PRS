@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from supabase import create_client, Client
 
 from lib.auth import is_logged_in, current_user, IS_ADMIN
 from lib.ui_header import render_header
-from lib.ui_format import format_currency
 
 
 # ===============================
@@ -72,8 +71,7 @@ if IS_ADMIN():
 elif profile and profile.get("role"):
     role = profile["role"]
 else:
-    # BEFORE profiles exist, musicians get blocked from "My Gigs" but can still see "All Gigs"
-    role = "guest"   # means logged-in but unmapped user
+    role = "guest"   # logged-in but unmapped musician
 
 
 # ===============================
@@ -101,7 +99,6 @@ elif role in ("musician", "sound_tech"):
         horizontal=True,
     )
 else:
-    # Guest user (not yet mapped to musician)
     st.info(
         "You are logged in, but your musician profile isn't linked yet. "
         "You may view the full gig schedule below."
@@ -113,10 +110,7 @@ else:
 # QUERY GIGS
 # ===============================
 def load_gigs_for_user(email: str):
-    """
-    Lookup gigs where this user is booked.
-    Uses musicians.email match temporarily until profile mapping is added.
-    """
+    """RPC to load gigs for a musician."""
     try:
         res = sb.rpc("get_player_gigs", {"player_email": email}).execute()
         return pd.DataFrame(res.data or [])
@@ -132,10 +126,21 @@ def load_all_gigs():
         return pd.DataFrame()
 
 
-# Load the appropriate dataset
+# === Load venue lookup table (IDENTICAL to Schedule View) ===
+def load_venue_lookup():
+    try:
+        res = sb.table("venues").select("id,name").execute()
+        rows = res.data or []
+        return {r["id"]: r["name"] for r in rows}
+    except Exception:
+        return {}
+
+venue_lookup = load_venue_lookup()
+
+
+# Load gigs
 if mode == "My Gigs":
     df = load_gigs_for_user(email)
-
     if df.empty:
         st.warning("You are not listed on any upcoming gigs.")
 else:
@@ -153,7 +158,7 @@ if df.empty:
 if "event_date" in df.columns:
     df["event_date"] = pd.to_datetime(df["event_date"]).dt.date
 
-# ---- AM/PM time formatting ----
+# ---- Time formatting ----
 def _fmt_time(val):
     if not val:
         return ""
@@ -167,44 +172,12 @@ def _fmt_time(val):
 
 if "start_time" in df.columns:
     df["start_time"] = df["start_time"].apply(_fmt_time)
-
 if "end_time" in df.columns:
     df["end_time"] = df["end_time"].apply(_fmt_time)
 
-# ---- Build simplified display table ----
-display_rows = []
-for _, row in df.iterrows():
-    display_rows.append({
-        "Date": row.get("event_date"),
-        "Title": row.get("title", ""),
-        "Venue": row.get("venue_name", ""),  # <-- FIX ADDED
-        "Start": row.get("start_time", ""),
-        "End": row.get("end_time", ""),
-        "Status": row.get("contract_status", ""),
-    })
+# ---- APPLY VENUE LOOKUP (ONLY FIX ADDED) ----
+df["venue_name"] = df.get("venue_id", "").map(venue_lookup)
 
-clean_df = pd.DataFrame(display_rows)
-
-# ---- Sort ----
-clean_df = clean_df.sort_values(["Date", "Start"], ascending=[True, True], ignore_index=True)
-
-# ===============================
-# RENDER TABLE — OPTION B (venue search, status, future only)
-# ===============================
-
-st.subheader("Date Filter")
-date_scope = st.radio(
-    "Show:",
-    ["Future gigs only", "All gigs"],
-    index=0,
-    horizontal=True,
-    key="player_schedule_date_scope",
-)
-
-# Apply future-only filter
-today = datetime.today().date()
-if date_scope == "Future gigs only":
-    clean_df = clean_df[clean_df["Date"] >= today]
 
 # ===============================
 # FILTER BAR
@@ -213,7 +186,6 @@ st.subheader("Filters")
 
 col1, col2, col3 = st.columns([1, 1, 2])
 
-# --- Contract status filter ---
 with col1:
     status_filter = st.multiselect(
         "Contract status",
@@ -221,39 +193,59 @@ with col1:
         default=["Pending", "Hold", "Confirmed"],
     )
 
-# --- Search by venue only ---
 with col2:
-    venue_search = st.text_input("Search venue", "").strip().lower()
+    upcoming_only = st.toggle("Upcoming only", value=True)
 
-# (third column intentionally unused for spacing)
+with col3:
+    search_venue = st.text_input("Search venue", "").strip().lower()
+
 
 # ===============================
 # APPLY FILTERS
 # ===============================
+filtered_df = df.copy()
 
-filtered_df = clean_df.copy()
+# Upcoming filter
+if upcoming_only and "event_date" in filtered_df.columns:
+    today = date.today()
+    filtered_df = filtered_df[filtered_df["event_date"] >= today]
 
-# --- Status filter ---
-if status_filter:
-    filtered_df = filtered_df[filtered_df["Status"].isin(status_filter)]
+# Contract status filter
+if "contract_status" in filtered_df.columns:
+    filtered_df = filtered_df[filtered_df["contract_status"].isin(status_filter)]
 
-# --- Venue search filter ---
-if venue_search:
-    # Need original df to find venue names — pull from df
-    # Build lookup: Title -> Venue
-    venue_map = {}
-    for _, row in df.iterrows():
-        venue_map[row.get("title", "")] = (row.get("venue_name") or "").lower()
+# Venue search filter
+if search_venue:
+    filtered_df = filtered_df[
+        filtered_df["venue_name"].str.lower().str.contains(search_venue, na=False)
+    ]
 
-    def match_venue(title):
-        v = venue_map.get(title, "")
-        return venue_search in v
-
-    filtered_df = filtered_df[filtered_df["Title"].apply(match_venue)]
 
 # ===============================
-# FINAL TABLE DISPLAY
+# Final Display Table
 # ===============================
+if filtered_df.empty:
+    st.info("No gigs match the selected filters.")
+    st.stop()
 
+
+# Build simplified rows (INCLUDING VENUE FIX)
+display_rows = []
+for _, row in filtered_df.iterrows():
+    display_rows.append({
+        "Date": row.get("event_date"),
+        "Title": row.get("title", ""),
+        "Venue": row.get("venue_name", ""),
+        "Start": row.get("start_time", ""),
+        "End": row.get("end_time", ""),
+        "Status": row.get("contract_status", ""),
+    })
+
+clean_df = pd.DataFrame(display_rows)
+
+# Sort
+clean_df = clean_df.sort_values(["Date", "Start"], ascending=[True, True], ignore_index=True)
+
+# Render
 st.subheader("Gigs")
-st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+st.dataframe(clean_df, use_container_width=True, hide_index=True)
