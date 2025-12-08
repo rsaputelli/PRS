@@ -175,8 +175,84 @@ if "start_time" in df.columns:
 if "end_time" in df.columns:
     df["end_time"] = df["end_time"].apply(_fmt_time)
 
-# ---- APPLY VENUE LOOKUP (ONLY FIX ADDED) ----
-df["venue_name"] = df.get("venue_id", "").map(venue_lookup)
+# ===============================
+# VENUE RESOLUTION (FULL BLOCK — matches Schedule View)
+# ===============================
+
+# Normalize venue_id
+if "venue_id" in df.columns:
+    df["venue_id"] = df["venue_id"].astype(str)
+
+# Pull venues table
+try:
+    vres = sb.table("venues").select(
+        "id, name, address, city, state, zip"
+    ).execute()
+    venues_df = pd.DataFrame(vres.data or [])
+except Exception:
+    venues_df = pd.DataFrame()
+
+# Normalize venue_id there also
+if not venues_df.empty:
+    venues_df["id"] = venues_df["id"].astype(str)
+    venues_df = venues_df.rename(columns={"id": "venue_id"})
+
+    # Merge into gigs
+    df = df.merge(venues_df, how="left", on="venue_id")
+
+# Fallback inline venue text fields
+inline_fields = ["venue", "venue_name", "location", "venue_text"]
+inline_fields = [f for f in inline_fields if f in df.columns]
+
+def _resolve_venue_name(row):
+    # 1: From venues table
+    name = row.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+
+    # 2: Inline fields on gig record
+    for f in inline_fields:
+        v = row.get(f)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    return ""
+
+def _resolve_venue_address(row):
+    # If venues table has address data
+    addr = row.get("address")
+    city = row.get("city")
+    state = row.get("state")
+    zipc = row.get("zip")
+
+    parts = []
+    if addr:
+        parts.append(str(addr).strip())
+    if city:
+        parts.append(str(city).strip())
+    if state:
+        parts.append(str(state).strip())
+    if zipc:
+        parts.append(str(zipc).strip())
+
+    if parts:
+        return ", ".join(parts)
+
+    # No fallback inline address support needed yet
+    return ""
+
+df["venue_name_final"] = df.apply(_resolve_venue_name, axis=1)
+df["venue_address_final"] = df.apply(_resolve_venue_address, axis=1)
+
+# Single combined display column (Schedule View style)
+def _venue_display(row):
+    vn = row.get("venue_name_final", "")
+    ad = row.get("venue_address_final", "")
+    if vn and ad:
+        return f"{vn} – {ad}"
+    return vn or ad or ""
+
+df["venue_display"] = df.apply(_venue_display, axis=1)
 
 
 # ===============================
