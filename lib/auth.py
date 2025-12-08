@@ -26,8 +26,8 @@ def _load_admin_list() -> list[str]:
     raw = st.secrets.get("PRS_ADMINS", None)
 
     # Minimal debug to understand structure without dumping all secrets
-    st.write("DEBUG IS_ADMIN raw PRS_ADMINS type:", type(raw).__name__)
-    st.write("DEBUG IS_ADMIN raw PRS_ADMINS value:", raw)
+    # st.write("DEBUG IS_ADMIN raw PRS_ADMINS type:", type(raw).__name__)
+    # st.write("DEBUG IS_ADMIN raw PRS_ADMINS value:", raw)
 
     admins: list[str] = []
 
@@ -68,7 +68,7 @@ def _load_admin_list() -> list[str]:
             continue
         norm.append(str(a).lower().strip())
 
-    st.write("DEBUG IS_ADMIN parsed admin list:", norm)
+    # st.write("DEBUG IS_ADMIN parsed admin list:", norm)
     return norm
 
 
@@ -84,7 +84,7 @@ def IS_ADMIN() -> bool:
     email = (user.get("email") or "").lower().strip()
     admin_list = _load_admin_list()
 
-    st.write("DEBUG IS_ADMIN current user email:", email)
+    # st.write("DEBUG IS_ADMIN current user email:", email)
 
     return email in admin_list
 
