@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from supabase import create_client, Client
 
 from lib.auth import is_logged_in, current_user, IS_ADMIN
@@ -13,7 +13,7 @@ from lib.ui_header import render_header
 # ===============================
 # Supabase Init
 # ===============================
-def _get_secret(name, required=False):
+def _get_secret(name, required: bool = False):
     val = st.secrets.get(name)
     if required and not val:
         st.error(f"Missing secret: {name}")
@@ -52,6 +52,23 @@ email = (USER.get("email") or "").lower().strip()
 
 
 # ===============================
+# Helper: generic select to DataFrame
+# (mirrors 02_Schedule_View)
+# ===============================
+def _select_df(table: str, select: str = "*", where_eq: dict | None = None) -> pd.DataFrame:
+    try:
+        q = sb.table(table).select(select)
+        if where_eq:
+            for k, v in where_eq.items():
+                q = q.eq(k, v)
+        data = q.execute().data or []
+        return pd.DataFrame(data)
+    except Exception as e:
+        st.warning(f"{table} query failed: {e}")
+        return pd.DataFrame()
+
+
+# ===============================
 # ROLE DETECTION (Option C)
 # ===============================
 def get_profile_record():
@@ -71,7 +88,8 @@ if IS_ADMIN():
 elif profile and profile.get("role"):
     role = profile["role"]
 else:
-    role = "guest"   # logged-in but unmapped musician
+    # BEFORE profiles exist, musicians get blocked from "My Gigs" but can still see "All Gigs"
+    role = "guest"   # means logged-in but unmapped user
 
 
 # ===============================
@@ -82,7 +100,7 @@ st.markdown("---")
 
 
 # ===============================
-# MODE SELECTOR
+# MODE SELECTOR: My Gigs vs All Gigs
 # ===============================
 if role == "admin":
     mode = st.radio(
@@ -99,6 +117,7 @@ elif role in ("musician", "sound_tech"):
         horizontal=True,
     )
 else:
+    # Guest user (not yet mapped to musician)
     st.info(
         "You are logged in, but your musician profile isn't linked yet. "
         "You may view the full gig schedule below."
@@ -107,76 +126,55 @@ else:
 
 
 # ===============================
-# QUERY GIGS
+# LOAD GIGS
 # ===============================
-def load_gigs_for_user(email: str):
+def load_gigs_for_user(player_email: str) -> pd.DataFrame:
     """
     Lookup gigs where this user is booked.
-    Ensures venue fields exist.
+    Uses the same RPC you already had wired: get_player_gigs(player_email).
     """
     try:
-        res = sb.rpc("get_player_gigs", {"player_email": email}).execute()
-        df = pd.DataFrame(res.data or [])
-
-        # Guarantee venue-related columns exist
-        for col in ["venue_name", "venue_text", "location"]:
-            if col not in df.columns:
-                df[col] = ""
-
-        return df
-
-    except Exception:
-        return pd.DataFrame()
-
-
-def load_all_gigs():
-    """
-    Full gig list WITH venue fields (exact parity with Schedule View).
-    """
-    try:
-        res = (
-            sb.table("gigs")
-            .select(
-                """
-                id,
-                title,
-                event_date,
-                start_time,
-                end_time,
-                contract_status,
-                venue_name,
-                venue_text,
-                location
-                """
-            )
-            .order("event_date", desc=False)
-            .execute()
-        )
+        res = sb.rpc("get_player_gigs", {"player_email": player_email}).execute()
         return pd.DataFrame(res.data or [])
     except Exception:
         return pd.DataFrame()
 
-# Load the appropriate dataset
+
+def load_all_gigs() -> pd.DataFrame:
+    return _select_df("gigs", "*")
+
+
+# === Load venue lookup table (id -> name), same idea as 02_Schedule_View ===
+def load_venue_lookup() -> dict[int, str]:
+    venues_df = _select_df("venues", "id,name")
+    if venues_df.empty:
+        return {}
+    return {row["id"]: row["name"] for _, row in venues_df.iterrows()}
+
+
+venue_lookup = load_venue_lookup()
+
+# --- Base gigs set ---
 if mode == "My Gigs":
-    df = load_gigs_for_user(email)
-    if df.empty:
-        st.warning("You are not listed on any upcoming gigs.")
+    gigs_df = load_gigs_for_user(email)
 else:
-    df = load_all_gigs()
+    gigs_df = load_all_gigs()
 
-
-# ===============================
-# DISPLAY PREP
-# ===============================
-if df.empty:
+if gigs_df.empty:
     st.info("No gigs found.")
     st.stop()
 
-# ---- Normalize date ----
-if "event_date" in df.columns:
-    df["event_date"] = pd.to_datetime(df["event_date"]).dt.date
 
-# ---- AM/PM formatting ----
+# ===============================
+# NORMALIZE / ENRICH DATA
+# ===============================
+gigs = gigs_df.copy()
+
+# Dates
+if "event_date" in gigs.columns:
+    gigs["event_date"] = pd.to_datetime(gigs["event_date"]).dt.date
+
+# Times -> AM/PM
 def _fmt_time(val):
     if not val:
         return ""
@@ -188,98 +186,98 @@ def _fmt_time(val):
         except Exception:
             return str(val)
 
-if "start_time" in df.columns:
-    df["start_time"] = df["start_time"].apply(_fmt_time)
-if "end_time" in df.columns:
-    df["end_time"] = df["end_time"].apply(_fmt_time)
+if "start_time" in gigs.columns:
+    gigs["start_time"] = gigs["start_time"].apply(_fmt_time)
+if "end_time" in gigs.columns:
+    gigs["end_time"] = gigs["end_time"].apply(_fmt_time)
+
+# Venue name from venue_id
+if "venue_id" in gigs.columns:
+    gigs["venue_name"] = gigs["venue_id"].map(venue_lookup).fillna("")
 
 
 # ===============================
-# VENUE RESOLUTION (Exact match to Schedule View)
+# DATE FILTER (Future vs All)
 # ===============================
-def _resolve_venue(row):
-    """
-    Exact venue resolution from 02_Schedule_View:
-    Priority:
-    1. venue_name
-    2. venue_text
-    3. location
-    """
-    for field in ["venue_name", "venue_text", "location"]:
-        v = row.get(field)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return ""
+st.subheader("Date Filter")
+date_scope = st.radio(
+    "Show:",
+    ["Future gigs only", "All gigs"],
+    index=0,
+    horizontal=True,
+)
 
-df["venue_display"] = df.apply(_resolve_venue, axis=1)
+today = date.today()
 
+if date_scope == "Future gigs only" and "event_date" in gigs.columns:
+    gigs = gigs[gigs["event_date"] >= today]
 
-# ===============================
-# BUILD DISPLAY ROWS
-# ===============================
-display_rows = []
-for _, row in df.iterrows():
-    display_rows.append({
-        "Date": row.get("event_date"),
-        "Title": row.get("title", ""),
-        "Venue": row.get("venue_display", ""),    # ← NEW
-        "Start": row.get("start_time", ""),
-        "End": row.get("end_time", ""),
-        "Status": row.get("contract_status", ""),
-    })
-
-clean_df = pd.DataFrame(display_rows)
-
-# ---- Sort ----
-clean_df = clean_df.sort_values(["Date", "Start"], ascending=[True, True], ignore_index=True)
+if gigs.empty:
+    st.info("No gigs found for the selected date filter.")
+    st.stop()
 
 
 # ===============================
-# FILTERS (Status + Future toggle + Search)
+# STATUS + VENUE FILTERS
 # ===============================
+st.subheader("Filters")
 
-colA, colB, colC = st.columns([1, 1, 2])
+col_f1, col_f2 = st.columns([1, 1.5])
 
-with colA:
+with col_f1:
     status_filter = st.multiselect(
-        "Status filter",
-        ["Confirmed", "Pending", "Hold"],
-        default=["Confirmed", "Pending", "Hold"],
+        "Contract status",
+        ["Pending", "Hold", "Confirmed"],
+        default=["Pending", "Hold", "Confirmed"],
     )
 
-with colB:
-    date_scope = st.radio(
-        "Show:",
-        ["Future gigs only", "All gigs"],
-        index=0,
-        horizontal=True,
+with col_f2:
+    venue_search = st.text_input("Search venue", "")
+
+filtered = gigs.copy()
+
+# Status filter
+if "contract_status" in filtered.columns and status_filter:
+    filtered = filtered[filtered["contract_status"].isin(status_filter)]
+
+# Venue search filter
+if venue_search:
+    if "venue_name" in filtered.columns:
+        vs = venue_search.strip().lower()
+        filtered = filtered[
+            filtered["venue_name"].fillna("").str.lower().str.contains(vs)
+        ]
+
+if filtered.empty:
+    st.info("No gigs match the selected filters.")
+    st.stop()
+
+
+# ===============================
+# BUILD FINAL DISPLAY TABLE
+# ===============================
+rows = []
+for _, row in filtered.iterrows():
+    rows.append(
+        {
+            "Date": row.get("event_date"),
+            "Title": row.get("title", ""),
+            "Venue": row.get("venue_name", ""),
+            "Start": row.get("start_time", ""),
+            "End": row.get("end_time", ""),
+            "Status": row.get("contract_status", ""),
+        }
     )
 
-with colC:
-    search_txt = st.text_input("Search venue:", "")
+clean_df = pd.DataFrame(rows)
 
-
-# Apply filters
-filtered_df = clean_df.copy()
-
-# Status
-filtered_df = filtered_df[filtered_df["Status"].isin(status_filter)]
-
-# Future-only
-if date_scope == "Future gigs only":
-    today = datetime.now().date()
-    filtered_df = filtered_df[filtered_df["Date"] >= today]
-
-# Venue Search
-if search_txt.strip():
-    s = search_txt.lower().strip()
-    filtered_df = filtered_df[
-        filtered_df["Venue"].str.lower().str.contains(s, na=False)
-    ]
-
+# Sort
+clean_df = clean_df.sort_values(
+    ["Date", "Start"], ascending=[True, True], ignore_index=True
+)
 
 # ===============================
 # RENDER TABLE
 # ===============================
 st.subheader("Gigs")
-st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+st.dataframe(clean_df, use_container_width=True, hide_index=True)
