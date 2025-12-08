@@ -214,6 +214,7 @@ date_scope = st.radio(
     ["Future gigs only", "All gigs"],
     index=0,
     horizontal=True,
+    key="player_schedule_date_scope",
 )
 
 # Apply future-only filter
