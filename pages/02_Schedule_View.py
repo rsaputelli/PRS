@@ -10,6 +10,24 @@ from pathlib import Path
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
 
+# ===============================
+# AUTH + ADMIN GATE
+# ===============================
+from lib.auth import is_logged_in, current_user, IS_ADMIN
+
+# Require login
+if not is_logged_in():
+    st.error("Please sign in from the Login page.")
+    st.stop()
+
+USER = current_user()
+
+# Require admin
+if not IS_ADMIN():
+    st.error("You do not have permission to view the full schedule.")
+    st.stop()
+
+
 # Header with logo + title
 render_header(title="Schedule View", emoji="📅")
 
