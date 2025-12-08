@@ -13,7 +13,7 @@ from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
-
+from lib.auth import IS_ADMIN as IS_ADMIN_SIMPLE
 
 # -----------------------------
 # Page config
@@ -65,79 +65,28 @@ try:
 except Exception as e:
     st.error(f"Calendar upsert processor error: {e}")
         
-
 # -----------------------------
 # Auth/admin gate BEFORE header
 # -----------------------------
-if "user" not in st.session_state or not st.session_state["user"]:
+from lib.auth import is_logged_in, current_user, IS_ADMIN
+
+# Require login first
+if not is_logged_in():
     st.error("Please sign in from the Login page.")
     st.stop()
-    
-# -----------------------------
-# ADMIN GATE (must be here)
-# -----------------------------
-if not IS_ADMIN:
+
+USER = current_user()
+
+# Require admin next
+if not IS_ADMIN():
     st.error("You do not have permission to edit gigs.")
-    st.stop()
-    
-
-def _norm_admin_emails(raw):
-    if raw is None:
-        return set()
-    if isinstance(raw, (list, tuple, set)):
-        return {str(x).strip().lower() for x in raw}
-    return {p.strip().lower() for p in str(raw).replace(";", ",").split(",") if p.strip()}
-
-def _get_authed_user():
-    u = st.session_state.get("user")
-    if u:
-        return u
-    try:
-        gu = sb.auth.get_user()
-        return gu.user if getattr(gu, "user", None) else None
-    except Exception:
-        return None
-
-def _profiles_admin_lookup(user_email: str, user_id: str) -> bool:
-    try:
-        for col in ["id", "user_id", "auth_user_id"]:
-            try:
-                res = sb.table("profiles").select("*").eq(col, user_id).limit(1).execute()
-                rows = res.data or []
-                if rows:
-                    r = rows[0]
-                    if r.get("is_admin") is True or r.get("admin") is True or str(r.get("role", "")).lower() == "admin":
-                        return True
-            except Exception:
-                pass
-        if user_email:
-            res = sb.table("profiles").select("*").eq("email", user_email).limit(1).execute()
-            rows = res.data or []
-            if rows:
-                r = rows[0]
-                if r.get("is_admin") is True or r.get("admin") is True or str(r.get("role", "")).lower() == "admin":
-                    return True
-    except Exception:
-        pass
-    return False
-
-user_obj   = _get_authed_user()
-user_email = (user_obj.get("email") if isinstance(user_obj, dict) else getattr(user_obj, "email", None)) or ""
-user_id    = (user_obj.get("id")    if isinstance(user_obj, dict) else getattr(user_obj, "id", None)) or ""
-
-admin_from_session  = bool(st.session_state.get("is_admin", False))
-admin_from_secrets  = user_email.lower() in _norm_admin_emails(getattr(st, "secrets", {}).get("ADMIN_EMAILS"))
-admin_from_profiles = _profiles_admin_lookup(user_email.lower(), user_id)
-
-IS_ADMIN = admin_from_session or admin_from_secrets or admin_from_profiles
-if not IS_ADMIN:
-    st.error("Only admins may edit gigs.")
     st.stop()
 
 # -----------------------------
 # Header AFTER gate
 # -----------------------------
 render_header(title="Edit Gig", emoji="✏️")
+
 
 # === Email autosend toggles — init keys (shared with Enter Gig) ===
 for _k, _default in [
