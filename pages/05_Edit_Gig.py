@@ -13,7 +13,6 @@ from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
-from lib.auth import IS_ADMIN as IS_ADMIN_SIMPLE
 
 # -----------------------------
 # Page config
