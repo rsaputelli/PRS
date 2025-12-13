@@ -71,6 +71,20 @@ def _select_df(table: str, *, where_eq: dict | None = None, limit: int | None = 
     resp = q.execute()
     return pd.DataFrame(resp.data or [])
 
+@st.cache_data(ttl=300)
+def _fetch_instruments() -> list[str]:
+    """
+    Fetch canonical instrument list from vw_people_dropdown.
+    Cached to prevent repeated reads; clear cache if instruments are edited.
+    """        
+    resp = (
+        sb.table("vw_people_dropdown")
+        .select("role")
+        .eq("role_type", "instrument")
+        .order("role")
+        .execute()
+    )
+    return [r["role"] for r in (resp.data or [])]
 
 
 # ==========================================
@@ -80,6 +94,14 @@ from lib.ui_header import render_header
 render_header("Edit Musicians")
 
 #from lib.email_utils import _fetch_musicians_map  # optional for future auto-fill
+
+# ==========================================
+# Load canonical instrument list
+# ==========================================
+instruments = _fetch_instruments()
+
+if not instruments:
+    instruments = ["— No instruments configured —"]
 
 # ==========================================
 # SAVE LOGIC
@@ -151,7 +173,14 @@ with st.form("musician_form"):
     middle = st.text_input("Middle Name", row.get("middle_name", ""))
     last = st.text_input("Last Name", row.get("last_name", ""))
     stage = st.text_input("Stage Name", row.get("stage_name", ""))
-    instrument = st.text_input("Instrument", row.get("instrument", ""))
+    current_instrument = row.get("instrument")
+    instrument = st.selectbox(
+        "Instrument",
+        instruments,
+        index=instruments.index(current_instrument)
+        if current_instrument in instruments
+        else 0,
+    )
     phone = st.text_input("Phone", row.get("phone", ""))
     email = st.text_input("Email", row.get("email", ""))
     address = st.text_area("Address", row.get("address", ""))
