@@ -140,85 +140,94 @@ with colL:
     st.subheader("Payments to People")
     st.caption("Enter what was actually paid. These figures drive 1099s.")
 
-    # -------- Bulk Payments (NEW) --------
-    with st.expander("Bulk Payments"):
-        # Build label map for roster
-        label_to_r = {r["label"]: r for r in roster}
+# -------- Bulk Payments (NEW) --------
+with st.expander("Bulk Payments"):
+    # Build label map for roster
+    label_to_r = {r["label"]: r for r in roster}
 
-        with st.form("bulk_payments_form"):
+    with st.form("bulk_payments_form"):
 
-            chosen_labels = st.multiselect(
-                "Select roster entries to pay",
-                options=list(label_to_r.keys()),
-            )
+        chosen_labels = st.multiselect(
+            "Select roster entries to pay",
+            options=list(label_to_r.keys()),
+        )
 
-            bulk_gross = st.number_input(
-                "Gross Amount (per person)",
-                min_value=0.0,
-                step=25.0,
-                value=0.0,
-            )
-            bulk_fee = st.number_input(
-                "Fee Withheld (per person, optional)",
-                min_value=0.0,
-                step=5.0,
-                value=0.0,
-            )
-            bulk_method = st.selectbox(
-                "Payment Method",
-                PAYMENT_METHODS,
-                index=0,
-                key="bulk_method",
-            )
-            bulk_method_detail = st.text_input(
-                "Method details (e.g., check #1234)",
-                "",
-                key="bulk_method_detail",
-            )
-            bulk_paid_date = st.date_input(
-                "Paid Date",
-                value=date.today(),
-                key="bulk_paid_date",
-            )
-            bulk_1099 = st.checkbox(
-                "1099 Eligible (apply to all)",
-                value=True,
-                key="bulk_1099",
-            )
-            bulk_notes = st.text_area(
-                "Notes (applies to all)",
-                "",
-                key="bulk_notes",
-            )
+        bulk_gross = st.number_input(
+            "Gross Amount (per person)",
+            min_value=0.0,
+            step=25.0,
+            value=0.0,
+        )
+        bulk_fee = st.number_input(
+            "Fee Withheld (per person, optional)",
+            min_value=0.0,
+            step=5.0,
+            value=0.0,
+        )
+        bulk_method = st.selectbox(
+            "Payment Method",
+            PAYMENT_METHODS,
+            index=0,
+            key="bulk_method",
+        )
+        bulk_method_detail = st.text_input(
+            "Method details (e.g., check #1234)",
+            "",
+            key="bulk_method_detail",
+        )
+        bulk_paid_date = st.date_input(
+            "Paid Date",
+            value=date.today(),
+            key="bulk_paid_date",
+        )
+        bulk_1099 = st.checkbox(
+            "1099 Eligible (apply to all)",
+            value=True,
+            key="bulk_1099",
+        )
+        bulk_notes = st.text_area(
+            "Notes (applies to all)",
+            "",
+            key="bulk_notes",
+        )
 
-            add_disabled = (len(chosen_labels) == 0) or (bulk_gross <= 0.0)
+        if st.form_submit_button("Add Payments"):
 
-            if st.form_submit_button("Add Payments", disabled=add_disabled):
-                count = 0
-                reference = _compose_reference(bulk_method_detail, bulk_notes)
+            # ---- validation (forms must validate AFTER submit) ----
+            if not chosen_labels:
+                st.error("Please select at least one roster entry.")
+                st.stop()
 
-                for lbl in chosen_labels:
-                    r = label_to_r.get(lbl)
-                    if not r:
-                        continue
+            if bulk_gross <= 0:
+                st.error("Gross amount must be greater than $0.")
+                st.stop()
 
-                    upsert_payment_row(
-                        gig_id=gig["id"],
-                        payee_type=r["type"],
-                        payee_id=r["id"],
-                        payee_name=r["name"],
-                        role=r.get("role"),
-                        gross=bulk_gross,
-                        fee=bulk_fee,
-                        method=bulk_method,
-                        paid_date=bulk_paid_date,
-                        eligible_1099=bulk_1099,
-                        notes=reference,
-                    )
-                    count += 1
+            count = 0
+            reference = _compose_reference(bulk_method_detail, bulk_notes)
 
-                st.success(f"Added {count} payment(s).")
-                st.rerun()
+            for lbl in chosen_labels:
+                r = label_to_r.get(lbl)
+                if not r:
+                    continue
+
+                upsert_payment_row(
+                    gig_id=gig["id"],
+                    payee_type=r["type"],
+                    payee_id=r["id"],
+                    payee_name=r["name"],
+                    role=r.get("role"),
+                    gross=bulk_gross,
+                    fee=bulk_fee,
+                    method=bulk_method,
+                    paid_date=bulk_paid_date,
+                    eligible_1099=bulk_1099,
+                    notes=reference,
+                )
+                count += 1
+
+            st.success(f"Added {count} payment(s).")
+            st.rerun()
+
 
     # -------- Per-roster single add (existing, upgraded with dropdown) --------
     for r in roster:
