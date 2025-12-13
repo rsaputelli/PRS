@@ -76,11 +76,11 @@ def _fetch_instruments() -> list[str]:
     """
     Fetch canonical instrument list from vw_people_dropdown.
     Cached to prevent repeated reads; clear cache if instruments are edited.
-    """        
+    """
     resp = (
         sb.table("vw_people_dropdown")
         .select("role")
-        .eq("role_type", "instrument")
+        .eq("role", "instrument")
         .order("role")
         .execute()
     )
