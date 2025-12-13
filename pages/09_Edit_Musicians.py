@@ -80,7 +80,6 @@ def _fetch_instruments() -> list[str]:
     resp = (
         sb.table("vw_people_dropdown")
         .select("role")
-        .eq("role", "instrument")
         .order("role")
         .execute()
     )
