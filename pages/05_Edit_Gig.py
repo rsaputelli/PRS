@@ -518,6 +518,18 @@ def _load_gigs() -> pd.DataFrame:
         df["event_date"] = pd.to_datetime(df["event_date"], errors="coerce").dt.date
     return df
 
+# ==============================
+# Closeout Status Filter (NEW)
+# ==============================
+st.markdown("### Closeout Filter")
+
+closeout_filter = st.radio(
+    "Show gigs:",
+    ["Open only", "Closed only", "Open + Closed"],
+    horizontal=True,
+    index=0,
+)
+
 # PATCH: Contract Status Filter
 st.markdown("### Filter Gigs")
 status_filter = st.multiselect(
@@ -530,6 +542,13 @@ gigs = _load_gigs()
 if gigs.empty:
     st.info("No gigs found.")
     st.stop()
+
+# Apply closeout filter
+if "closeout_status" in gigs.columns:
+    if closeout_filter == "Open only":
+        gigs = gigs[gigs["closeout_status"].fillna("open") == "open"]
+    elif closeout_filter == "Closed only":
+        gigs = gigs[gigs["closeout_status"] == "closed"]
 
 # PATCH: Apply status filter
 if "contract_status" in gigs.columns:
