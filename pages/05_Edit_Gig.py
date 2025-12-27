@@ -1646,6 +1646,7 @@ with st.expander("🔎 Root-level Gmail Key Check", expanded=True):
         "ROOT_GMAIL_CLIENT_SECRET": bool(st.secrets.get("GMAIL_CLIENT_SECRET")),
         "ROOT_GMAIL_REFRESH_TOKEN": bool(st.secrets.get("GMAIL_REFRESH_TOKEN")),
     })
+st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
