@@ -1623,6 +1623,24 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         # "sound_fee": (None if sound_fee_val is None else format_currency(sound_fee_val)),
     # })
 
+with st.expander("🔎 Gmail Credentials / Diagnostics", expanded=False):
+    gmail = st.secrets.get("gmail", {})
+    st.write("**Loaded Gmail config:**")
+    st.json({
+        "has_client_id": bool(gmail.get("client_id")),
+        "has_client_secret": bool(gmail.get("client_secret")),
+        "has_refresh_token": bool(gmail.get("refresh_token")),
+        "scopes": gmail.get("scopes"),
+    })
+
+    # Show environment vars too (in case Streamlit injected them)
+    st.write("**Environment overrides:**")
+    st.json({
+        "GMAIL_CLIENT_ID": bool(os.environ.get("GMAIL_CLIENT_ID")),
+        "GMAIL_CLIENT_SECRET": bool(os.environ.get("GMAIL_CLIENT_SECRET")),
+        "GMAIL_REFRESH_TOKEN": bool(os.environ.get("GMAIL_REFRESH_TOKEN")),
+    })
+
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
 # -----------------------------
@@ -1631,7 +1649,7 @@ if IS_ADMIN:
     st.subheader("Email — Sound Tech")
 
     # Diagnostic toggle (does not email; writes 'dry-run' to email_audit)
-    diag_dry_run = st.checkbox("Diagnostic mode (no email, write 'dry-run' to audit)", value=True, key=f"dryrun_send_sound_{gid}")
+    diag_dry_run = st.checkbox("Diagnostic mode (no email, write 'dry-run' to audit)", value=False, key=f"dryrun_send_sound_{gid}")
 
     # Derive current selection for sending (independent of Save block)
     if sound_provided:
