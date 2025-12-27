@@ -569,10 +569,38 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
     # ---- SEND + AUDIT with strict checks ----
     try:
+
+        # ---- GMAIL DEBUG ----
+        try:
+            import streamlit as st
+            gmail_cfg = st.secrets.get("gmail", {})
+        except Exception:
+            gmail_cfg = {}
+
+        import os
+        debug_gmail = {
+            "has_gmail_block": bool(gmail_cfg),
+            "gmail.client_id": bool(gmail_cfg.get("client_id")),
+            "gmail.client_secret": bool(gmail_cfg.get("client_secret")),
+            "gmail.refresh_token": bool(gmail_cfg.get("refresh_token")),
+            "env.GMAIL_CLIENT_ID": bool(os.environ.get("GMAIL_CLIENT_ID")),
+            "env.GMAIL_CLIENT_SECRET": bool(os.environ.get("GMAIL_CLIENT_SECRET")),
+            "env.GMAIL_REFRESH_TOKEN": bool(os.environ.get("GMAIL_REFRESH_TOKEN")),
+            "env.GMAIL_TOKEN_JSON": bool(os.environ.get("GMAIL_TOKEN_JSON")),
+        }
+        print("GMAIL_DEBUG(soundtech)", debug_gmail)
+
+        # ---- SEND ----
         if _is_dry_run():
             result = True  # pretend success in diagnostics
         else:
-            result = gmail_send(subject, tech["email"], html, cc=[CC_RAY], attachments=atts)
+            result = gmail_send(
+                subject,
+                tech["email"],
+                html,
+                cc=[CC_RAY],
+                attachments=atts,
+            )
 
         if not result:
             raise RuntimeError("gmail_send returned a non-success value (None/False)")
@@ -596,6 +624,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
         )
         print(f"[soundtech_confirm] ERROR token={token} to={tech.get('email')} err={e}")
         raise
+
 
 
 # -----------------------------

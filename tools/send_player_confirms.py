@@ -610,10 +610,39 @@ def send_player_confirms(
         # ----- Send -----
         subject = f"Player Confirmation: {title} ({_nz(event_dt)})"
         try:
+
+            # ---- GMAIL DEBUG ----
+            try:
+                import streamlit as st
+                gmail_cfg = st.secrets.get("gmail", {})
+            except Exception:
+                gmail_cfg = {}
+
+            import os
+            debug_gmail = {
+                "has_gmail_block": bool(gmail_cfg),
+                "gmail.client_id": bool(gmail_cfg.get("client_id")),
+                "gmail.client_secret": bool(gmail_cfg.get("client_secret")),
+                "gmail.refresh_token": bool(gmail_cfg.get("refresh_token")),
+                "env.GMAIL_CLIENT_ID": bool(os.environ.get("GMAIL_CLIENT_ID")),
+                "env.GMAIL_CLIENT_SECRET": bool(os.environ.get("GMAIL_CLIENT_SECRET")),
+                "env.GMAIL_REFRESH_TOKEN": bool(os.environ.get("GMAIL_REFRESH_TOKEN")),
+                "env.GMAIL_TOKEN_JSON": bool(os.environ.get("GMAIL_TOKEN_JSON")),
+            }
+            print("GMAIL_DEBUG(player)", debug_gmail)
+
+            # ---- actual send ----
             if not _is_dry_run():
-                result = gmail_send(subject, to_email, html, cc=(cc or [CC_RAY]), attachments=attachments)
+                result = gmail_send(
+                    subject,
+                    to_email,
+                    html,
+                    cc=(cc or [CC_RAY]),
+                    attachments=attachments,
+                )
                 if not result:
                     raise RuntimeError("gmail_send returned a non-success value")
+
             _insert_email_audit(
                 token=token, gig_id=gig_id, recipient_email=to_email,
                 kind="player_confirm", status=("dry-run" if _is_dry_run() else "sent"),
@@ -642,34 +671,3 @@ def send_player_confirms(
                     "soundtech_label_used": soundtech_name or (f"(ID: {stid_str[:8]}…)" if stid_str else ""),
                 },
             )
-        except Exception as e:
-            _insert_email_audit(
-                token=token, gig_id=gig_id, recipient_email=to_email,
-                kind="player_confirm", status=f"error: {e}",
-                detail={
-                    "to": to_email,
-                    "subject": subject,
-                    "musician_id": mid,
-                    "errors": str(e),
-                    "has_ics": has_ics,
-                    "other_players_count": other_players_count,
-                    "starts_at_built": starts_at_built,
-                    "ends_at_built": ends_at_built,
-                    "notes_present": notes_present,
-                    "notes_len": len(str(notes_raw or "")),
-                    "gig_sound_tech_id": gig.get("sound_tech_id"),
-                    "soundtech_present": bool(soundtech_name),
-                    "soundtech_lookup_rows": soundtech_lookup_rows,
-                    "soundtech_admin_key_present": soundtech_admin_key_present,
-                    "soundtech_row_keys": soundtech_row_keys,
-                    "soundtech_candidates": {
-                        "display_name": cand_dn,
-                        "first_last": cand_fl,
-                        "company": cand_co,
-                        "name_for_1099": cand_nf,
-                        "email": cand_em,
-                    },
-                    "soundtech_label_used": soundtech_name or (f"(ID: {stid_str[:8]}…)" if stid_str else ""),
-                },
-            )
-            raise
