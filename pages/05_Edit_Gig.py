@@ -1640,6 +1640,12 @@ with st.expander("🔎 Gmail Credentials / Diagnostics", expanded=False):
         "GMAIL_CLIENT_SECRET": bool(os.environ.get("GMAIL_CLIENT_SECRET")),
         "GMAIL_REFRESH_TOKEN": bool(os.environ.get("GMAIL_REFRESH_TOKEN")),
     })
+with st.expander("🔎 Root-level Gmail Key Check", expanded=True):
+    st.json({
+        "ROOT_GMAIL_CLIENT_ID": bool(st.secrets.get("GAIL_CLIENT_ID")),
+        "ROOT_GMAIL_CLIENT_SECRET": bool(st.secrets.get("GMAIL_CLIENT_SECRET")),
+        "ROOT_GMAIL_REFRESH_TOKEN": bool(st.secrets.get("GMAIL_REFRESH_TOKEN")),
+    })
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)

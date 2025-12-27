@@ -644,8 +644,11 @@ def send_player_confirms(
                     raise RuntimeError("gmail_send returned a non-success value")
 
             _insert_email_audit(
-                token=token, gig_id=gig_id, recipient_email=to_email,
-                kind="player_confirm", status=("dry-run" if _is_dry_run() else "sent"),
+                token=token,
+                gig_id=gig_id,
+                recipient_email=to_email,
+                kind="player_confirm",
+                status=("dry-run" if _is_dry_run() else "sent"),
                 detail={
                     "to": to_email,
                     "subject": subject,
@@ -671,3 +674,14 @@ def send_player_confirms(
                     "soundtech_label_used": soundtech_name or (f"(ID: {stid_str[:8]}…)" if stid_str else ""),
                 },
             )
+
+        except Exception as e:
+            _insert_email_audit(
+                token=token,
+                gig_id=gig_id,
+                recipient_email=to_email,
+                kind="player_confirm",
+                status=f"error: {e}",
+            )
+            print(f"[player_confirm] ERROR {e}")
+            raise
