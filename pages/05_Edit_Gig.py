@@ -1660,15 +1660,24 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
         from lib.supabase_client import get_client  # adjust if named differently
         sb = get_client()
 
-    # Always fetch current lineup from DB (authoritative source)
-    rows = (
-        sb.table("gig_musicians")
-        .select("musician_id")
-        .eq("gig_id", gig_id)
-        .execute()
-    ).data or []
+    gig_id_value = (
+        gig_id_str
+        if 'gig_id_str' in globals() or 'gig_id_str' in locals()
+        else gig.get("id") if 'gig' in globals() or 'gig' in locals()
+        else None
+    )
 
-    current_player_ids = {str(r["musician_id"]) for r in rows}
+    if not gig_id_value:
+        st.warning("⚠️ Could not determine gig ID for resend module.")
+    else:
+        rows = (
+            sb.table("gig_musicians")
+            .select("musician_id")
+            .eq("gig_id", gig_id_value)
+            .execute()
+        ).data or []
+
+        current_player_ids = {str(r["musician_id"]) for r in rows}
 
     # Players from the last autosend snapshot
     prior_player_ids = {
