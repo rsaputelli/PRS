@@ -1654,34 +1654,71 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
     # ---- Resolve gig musician rows safely ----
-    gm_rows = None
+    gm_rows = (
+        locals().get("gig_musicians")
+        or st.session_state.get("gig_musicians")
+        or []
+    )
 
-    # prefer local symbol if already defined
-    gm_rows = locals().get("gig_musicians")
-
-    # fallback: some versions store it in session
-    if gm_rows is None:
-        gm_rows = st.session_state.get("gig_musicians")
-
-    # last fallback = empty list so resend UI doesn't crash
-    gm_rows = gm_rows or []
-
-    # Debug (one time, helpful while testing)
-    # st.write("DEBUG gm_rows sample:", (gm_rows or [None])[0])
-
-    # ---- Build current lineup id set ----
+    # ---- Current lineup ----
     current_player_ids = {
         str((p or {}).get("musician_id") or (p or {}).get("id"))
         for p in gm_rows
         if p
     }
 
-    # ---- Prior lineup from autosend snapshot ----
+    # ---- Prior lineup from autosend baseline ----
     prior_player_ids = {
         str(pid)
         for pid in (st.session_state.get("autosend__prior_players") or [])
     }
 
+    # ---- Compute subsets ----
+    newly_added_ids = current_player_ids - prior_player_ids
+    unchanged_ids   = current_player_ids & prior_player_ids
+
+    st.write("### Lineup snapshot")
+    st.json({
+        "current": sorted(list(current_player_ids)),
+        "prior": sorted(list(prior_player_ids)),
+        "newly_added": sorted(list(newly_added_ids)),
+        "unchanged": sorted(list(unchanged_ids)),
+    })
+
+    # ---- Action buttons ----
+    colA, colB, colC = st.columns(3)
+
+    with colA:
+        send_new = st.button("Send to Newly-Added Players Only")
+
+    with colB:
+        send_all = st.button("Resend to ALL Players (force)")
+
+    with colC:
+        dry_run = st.checkbox("Dry-run (write audit only)", value=False)
+
+    # ---- Perform sends ----
+    if send_new or send_all:
+        from tools.send_player_confirms import send_player_confirms
+
+        target_ids = (
+            newly_added_ids if send_new else current_player_ids
+        )
+
+        if not target_ids:
+            st.warning("No matching players to send to.")
+        else:
+            st.info(f"Sending confirmations to {len(target_ids)} player(s)…")
+
+            try:
+                send_player_confirms(
+                    str(gid),
+                    only_players=list(target_ids),
+                    dry_run=dry_run,
+                )
+                st.success("Done — see email_audit for results.")
+            except Exception as e:
+                st.error(f"Send failed: {e}")
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
 # -----------------------------
