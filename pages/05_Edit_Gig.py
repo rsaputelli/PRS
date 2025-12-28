@@ -1648,9 +1648,14 @@ with st.expander("🔎 Root-level Gmail Key Check", expanded=True):
     })
 st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 
-# -----------------------------
-# Manual: Resend Player Confirmations
-# -----------------------------
+with st.expander("🧩 Lineup Source Debug", expanded=True):
+    st.write({
+        "has gig_musicians": "gig_musicians" in globals() or "gig_musicians" in locals(),
+        "has assigned_players": "assigned_players" in globals() or "assigned_players" in locals(),
+        "has session lineup_roles": bool(st.session_state.get("lineup_roles")),
+        "has session players": bool(st.session_state.get("players")),
+    })
+
 # -----------------------------
 # Manual: Resend Player Confirmations
 # -----------------------------
