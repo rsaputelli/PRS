@@ -1649,61 +1649,56 @@ with st.expander("🔎 Root-level Gmail Key Check", expanded=True):
 st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 
 # -----------------------------
-# MANUAL: Send Player Confirms (admin-only)
+# Manual: Resend Player Confirms
 # -----------------------------
-if IS_ADMIN:
-    st.markdown("---")
-    st.subheader("Email — Players")
+with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    player_dry_run = st.checkbox(
-        "Diagnostic mode (no email, record as 'dry-run' in audit)",
-        value=False,
-        key=f"dryrun_send_players_{gid}",
-    )
+    # Current players on gig (after edits)
+    current_player_ids = {str(p["id"]) for p in assigned_players}
+
+    # Prior players from DB snapshot (before edits)
+    prior_player_ids = {str(p["id"]) for p in prior_assigned_players}
+
+    # Players newly added OR removed then re-added
+    newly_added_player_ids = sorted(current_player_ids - prior_player_ids)
+
+    st.write("**Detected newly-added players (since last saved):**")
+    st.json(newly_added_player_ids or [])
 
     resend_mode = st.radio(
-        "Who should receive the email?",
+        "Resend to:",
         [
-            "Only newly-added players (autosend logic)",
-            "All assigned players"
+            "Only newly-added players",
+            "All players on this gig"
         ],
         index=0,
-        key=f"players_resend_mode_{gid}",
+        key="manual_player_send_mode",
     )
 
-    if st.button("📧 Resend Player Confirmations", key=f"manual_send_players_{gid}"):
+    dry_run = st.checkbox("Dry-run (log only, do not send)", value=False)
 
-        try:
-            from tools.send_player_confirms import send_player_confirms
+    if st.button("Send Player Confirmations Now"):
+        from tools.send_player_confirms import send_player_confirms
 
-            # Determine target list when using ONLY-NEW mode
-            only_players = None
-            if resend_mode.startswith("Only"):
-                only_players = list(added_ids or [])  # same set autosend uses
+        if resend_mode == "Only newly-added players":
+            target_ids = newly_added_player_ids
+        else:
+            target_ids = sorted(current_player_ids)
 
-            # Enable temporary dry-run mode
-            if player_dry_run:
-                st.session_state["EMAIL_FORCE_DRY_RUN"] = True
+        if not target_ids:
+            st.warning("No eligible players found for resend.")
+        else:
+            st.info(f"Sending to {len(target_ids)} player(s)…")
+            try:
+                send_player_confirms(
+                    str(gid),
+                    only_player_ids=target_ids,
+                    dry_run=dry_run,
+                )
+                st.success("Resend complete.")
+            except Exception as e:
+                st.error(f"Resend failed: {e}")
 
-            send_player_confirms(
-                gid_str,
-                only_players=only_players
-            )
-
-            if player_dry_run:
-                st.toast("🧪 DRY-RUN: Player emails logged to audit only.", icon="🧪")
-            else:
-                st.toast("📧 Player confirmations sent.", icon="📧")
-
-            _log("Players manual send", "Sent OK")
-
-        except Exception:
-            tr = traceback.format_exc()
-            _log("Players manual send", "Send failed", tr)
-            st.error("Manual player send failed — see log above.")
-            st.code(tr)
-        finally:
-            st.session_state.pop("EMAIL_FORCE_DRY_RUN", None)
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
