@@ -1654,7 +1654,7 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
     # --- Use the global Supabase client already defined above ---
-    global sb
+    # (sb is already defined earlier in the script)
 
     # --- Fetch current lineup from gig_musicians ---
     current_rows = (
