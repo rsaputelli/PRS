@@ -1649,27 +1649,33 @@ with st.expander("🔎 Root-level Gmail Key Check", expanded=True):
 st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 
 # -----------------------------
-# Manual: Resend Player Confirms
+# Manual: Resend Player Confirmations
 # -----------------------------
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    # Current players on gig (after edits)
-    current_player_ids = {str(p["id"]) for p in assigned_players}
+    # Current players on this gig
+    current_player_ids = {
+        str(p.get("id"))
+        for p in (gig_musicians or [])
+        if p and p.get("id")
+    }
 
-    # Prior players from DB snapshot (before edits)
-    prior_player_ids = {str(p["id"]) for p in prior_assigned_players}
+    # Players from the last saved snapshot (autosend baseline)
+    prior_player_ids = {
+        str(pid)
+        for pid in (st.session_state.get("autosend__prior_players") or [])
+    }
 
-    # Players newly added OR removed then re-added
     newly_added_player_ids = sorted(current_player_ids - prior_player_ids)
 
-    st.write("**Detected newly-added players (since last saved):**")
+    st.write("**Detected newly-added players (since last save):**")
     st.json(newly_added_player_ids or [])
 
     resend_mode = st.radio(
         "Resend to:",
         [
             "Only newly-added players",
-            "All players on this gig"
+            "All players on this gig",
         ],
         index=0,
         key="manual_player_send_mode",
@@ -1677,28 +1683,24 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
     dry_run = st.checkbox("Dry-run (log only, do not send)", value=False)
 
-    if st.button("Send Player Confirmations Now"):
+    if st.button("Send Player Confirmations Now", type="primary"):
         from tools.send_player_confirms import send_player_confirms
 
-        if resend_mode == "Only newly-added players":
-            target_ids = newly_added_player_ids
-        else:
-            target_ids = sorted(current_player_ids)
+        target_ids = (
+            newly_added_player_ids
+            if resend_mode == "Only newly-added players"
+            else list(current_player_ids)
+        )
 
-        if not target_ids:
-            st.warning("No eligible players found for resend.")
-        else:
-            st.info(f"Sending to {len(target_ids)} player(s)…")
-            try:
-                send_player_confirms(
-                    str(gid),
-                    only_player_ids=target_ids,
-                    dry_run=dry_run,
-                )
-                st.success("Resend complete.")
-            except Exception as e:
-                st.error(f"Resend failed: {e}")
+        st.write(f"Sending to {len(target_ids)} players…")
 
+        send_player_confirms(
+            gig_id=str(gid),
+            limit_to_player_ids=target_ids,
+            dry_run=dry_run,
+        )
+
+        st.success("Manual resend complete.")
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
