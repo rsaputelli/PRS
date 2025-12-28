@@ -1677,6 +1677,8 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
     newly_added_ids = current_player_ids - prior_player_ids
     unchanged_ids   = current_player_ids & prior_player_ids
 
+    st.write("DEBUG / gig_musicians =", gig_musicians)
+    st.write("DEBUG / assigned_players =", assigned_players)
     st.write("### Lineup snapshot")
     st.json({
         "current": sorted(list(current_player_ids)),
