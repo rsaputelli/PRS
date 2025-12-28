@@ -1649,6 +1649,63 @@ with st.expander("🔎 Root-level Gmail Key Check", expanded=True):
 st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 
 # -----------------------------
+# MANUAL: Send Player Confirms (admin-only)
+# -----------------------------
+if IS_ADMIN:
+    st.markdown("---")
+    st.subheader("Email — Players")
+
+    player_dry_run = st.checkbox(
+        "Diagnostic mode (no email, record as 'dry-run' in audit)",
+        value=False,
+        key=f"dryrun_send_players_{gid}",
+    )
+
+    resend_mode = st.radio(
+        "Who should receive the email?",
+        [
+            "Only newly-added players (autosend logic)",
+            "All assigned players"
+        ],
+        index=0,
+        key=f"players_resend_mode_{gid}",
+    )
+
+    if st.button("📧 Resend Player Confirmations", key=f"manual_send_players_{gid}"):
+
+        try:
+            from tools.send_player_confirms import send_player_confirms
+
+            # Determine target list when using ONLY-NEW mode
+            only_players = None
+            if resend_mode.startswith("Only"):
+                only_players = list(added_ids or [])  # same set autosend uses
+
+            # Enable temporary dry-run mode
+            if player_dry_run:
+                st.session_state["EMAIL_FORCE_DRY_RUN"] = True
+
+            send_player_confirms(
+                gid_str,
+                only_players=only_players
+            )
+
+            if player_dry_run:
+                st.toast("🧪 DRY-RUN: Player emails logged to audit only.", icon="🧪")
+            else:
+                st.toast("📧 Player confirmations sent.", icon="📧")
+
+            _log("Players manual send", "Sent OK")
+
+        except Exception:
+            tr = traceback.format_exc()
+            _log("Players manual send", "Send failed", tr)
+            st.error("Manual player send failed — see log above.")
+            st.code(tr)
+        finally:
+            st.session_state.pop("EMAIL_FORCE_DRY_RUN", None)
+
+# -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
 # -----------------------------
 if IS_ADMIN:
