@@ -1651,6 +1651,13 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 # -----------------------------
 # Manual: Resend Player Confirmations
 # -----------------------------
+st.write("🧩 GIG ID DEBUG", {
+    "gig_id_str exists": "gig_id_str" in globals() or "gig_id_str" in locals(),
+    "gig exists": 'gig' in globals() or 'gig' in locals(),
+    "gig.id value": gig.get("id") if 'gig' in globals() and isinstance(gig, dict) else None,
+    "session.gig_id": st.session_state.get("gig_id"),
+})
+
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
     # --- Use the global Supabase client already defined above ---
