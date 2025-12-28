@@ -1660,30 +1660,32 @@ st.write("🧩 GIG ID DEBUG", {
 
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    # --- Use the global Supabase client already defined above ---
-    # (sb is already defined earlier in the script)
+    # Always start with safe defaults
+    current_rows = []
+    current_player_ids = set()
+    prior_player_ids = set()
 
     # Resolve gig id from URL or session
     qp = st.query_params
     gig_id = (
-        qp.get("gig_id", [None])[0]
+        (qp.get("gig_id")[0] if qp.get("gig_id") else None)
         or st.session_state.get("gig_id")
     )
 
     if not gig_id:
         st.warning("Unable to resolve gig ID — cannot load player lineup.")
-        current_player_ids = set()
-        prior_player_ids = set()
     else:
         # Fetch current lineup from gig_musicians
-        rows = (
+        res = (
             sb.table("gig_musicians")
               .select("musician_id")
               .eq("gig_id", gig_id)
               .execute()
-              .data
-        ) or []
+        )
 
+        current_rows = res.data or []
+
+    # Build sets safely regardless of branch
     current_player_ids = {
         str(r.get("musician_id"))
         for r in current_rows
@@ -1698,6 +1700,7 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
     newly_added_ids = current_player_ids - prior_player_ids
     unchanged_ids   = current_player_ids & prior_player_ids
+
 
 
     st.write("### Lineup snapshot")
