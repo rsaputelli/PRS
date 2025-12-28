@@ -1653,7 +1653,8 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 # -----------------------------
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    sb = _sb()
+    # --- Use the global Supabase client already defined above ---
+    global sb
 
     # --- Fetch current lineup from gig_musicians ---
     current_rows = (
@@ -1664,16 +1665,21 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
           .data
     ) or []
 
-    current_player_ids = {str(r["musician_id"]) for r in current_rows}
+    current_player_ids = {
+        str(r.get("musician_id"))
+        for r in current_rows
+        if r.get("musician_id")
+    }
 
-    # --- Prior lineup snapshot (autosend baseline) ---
-    prior_player_ids = set(
-        str(pid) for pid in (st.session_state.get("autosend__prior_players") or [])
-    )
+    # Players from autosend snapshot (baseline)
+    prior_player_ids = {
+        str(pid)
+        for pid in (st.session_state.get("autosend__prior_players") or [])
+    }
 
-    # --- Compute subsets ---
     newly_added_ids = current_player_ids - prior_player_ids
     unchanged_ids   = current_player_ids & prior_player_ids
+
 
     st.write("### Lineup snapshot")
     st.json({
