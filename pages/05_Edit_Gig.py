@@ -1653,11 +1653,11 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 # -----------------------------
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    # Current players on this gig
+    # Current lineup from gig_musicians table
     current_player_ids = {
-        str(p.get("id"))
-        for p in (gig_musicians or [])
-        if p and p.get("id")
+        str(p.get("musician_id") or p.get("id"))
+        for p in gig_musicians
+        if p
     }
 
     # Players from the last saved snapshot (autosend baseline)
