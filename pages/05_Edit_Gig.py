@@ -1653,29 +1653,27 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 # -----------------------------
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    # ---- Resolve gig musician rows safely ----
-    gm_rows = (
-        locals().get("gig_musicians")
-        or st.session_state.get("gig_musicians")
-        or []
-    )
+    sb = _sb()
 
-    # ---- Current lineup ----
-    current_player_ids = {
-        str((p or {}).get("musician_id") or (p or {}).get("id"))
-        for p in gm_rows
-        if p
-    }
+    # Always fetch current lineup from DB (authoritative source)
+    rows = (
+        sb.table("gig_musicians")
+        .select("musician_id")
+        .eq("gig_id", gig_id)
+        .execute()
+    ).data or []
 
-    # ---- Prior lineup from autosend baseline ----
+    current_player_ids = {str(r["musician_id"]) for r in rows}
+
+    # Players from the last autosend snapshot
     prior_player_ids = {
         str(pid)
         for pid in (st.session_state.get("autosend__prior_players") or [])
     }
 
-    # ---- Compute subsets ----
     newly_added_ids = current_player_ids - prior_player_ids
     unchanged_ids   = current_player_ids & prior_player_ids
+
 
     def _dbg(name):
         return locals().get(name) or globals().get(name)
