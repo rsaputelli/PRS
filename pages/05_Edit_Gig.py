@@ -644,6 +644,9 @@ row = gigs[gigs["id"] == sel_gid].iloc[0]
 gid = str(sel_gid)
 gid_str = str(sel_gid)
 
+# NEW — persist selected gig id for downstream blocks (manual resend etc.)
+st.session_state["gig_id"] = gid_str
+
 # If we just saved this gig on the previous run, drop any per-gig widget state
 # so all widgets rehydrate from the current DB row instead of stale values.
 just_saved_gid = st.session_state.pop("_edit_just_saved_gid", None)
@@ -1660,31 +1663,16 @@ st.write("🧩 GIG ID DEBUG", {
 
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    # Always start with safe defaults
-    current_rows = []
-    current_player_ids = set()
-    prior_player_ids = set()
-
-    # Resolve gig id from URL or (persisted) session
-    qp = st.query_params
-    gig_id = None
-
-    if qp.get("gig_id"):
-        gig_id = qp.get("gig_id")[0]
-
-    # If we just resolved it from the URL, persist it for reruns
-    if gig_id:
-        st.session_state["gig_id"] = gig_id
-    else:
-        # Fall back to previously stored value (if any)
-        gig_id = st.session_state.get("gig_id")
+    # --- Resolve gig id from session (set when a gig is selected above) ---
+    gig_id = st.session_state.get("gig_id")
 
     if not gig_id:
-        st.warning("Unable to resolve gig ID — cannot load player lineup.")
-        current_rows = []
+        st.info("Load a gig above to enable manual resends.")
+        current_player_ids = set()
+        prior_player_ids = set()
     else:
         # Fetch current lineup from gig_musicians
-        current_rows = (
+        rows = (
             sb.table("gig_musicians")
               .select("musician_id")
               .eq("gig_id", gig_id)
@@ -1692,23 +1680,21 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
               .data
         ) or []
 
-    # Build sets safely regardless of branch
-    current_player_ids = {
-        str(r.get("musician_id"))
-        for r in current_rows
-        if r.get("musician_id")
-    }
+        current_player_ids = {
+            str(r.get("musician_id"))
+            for r in rows
+            if r.get("musician_id")
+        }
 
-    # Players from autosend snapshot (baseline)
-    prior_player_ids = {
-        str(pid)
-        for pid in (st.session_state.get("autosend__prior_players") or [])
-    }
+        # Players from autosend snapshot (baseline)
+        prior_player_ids = {
+            str(pid)
+            for pid in (st.session_state.get("autosend__prior_players") or [])
+        }
 
+    # ---- Compute subsets ----
     newly_added_ids = current_player_ids - prior_player_ids
     unchanged_ids   = current_player_ids & prior_player_ids
-
-
 
     st.write("### Lineup snapshot")
     st.json({
@@ -1724,27 +1710,39 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
         index=0,
     )
 
-    do_dry_run = st.checkbox("Dry run (no email sent)", value=True)
+    if mode == "Only newly-added players":
+        target_ids = newly_added_ids
+    else:
+        target_ids = current_player_ids
 
-    if st.button("Send Player Confirmations Now"):
-        from tools.send_player_confirms import send_player_confirms
+    st.write(f"Selected {len(target_ids)} player(s) to receive confirmations.")
 
-        target_ids = (
-            newly_added_ids
-            if mode == "Only newly-added players"
-            else current_player_ids
-        )
-
-        if not target_ids:
-            st.warning("No players match the selected criteria.")
+    do_dry_run = st.checkbox("Dry run (log only, no actual email send)", value=True)
+    if st.button("Send player confirmations now"):
+        if not gig_id:
+            st.error("No gig ID available — cannot send emails.")
+        elif not target_ids:
+            st.warning("No players in the selected set — nothing to send.")
         else:
-            st.success(f"Sending to {len(target_ids)} player(s)…")
+            from tools.send_player_confirms import send_player_confirms
 
-            send_player_confirms(
-                gig_id_str,
-                override_player_ids=list(target_ids),
-                dry_run=do_dry_run,
-            )
+            try:
+                # Hook into the global dry-run flag used by send_player_confirms
+                if do_dry_run:
+                    os.environ["SOUNDT_EMAIL_DRY_RUN"] = "1"
+                else:
+                    os.environ.pop("SOUNDT_EMAIL_DRY_RUN", None)
+
+                send_player_confirms(gig_id, only_players=list(target_ids))
+                st.success(
+                    f"Triggered player confirmations for {len(target_ids)} player(s). "
+                    + ("(dry run — see logs)" if do_dry_run else "")
+                )
+            except Exception as e:
+                st.error(f"Manual resend failed: {e}")
+            finally:
+                # Clean up env flag so it doesn't leak to other sends
+                os.environ.pop("SOUNDT_EMAIL_DRY_RUN", None)
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
