@@ -1677,8 +1677,16 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
     newly_added_ids = current_player_ids - prior_player_ids
     unchanged_ids   = current_player_ids & prior_player_ids
 
-    st.write("DEBUG / gig_musicians =", gig_musicians)
-    st.write("DEBUG / assigned_players =", assigned_players)
+    def _dbg(name):
+        return locals().get(name) or globals().get(name)
+
+    st.write("DEBUG sources", {
+        "gig_musicians": "present" if "gig_musicians" in globals() or "gig_musicians" in locals() else False,
+        "assigned_players": "present" if "assigned_players" in globals() or "assigned_players" in locals() else False,
+        "session.lineup_roles": bool(st.session_state.get("lineup_roles")),
+    })
+
+
     st.write("### Lineup snapshot")
     st.json({
         "current": sorted(list(current_player_ids)),
