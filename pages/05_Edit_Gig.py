@@ -1653,54 +1653,34 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 # -----------------------------
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    # Current lineup from gig_musicians table
+    # ---- Resolve gig musician rows safely ----
+    gm_rows = None
+
+    # prefer local symbol if already defined
+    gm_rows = locals().get("gig_musicians")
+
+    # fallback: some versions store it in session
+    if gm_rows is None:
+        gm_rows = st.session_state.get("gig_musicians")
+
+    # last fallback = empty list so resend UI doesn't crash
+    gm_rows = gm_rows or []
+
+    # Debug (one time, helpful while testing)
+    # st.write("DEBUG gm_rows sample:", (gm_rows or [None])[0])
+
+    # ---- Build current lineup id set ----
     current_player_ids = {
-        str(p.get("musician_id") or p.get("id"))
-        for p in gig_musicians
+        str((p or {}).get("musician_id") or (p or {}).get("id"))
+        for p in gm_rows
         if p
     }
 
-    # Players from the last saved snapshot (autosend baseline)
+    # ---- Prior lineup from autosend snapshot ----
     prior_player_ids = {
         str(pid)
         for pid in (st.session_state.get("autosend__prior_players") or [])
     }
-
-    newly_added_player_ids = sorted(current_player_ids - prior_player_ids)
-
-    st.write("**Detected newly-added players (since last save):**")
-    st.json(newly_added_player_ids or [])
-
-    resend_mode = st.radio(
-        "Resend to:",
-        [
-            "Only newly-added players",
-            "All players on this gig",
-        ],
-        index=0,
-        key="manual_player_send_mode",
-    )
-
-    dry_run = st.checkbox("Dry-run (log only, do not send)", value=False)
-
-    if st.button("Send Player Confirmations Now", type="primary"):
-        from tools.send_player_confirms import send_player_confirms
-
-        target_ids = (
-            newly_added_player_ids
-            if resend_mode == "Only newly-added players"
-            else list(current_player_ids)
-        )
-
-        st.write(f"Sending to {len(target_ids)} players…")
-
-        send_player_confirms(
-            gig_id=str(gid),
-            limit_to_player_ids=target_ids,
-            dry_run=dry_run,
-        )
-
-        st.success("Manual resend complete.")
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
