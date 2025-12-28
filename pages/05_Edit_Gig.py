@@ -1665,25 +1665,32 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
     current_player_ids = set()
     prior_player_ids = set()
 
-    # Resolve gig id from URL or session
+    # Resolve gig id from URL or (persisted) session
     qp = st.query_params
-    gig_id = (
-        (qp.get("gig_id")[0] if qp.get("gig_id") else None)
-        or st.session_state.get("gig_id")
-    )
+    gig_id = None
+
+    if qp.get("gig_id"):
+        gig_id = qp.get("gig_id")[0]
+
+    # If we just resolved it from the URL, persist it for reruns
+    if gig_id:
+        st.session_state["gig_id"] = gig_id
+    else:
+        # Fall back to previously stored value (if any)
+        gig_id = st.session_state.get("gig_id")
 
     if not gig_id:
         st.warning("Unable to resolve gig ID — cannot load player lineup.")
+        current_rows = []
     else:
         # Fetch current lineup from gig_musicians
-        res = (
+        current_rows = (
             sb.table("gig_musicians")
               .select("musician_id")
               .eq("gig_id", gig_id)
               .execute()
-        )
-
-        current_rows = res.data or []
+              .data
+        ) or []
 
     # Build sets safely regardless of branch
     current_player_ids = {
