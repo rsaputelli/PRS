@@ -1653,7 +1653,12 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 # -----------------------------
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    sb = _sb()
+    # Reuse existing Supabase client if defined, otherwise fallback
+    try:
+        sb  # does it already exist?
+    except NameError:
+        from lib.supabase_client import get_client  # adjust if named differently
+        sb = get_client()
 
     # Always fetch current lineup from DB (authoritative source)
     rows = (
