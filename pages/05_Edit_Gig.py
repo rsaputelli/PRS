@@ -1651,15 +1651,18 @@ st.write("TEST_KEY present:", "TEST_KEY" in st.secrets)
 # -----------------------------
 # Manual: Resend Player Confirmations
 # -----------------------------
+# -----------------------------
+# Manual: Resend Player Confirmations
+# -----------------------------
 with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
-    # Reuse existing Supabase client if defined, otherwise fallback
-    try:
-        sb  # does it already exist?
-    except NameError:
-        from lib.supabase_client import get_client  # adjust if named differently
-        sb = get_client()
+    # --- Always define safe defaults first ---
+    current_player_ids = set()
+    prior_player_ids = set()
 
+    sb = _sb()  # safe; used elsewhere in page
+
+    # Resolve gig id from whatever exists
     gig_id_value = (
         gig_id_str
         if 'gig_id_str' in globals() or 'gig_id_str' in locals()
@@ -1668,36 +1671,31 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
     )
 
     if not gig_id_value:
-        st.warning("⚠️ Could not determine gig ID for resend module.")
+        st.warning("⚠️ Could not determine gig ID — resend disabled for this page state.")
     else:
-        rows = (
-            sb.table("gig_musicians")
-            .select("musician_id")
-            .eq("gig_id", gig_id_value)
-            .execute()
-        ).data or []
+        try:
+            rows = (
+                sb.table("gig_musicians")
+                .select("musician_id")
+                .eq("gig_id", gig_id_value)
+                .execute()
+            ).data or []
 
-        current_player_ids = {str(r["musician_id"]) for r in rows}
+            current_player_ids = {str(r["musician_id"]) for r in rows}
 
-    # Players from the last autosend snapshot
+        except Exception as e:
+            st.error(f"❌ Failed to load current lineup: {e}")
+            current_player_ids = set()  # keep defined so UI doesn't crash
+
+    # Baseline snapshot from autosend (may be empty)
     prior_player_ids = {
         str(pid)
         for pid in (st.session_state.get("autosend__prior_players") or [])
     }
 
+    # --- Compute subsets safely ---
     newly_added_ids = current_player_ids - prior_player_ids
     unchanged_ids   = current_player_ids & prior_player_ids
-
-
-    def _dbg(name):
-        return locals().get(name) or globals().get(name)
-
-    st.write("DEBUG sources", {
-        "gig_musicians": "present" if "gig_musicians" in globals() or "gig_musicians" in locals() else False,
-        "assigned_players": "present" if "assigned_players" in globals() or "assigned_players" in locals() else False,
-        "session.lineup_roles": bool(st.session_state.get("lineup_roles")),
-    })
-
 
     st.write("### Lineup snapshot")
     st.json({
@@ -1706,6 +1704,7 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
         "newly_added": sorted(list(newly_added_ids)),
         "unchanged": sorted(list(unchanged_ids)),
     })
+
 
     # ---- Action buttons ----
     colA, colB, colC = st.columns(3)
