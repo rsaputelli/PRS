@@ -1692,6 +1692,18 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
             for pid in (st.session_state.get("autosend__prior_players") or [])
         }
 
+    # 🔍 PRIOR SNAPSHOT TRACE (for debugging only)
+    snap_key = "autosend__prior_players"
+    st.write("🧩 PRIOR SNAPSHOT TRACE", {
+        "snapshot_key": snap_key,
+        "exists": snap_key in st.session_state,
+        "value": sorted(list(st.session_state.get(snap_key, []))),
+        "current_session_keys": [
+            k for k in st.session_state.keys()
+            if "autosend" in k or "prior" in k or "added" in k
+        ],
+    })
+
     # ---- Compute subsets ----
     newly_added_ids = current_player_ids - prior_player_ids
     unchanged_ids   = current_player_ids & prior_player_ids
