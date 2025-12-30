@@ -304,7 +304,7 @@ def _autosend_run_for(gig_id_str: str):
                     if r.get("musician_id")
                 }
                 snap = st.session_state.get("autosend__prior_players", {})
-                snap[str(gid_id_str)] = list(current_ids)
+                snap[str(gig_id_str)] = list(current_ids)
                 st.session_state["autosend__prior_players"] = snap
 
             except Exception as e:
