@@ -1607,19 +1607,19 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     st.cache_data.clear()
     st.success("Gig updated successfully ✅")
     # ----- Persist autosend baseline (current lineup becomes prior) -----
-    try:
-        current_ids = {
-            str(r["musician_id"])
-            for r in sb.table("gig_musicians")
-                        .select("musician_id")
-                        .eq("gig_id", gid_str)
-                        .execute()
-                        .data or []
-            if r.get("musician_id")
-        }
-        st.session_state[f"autosend__prior_players_{gid_str}"] = list(current_ids)
-    except Exception as e:
-        st.warning(f"Could not persist prior-player snapshot: {e}")
+    # try:
+        # current_ids = {
+            # str(r["musician_id"])
+            # for r in sb.table("gig_musicians")
+                        # .select("musician_id")
+                        # .eq("gig_id", gid_str)
+                        # .execute()
+                        # .data or []
+            # if r.get("musician_id")
+        # }
+        # st.session_state[f"autosend__prior_players_{gid_str}"] = list(current_ids)
+    # except Exception as e:
+        # st.warning(f"Could not persist prior-player snapshot: {e}")
 
 # -----------------------------
 # Auto-send Sound Tech confirmation if assignment changed
