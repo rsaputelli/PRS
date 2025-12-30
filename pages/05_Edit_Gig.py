@@ -1607,6 +1607,33 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     st.cache_data.clear()
     st.success("Gig updated successfully ✅")
     # ----- Persist autosend baseline (current lineup becomes prior) -----
+    try:
+        current_ids = {
+            str(r["musician_id"])
+            for r in sb.table("gig_musicians")
+                        .select("musician_id")
+                        .eq("gig_id", gid_str)
+                        .execute()
+                        .data or []
+            if r.get("musician_id")
+        }
+
+        # 🔥 DEBUG: prove whether persistence runs & survives rerun
+        st.warning("🔥 Persisting baseline for gig " + gid_str)
+        st.json({
+            "persist_attempt_for": gid_str,
+            "current_ids": sorted(list(current_ids)),
+            "session_keys_after_write": [
+                k for k in st.session_state.keys()
+                if "autosend" in k
+            ],
+        })
+
+        st.session_state[f"autosend__prior_players_{gid_str}"] = list(current_ids)
+
+    except Exception as e:
+        st.error(f"Baseline persist failed: {e}")
+    # ----- Persist autosend baseline (current lineup becomes prior) -----
     # try:
         # current_ids = {
             # str(r["musician_id"])
