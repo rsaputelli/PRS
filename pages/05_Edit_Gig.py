@@ -89,9 +89,9 @@ render_header(title="Edit Gig", emoji="✏️")
 
 # === Email autosend toggles — init keys (shared with Enter Gig) ===
 for _k, _default in [
-    ("autoc_send_st_on_create", True),
-    ("autoc_send_agent_on_create", True),
-    ("autoc_send_players_on_create", True),
+    ("autoc_send_st_on_create", False),
+    ("autoc_send_agent_on_create", False),
+    ("autoc_send_players_on_create", False),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _default
@@ -292,6 +292,21 @@ def _autosend_run_for(gig_id_str: str):
             st.error("Player autosend failed — see log above.")
             st.code(tr)
         finally:
+            # After emails are sent, refresh baseline so repeats do not retrigger
+            try:
+                current_ids = {
+                    str(r["musician_id"])
+                    for r in sb.table("gig_musicians")
+                                .select("musician_id")
+                                .eq("gig_id", gig_id_str)
+                                .execute()
+                                .data or []
+                    if r.get("musician_id")
+                }
+                st.session_state[f"autosend__prior_players_{gig_id_str}"] = list(current_ids)
+            except Exception as e:
+                _log("Player confirmations", f"Baseline persist failed: {e}")
+            
             _mark_done("players")
             if _need_more():
                 _bump_and_rerun("advance to done")
@@ -1591,7 +1606,21 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     # Bust caches so the next render reflects changes immediately
     st.cache_data.clear()
     st.success("Gig updated successfully ✅")
-    
+    # ----- Persist autosend baseline (current lineup becomes prior) -----
+    try:
+        current_ids = {
+            str(r["musician_id"])
+            for r in sb.table("gig_musicians")
+                        .select("musician_id")
+                        .eq("gig_id", gid_str)
+                        .execute()
+                        .data or []
+            if r.get("musician_id")
+        }
+        st.session_state[f"autosend__prior_players_{gid_str}"] = list(current_ids)
+    except Exception as e:
+        st.warning(f"Could not persist prior-player snapshot: {e}")
+
 # -----------------------------
 # Auto-send Sound Tech confirmation if assignment changed
 # -----------------------------
