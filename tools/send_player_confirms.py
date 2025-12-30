@@ -354,6 +354,14 @@ def send_player_confirms(
     If omitted/None, email ALL players assigned to the gig.
     ICS/calendar logic remains unchanged for all players.
     """
+
+    # ---- ABSOLUTE DRY-RUN SAFETY GUARD ----
+    # If PLAYER_EMAIL_DRY_RUN is enabled, abort immediately.
+    # No Gmail calls, no message building, no partial sends.
+    if _is_dry_run():
+        print("🧪 DRY RUN — send_player_confirms() aborted, no emails sent")
+        return
+
     gig_id = str(gig_id)
     gig = _fetch_gig(gig_id)
 

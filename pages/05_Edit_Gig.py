@@ -308,9 +308,9 @@ def _autosend_run_for(gig_id_str: str):
                                 .data or []
                     if r.get("musician_id")
                 }
-                snap = st.session_state.get("autosend__prior_players", {})
-                snap[str(gig_id_str)] = list(current_ids)
-                st.session_state["autosend__prior_players"] = snap
+                # snap = st.session_state.get("autosend__prior_players", {})
+                # snap[str(gig_id_str)] = list(current_ids)
+                # st.session_state["autosend__prior_players"] = snap
 
             except Exception as e:
                 _log("Player confirmations", f"Baseline persist failed: {e}")
@@ -1793,7 +1793,8 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
     st.write(f"Selected {len(target_ids)} player(s) to receive confirmations.")
 
-    do_dry_run = st.checkbox("Dry run (log only, no actual email send)", value=True)
+    do_dry_run = st.checkbox("Dry run (no emails sent — preview only)", value=True)
+
     if st.button("Send player confirmations now"):
         if not gig_id:
             st.error("No gig ID available — cannot send emails.")
@@ -1802,23 +1803,42 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
         else:
             from tools.send_player_confirms import send_player_confirms
 
-            try:
-                # Hook into the global dry-run flag used by send_player_confirms
-                if do_dry_run:
-                    os.environ["SOUNDT_EMAIL_DRY_RUN"] = "1"
-                else:
-                    os.environ.pop("SOUNDT_EMAIL_DRY_RUN", None)
+            # -------------------------
+            # TRUE DRY-RUN: never call sender
+            # -------------------------
+            if do_dry_run:
+                st.warning("🧪 DRY RUN — emails were NOT sent")
 
-                send_player_confirms(gig_id, only_players=list(target_ids))
-                st.success(
-                    f"Triggered player confirmations for {len(target_ids)} player(s). "
-                    + ("(dry run — see logs)" if do_dry_run else "")
-                )
-            except Exception as e:
-                st.error(f"Manual resend failed: {e}")
-            finally:
-                # Clean up env flag so it doesn't leak to other sends
-                os.environ.pop("SOUNDT_EMAIL_DRY_RUN", None)
+                st.write("Would send confirmations to:")
+                st.json(sorted(list(target_ids)))
+
+                # 👉 User intentionally triggered send — refresh baseline
+                current_ids = sorted(list(current_player_ids))
+                snap = st.session_state.get("autosend__prior_players", {}) or {}
+                snap[str(gig_id)] = current_ids
+                st.session_state["autosend__prior_players"] = snap
+
+                st.success("🔁 Baseline refreshed after dry-run send")
+
+            else:
+                # -------------------------
+                # REAL SEND
+                # -------------------------
+                try:
+                    send_player_confirms(gig_id, only_players=list(target_ids))
+                    st.success(f"Sent confirmations to {len(target_ids)} player(s).")
+
+                    # 👉 Refresh baseline after REAL send
+                    current_ids = sorted(list(current_player_ids))
+                    snap = st.session_state.get("autosend__prior_players", {}) or {}
+                    snap[str(gig_id)] = current_ids
+                    st.session_state["autosend__prior_players"] = snap
+
+                    st.success("🔁 Baseline refreshed after real send")
+
+                except Exception as e:
+                    st.error(f"Manual resend failed: {e}")
+
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
