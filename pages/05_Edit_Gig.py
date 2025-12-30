@@ -303,7 +303,10 @@ def _autosend_run_for(gig_id_str: str):
                                 .data or []
                     if r.get("musician_id")
                 }
-                st.session_state[f"autosend__prior_players_{gig_id_str}"] = list(current_ids)
+                snap = st.session_state.get("autosend__prior_players", {})
+                snap[str(gid_id_str)] = list(current_ids)
+                st.session_state["autosend__prior_players"] = snap
+
             except Exception as e:
                 _log("Player confirmations", f"Baseline persist failed: {e}")
             
@@ -1742,23 +1745,17 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
             if r.get("musician_id")
         }
 
-    # Players from autosend snapshot (baseline — gig-scoped key)
-    snapshot_key = f"autosend__prior_players_{gig_id}"
+    # Players from autosend snapshot (baseline — nested dict structure)
+    all_snapshots = st.session_state.get("autosend__prior_players", {})
+    prior_raw = all_snapshots.get(str(gig_id), [])
 
-    prior_player_ids = {
-        str(pid)
-        for pid in (st.session_state.get(snapshot_key) or [])
-    }
+    prior_player_ids = {str(pid) for pid in prior_raw}
 
-    # 🔍 PRIOR SNAPSHOT TRACE (for debugging only)
     st.write("🧩 PRIOR SNAPSHOT TRACE", {
-        "snapshot_key": snapshot_key,
-        "exists": snapshot_key in st.session_state,
-        "value": sorted(list(st.session_state.get(snapshot_key, []))),
-        "current_session_keys": [
-            k for k in st.session_state.keys()
-            if "autosend" in k or "prior" in k or "added" in k
-        ],
+        "snapshot_container_exists": "autosend__prior_players" in st.session_state,
+        "gig_key": str(gig_id),
+        "stored_value": sorted(list(prior_raw)),
+        "full_snapshot_keys": list(all_snapshots.keys()),
     })
 
     # ---- Compute subsets ----
