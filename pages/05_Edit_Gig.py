@@ -1614,7 +1614,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     # Bust caches so the next render reflects changes immediately
     st.cache_data.clear()
     st.success("Gig updated successfully ✅")
-    # ----- Persist autosend baseline (current lineup becomes prior) -----
+    # ----- Persist autosend baseline (current lineup becomes prior, gig-scoped) -----
     try:
         current_ids = {
             str(r["musician_id"])
@@ -1626,21 +1626,25 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             if r.get("musician_id")
         }
 
-        # 🔥 DEBUG: prove whether persistence runs & survives rerun
+        # Store in a single container, keyed by gig_id
+        snap = st.session_state.get("autosend__prior_players", {})
+        if not isinstance(snap, dict):
+            snap = {}
+
+        snap[str(gid_str)] = sorted(list(current_ids))
+        st.session_state["autosend__prior_players"] = snap
+
+        # DEBUG (kept for now — confirms stability across reruns)
         st.warning("🔥 Persisting baseline for gig " + gid_str)
         st.json({
             "persist_attempt_for": gid_str,
             "current_ids": sorted(list(current_ids)),
-            "session_keys_after_write": [
-                k for k in st.session_state.keys()
-                if "autosend" in k
-            ],
+            "snapshot_keys": list(snap.keys()),
         })
-
-        st.session_state[f"autosend__prior_players_{gid_str}"] = list(current_ids)
 
     except Exception as e:
         st.error(f"Baseline persist failed: {e}")
+
     # ----- Persist autosend baseline (current lineup becomes prior) -----
     # try:
         # current_ids = {
@@ -1750,11 +1754,12 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
             if r.get("musician_id")
         }
 
-    # Players from autosend snapshot (baseline — nested dict structure)
-    all_snapshots = st.session_state.get("autosend__prior_players", {})
-    prior_raw = all_snapshots.get(str(gig_id), [])
+    # Load prior baseline for this gig (if any)
+    snap = st.session_state.get("autosend__prior_players", {})
+    if not isinstance(snap, dict):
+        snap = {}
 
-    prior_player_ids = {str(pid) for pid in prior_raw}
+    prior_player_ids = set(snap.get(str(gig_id), []))
 
     st.write("🧩 PRIOR SNAPSHOT TRACE", {
         "snapshot_container_exists": "autosend__prior_players" in st.session_state,
