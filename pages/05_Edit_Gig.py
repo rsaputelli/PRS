@@ -1717,13 +1717,13 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
     # Players from autosend snapshot (baseline — gig-scoped key)
     snapshot_key = f"autosend__prior_players_{gig_id}"
+
     prior_player_ids = {
         str(pid)
         for pid in (st.session_state.get(snapshot_key) or [])
     }
 
     # 🔍 PRIOR SNAPSHOT TRACE (for debugging only)
-    snapshot_key = f"autosend__prior_players_{gig_id}"
     st.write("🧩 PRIOR SNAPSHOT TRACE", {
         "snapshot_key": snapshot_key,
         "exists": snapshot_key in st.session_state,
