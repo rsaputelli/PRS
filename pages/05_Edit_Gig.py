@@ -1715,18 +1715,19 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
             if r.get("musician_id")
         }
 
-        # Players from autosend snapshot (baseline)
-        prior_player_ids = {
-            str(pid)
-            for pid in (st.session_state.get("autosend__prior_players") or [])
-        }
+    # Players from autosend snapshot (baseline — gig-scoped key)
+    snapshot_key = f"autosend__prior_players_{gig_id}"
+    prior_player_ids = {
+        str(pid)
+        for pid in (st.session_state.get(snapshot_key) or [])
+    }
 
     # 🔍 PRIOR SNAPSHOT TRACE (for debugging only)
-    snap_key = "autosend__prior_players"
+    snapshot_key = f"autosend__prior_players_{gig_id}"
     st.write("🧩 PRIOR SNAPSHOT TRACE", {
-        "snapshot_key": snap_key,
-        "exists": snap_key in st.session_state,
-        "value": sorted(list(st.session_state.get(snap_key, []))),
+        "snapshot_key": snapshot_key,
+        "exists": snapshot_key in st.session_state,
+        "value": sorted(list(st.session_state.get(snapshot_key, []))),
         "current_session_keys": [
             k for k in st.session_state.keys()
             if "autosend" in k or "prior" in k or "added" in k
