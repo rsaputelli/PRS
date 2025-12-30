@@ -118,6 +118,11 @@ st.session_state.setdefault("autosend_last", None)   # last entry dict
 st.session_state.setdefault("__last_trace", "")      # last raw traceback text
 st.session_state.setdefault("autosend_queue", [])    # queue of gig_id strings
 
+# --- Gig-scoped autosend baseline (player snapshots) ---
+# Ensures the container always exists so later writes never fail
+if "autosend__prior_players" not in st.session_state:
+    st.session_state["autosend__prior_players"] = {}
+
 def _autosend_log_add(entry: dict):
     try:
         st.session_state["autosend_log"].append(entry)
