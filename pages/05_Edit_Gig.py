@@ -1764,8 +1764,8 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
     st.write("🧩 PRIOR SNAPSHOT TRACE", {
         "snapshot_container_exists": "autosend__prior_players" in st.session_state,
         "gig_key": str(gig_id),
-        "stored_value": sorted(list(prior_raw)),
-        "full_snapshot_keys": list(all_snapshots.keys()),
+        "stored_value": sorted(list(prior_player_ids)),
+        "full_snapshot_keys": list(snap.keys()) if isinstance(snap, dict) else [],
     })
 
     # ---- Compute subsets ----
