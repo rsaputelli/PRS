@@ -662,13 +662,26 @@ sel_gid = st.selectbox(
     format_func=lambda g: labels.get(g, str(g)),
 )
 
-# Row for the selected gig (by ID, not by position)
-row = gigs[gigs["id"] == sel_gid].iloc[0]
-gid = str(sel_gid)
-gid_str = str(sel_gid)
+# --- Resolve & stabilize gig identity across reloads ---
 
-# NEW — persist selected gig id for downstream blocks (manual resend etc.)
-st.session_state["gig_id"] = gid_str
+# If user picked a gig in the selectbox, that is the current gig
+if sel_gid:
+    gid_str = str(sel_gid)
+    st.session_state["gig_id"] = gid_str
+
+# Otherwise (cold render / hydration gap), fall back to session
+else:
+    gid_str = st.session_state.get("gig_id")
+
+# Hard stop if we still don't have one
+if not gid_str:
+    st.error("No gig selected — cannot load editor.")
+    st.stop()
+
+# Fetch the DB row for the active gig
+row = gigs[gigs["id"] == gid_str].iloc[0]
+gid = gid_str  # keep same variable semantics as the rest of the file
+
 
 # If we just saved this gig on the previous run, drop any per-gig widget state
 # so all widgets rehydrate from the current DB row instead of stale values.
