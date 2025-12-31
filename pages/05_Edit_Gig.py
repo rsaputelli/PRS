@@ -1615,35 +1615,35 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     st.cache_data.clear()
     st.success("Gig updated successfully ✅")
     # ----- Persist autosend baseline (current lineup becomes prior, gig-scoped) -----
-    try:
-        current_ids = {
-            str(r["musician_id"])
-            for r in sb.table("gig_musicians")
-                        .select("musician_id")
-                        .eq("gig_id", gid_str)
-                        .execute()
-                        .data or []
-            if r.get("musician_id")
-        }
+    # try:
+        # current_ids = {
+            # str(r["musician_id"])
+            # for r in sb.table("gig_musicians")
+                        # .select("musician_id")
+                        # .eq("gig_id", gid_str)
+                        # .execute()
+                        # .data or []
+            # if r.get("musician_id")
+        # }
 
         # Store in a single container, keyed by gig_id
-        snap = st.session_state.get("autosend__prior_players", {})
-        if not isinstance(snap, dict):
-            snap = {}
+        # snap = st.session_state.get("autosend__prior_players", {})
+        # if not isinstance(snap, dict):
+            # snap = {}
 
-        snap[str(gid_str)] = sorted(list(current_ids))
-        st.session_state["autosend__prior_players"] = snap
+        # snap[str(gid_str)] = sorted(list(current_ids))
+        # st.session_state["autosend__prior_players"] = snap
 
         # DEBUG (kept for now — confirms stability across reruns)
-        st.warning("🔥 Persisting baseline for gig " + gid_str)
-        st.json({
-            "persist_attempt_for": gid_str,
-            "current_ids": sorted(list(current_ids)),
-            "snapshot_keys": list(snap.keys()),
-        })
+        # st.warning("🔥 Persisting baseline for gig " + gid_str)
+        # st.json({
+            # "persist_attempt_for": gid_str,
+            # "current_ids": sorted(list(current_ids)),
+            # "snapshot_keys": list(snap.keys()),
+        # })
 
-    except Exception as e:
-        st.error(f"Baseline persist failed: {e}")
+    # except Exception as e:
+        # st.error(f"Baseline persist failed: {e}")
 
     # ----- Persist autosend baseline (current lineup becomes prior) -----
     # try:
@@ -1838,7 +1838,6 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
                 except Exception as e:
                     st.error(f"Manual resend failed: {e}")
-
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
