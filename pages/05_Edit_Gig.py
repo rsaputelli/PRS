@@ -1650,30 +1650,36 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             "buffer_after_save": lineup_buf,
         })
     
+    # ----- Defer baseline refresh until after confirmation flow -----
+    st.session_state["autosend__refresh_baseline_pending"] = {
+        "gig_id": gid_str,
+        "queued_at": datetime.utcnow().isoformat()
+    }
+
     # ----- Persist autosend baseline (current lineup becomes prior, gig-scoped) -----
-    try:
-        rows = (
-            sb.table("gig_musicians")
-              .select("musician_id")
-              .eq("gig_id", gid_str)
-              .execute()
-              .data or []
-        )
+    # try:
+        # rows = (
+            # sb.table("gig_musicians")
+              # .select("musician_id")
+              # .eq("gig_id", gid_str)
+              # .execute()
+              # .data or []
+        # )
 
-        current_ids = {
-            str(r["musician_id"])
-            for r in rows
-            if r.get("musician_id")
-        }
+        # current_ids = {
+            # str(r["musician_id"])
+            # for r in rows
+            # if r.get("musician_id")
+        # }
 
-        snap = st.session_state.get("autosend__prior_players", {}) or {}
-        snap[str(gid_str)] = sorted(list(current_ids))
-        st.session_state["autosend__prior_players"] = snap
+        # snap = st.session_state.get("autosend__prior_players", {}) or {}
+        # snap[str(gid_str)] = sorted(list(current_ids))
+        # st.session_state["autosend__prior_players"] = snap
 
-        st.write("🟢 Baseline refreshed after save", sorted(list(current_ids)))
+        # st.write("🟢 Baseline refreshed after save", sorted(list(current_ids)))
 
-    except Exception as e:
-        st.error(f"Baseline persist failed: {e}")
+    # except Exception as e:
+        # st.error(f"Baseline persist failed: {e}")
 
 
     # ----- Persist autosend baseline (current lineup becomes prior) -----
@@ -1869,6 +1875,38 @@ with st.expander("📧 Manual: Resend Player Confirmations", expanded=False):
 
                 except Exception as e:
                     st.error(f"Manual resend failed: {e}")
+# -----------------------------
+# Finalize: refresh autosend baseline AFTER confirmations
+# -----------------------------
+pending = st.session_state.get("autosend__refresh_baseline_pending")
+
+if pending and pending.get("gig_id") == str(gig_id):
+    try:
+        rows = (
+            sb.table("gig_musicians")
+              .select("musician_id")
+              .eq("gig_id", gid_str)
+              .execute()
+              .data or []
+        )
+
+        new_ids = sorted({
+            str(r["musician_id"])
+            for r in rows
+            if r.get("musician_id")
+        })
+
+        snap = st.session_state.get("autosend__prior_players", {}) or {}
+        snap[str(gid_str)] = new_ids
+        st.session_state["autosend__prior_players"] = snap
+
+        st.write("🟢 Baseline committed after confirmations", new_ids)
+
+    except Exception as e:
+        st.error(f"Deferred baseline commit failed: {e}")
+    finally:
+        # Clear the pending flag so we don't re-run
+        st.session_state["autosend__refresh_baseline_pending"] = None
 
 # -----------------------------
 # MANUAL: Send Sound Tech Confirm (admin-only)
