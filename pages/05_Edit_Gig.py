@@ -1630,6 +1630,9 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     # Bust caches so the next render reflects changes immediately
     st.cache_data.clear()
     st.success("Gig updated successfully ✅")
+    # 🔄 Force next render to reseed lineup from DB
+    st.session_state.pop(buf_key, None)
+    st.session_state.pop(buf_gid_key, None)
     with st.expander("🧩 LINEUP POST-SAVE TRACE", expanded=True):
         rows = (
             sb.table("gig_musicians")
