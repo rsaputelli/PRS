@@ -1630,36 +1630,51 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     # Bust caches so the next render reflects changes immediately
     st.cache_data.clear()
     st.success("Gig updated successfully ✅")
+    with st.expander("🧩 LINEUP POST-SAVE TRACE", expanded=True):
+        rows = (
+            sb.table("gig_musicians")
+              .select("musician_id, role")
+              .eq("gig_id", gid_str)
+              .execute()
+              .data or []
+        )
+
+        st.json({
+            "from_db_after_save": [
+                {
+                    "role": r.get("role"),
+                    "musician_id": str(r.get("musician_id"))
+                }
+                for r in rows
+            ],
+            "buffer_after_save": lineup_buf,
+        })
+    
     # ----- Persist autosend baseline (current lineup becomes prior, gig-scoped) -----
-    # try:
-        # current_ids = {
-            # str(r["musician_id"])
-            # for r in sb.table("gig_musicians")
-                        # .select("musician_id")
-                        # .eq("gig_id", gid_str)
-                        # .execute()
-                        # .data or []
-            # if r.get("musician_id")
-        # }
+    try:
+        rows = (
+            sb.table("gig_musicians")
+              .select("musician_id")
+              .eq("gig_id", gid_str)
+              .execute()
+              .data or []
+        )
 
-        # Store in a single container, keyed by gig_id
-        # snap = st.session_state.get("autosend__prior_players", {})
-        # if not isinstance(snap, dict):
-            # snap = {}
+        current_ids = {
+            str(r["musician_id"])
+            for r in rows
+            if r.get("musician_id")
+        }
 
-        # snap[str(gid_str)] = sorted(list(current_ids))
-        # st.session_state["autosend__prior_players"] = snap
+        snap = st.session_state.get("autosend__prior_players", {}) or {}
+        snap[str(gid_str)] = sorted(list(current_ids))
+        st.session_state["autosend__prior_players"] = snap
 
-        # DEBUG (kept for now — confirms stability across reruns)
-        # st.warning("🔥 Persisting baseline for gig " + gid_str)
-        # st.json({
-            # "persist_attempt_for": gid_str,
-            # "current_ids": sorted(list(current_ids)),
-            # "snapshot_keys": list(snap.keys()),
-        # })
+        st.write("🟢 Baseline refreshed after save", sorted(list(current_ids)))
 
-    # except Exception as e:
-        # st.error(f"Baseline persist failed: {e}")
+    except Exception as e:
+        st.error(f"Baseline persist failed: {e}")
+
 
     # ----- Persist autosend baseline (current lineup becomes prior) -----
     # try:
