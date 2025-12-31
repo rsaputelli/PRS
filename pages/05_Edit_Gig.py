@@ -898,19 +898,35 @@ if isinstance(assigned_df, pd.DataFrame) and not assigned_df.empty:
 # except Exception as e:
     # st.error(f"DBG exception on select: {e}")
 
-# ----- One-time lineup buffer per gig -----
+# ----- One-time lineup buffer per gig (reseeds if DB changed) -----
 buf_key = k("lineup_buf")
 buf_gid_key = k("lineup_buf_gid")
 
-if buf_key not in st.session_state or st.session_state.get(buf_gid_key) != gid_str:
-    cur_map: Dict[str, Optional[str]] = {}
-    if not assigned_df.empty:
-        for _, r in assigned_df.iterrows():
-            cur_map[str(r.get("role"))] = str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
-    st.session_state[buf_key] = cur_map
+# Build current map from DB
+cur_map_from_db: Dict[str, str] = {}
+if not assigned_df.empty:
+    for _, r in assigned_df.iterrows():
+        cur_map_from_db[str(r.get("role"))] = (
+            str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
+        )
+
+existing_buf = st.session_state.get(buf_key)
+existing_gid = st.session_state.get(buf_gid_key)
+
+def _maps_differ(a, b):
+    return (a or {}) != (b or {})
+
+# Reseed if (a) new gig OR (b) buffer content differs from DB
+if (
+    existing_buf is None
+    or existing_gid != gid_str
+    or _maps_differ(existing_buf, cur_map_from_db)
+):
+    st.session_state[buf_key] = cur_map_from_db
     st.session_state[buf_gid_key] = gid_str
-else:
-    cur_map = st.session_state[buf_key]
+
+lineup_buf = st.session_state[buf_key]
+
     
 #DBG - Keep for future troubleshooting if needed
 # st.caption(f"DBG buf_gid_key={st.session_state.get(buf_gid_key)}")
