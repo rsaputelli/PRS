@@ -874,6 +874,10 @@ with sv2:
                                          value=_opt_label(row.get("sound_by_venue_phone"), ""),
                                          key=f"edit_sound_vendor_phone_{gid}")
 
+# Ensure buffer keys exist before we reference them
+buf_key = k("lineup_buf")
+buf_gid_key = k("lineup_buf_gid")
+
 # -----------------------------
 # Hard reset lineup widgets on first load / after save
 # -----------------------------
