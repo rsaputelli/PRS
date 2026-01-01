@@ -923,18 +923,12 @@ if not assigned_df.empty:
             str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
         )
 
-existing_buf = st.session_state.get(buf_key)
 existing_gid = st.session_state.get(buf_gid_key)
 
-def _maps_differ(a, b):
-    return (a or {}) != (b or {})
-
-# Reseed if (a) new gig OR (b) buffer content differs from DB
-if (
-    existing_buf is None
-    or existing_gid != gid_str
-    or _maps_differ(existing_buf, cur_map_from_db)
-):
+# 🔒 Authoritative reseed rule:
+# Always reseed from DB on first render of a gig,
+# OR after a gig switch, OR if buffer is missing.
+if existing_gid != gid_str or buf_key not in st.session_state:
     st.session_state[buf_key] = cur_map_from_db
     st.session_state[buf_gid_key] = gid_str
 
