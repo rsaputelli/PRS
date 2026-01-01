@@ -1065,13 +1065,19 @@ for idx, role in enumerate(ROLE_CHOICES):
         else:
             lineup_buf[role] = sel
 
-        if sel and not sel.startswith("__ADD_MUS__"):
-            lineup.append({"role": role, "musician_id": sel})
+            # do NOT append to lineup here — buffer is the canonical state
+            pass
 
         role_add_boxes[role] = st.empty()
 
 # === end of role-assignment loop ===
 
+# === Rebuild authoritative lineup from buffer ===
+lineup = [
+    {"role": role, "musician_id": mid}
+    for role, mid in lineup_buf.items()
+    if mid and not mid.startswith("__ADD_MUS__")
+]
 
 # PATCH: Determine newly added players
 new_player_ids = {p["musician_id"] for p in lineup if p["musician_id"]}
