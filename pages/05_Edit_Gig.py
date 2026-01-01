@@ -1557,6 +1557,16 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         except Exception as e:
             st.error(f"Could not save private event details: {e}")
 
+# --- Rebuild authoritative lineup from buffer (DB will mirror this) ---
+lineup = []
+for role, mus_id in (lineup_buf or {}).items():
+    # keep only real musician selections (ignore blanks + add-new sentinels)
+    if mus_id and not str(mus_id).startswith("__ADD_MUS__"):
+        lineup.append({
+            "role": role,
+            "musician_id": mus_id,
+        })
+
 # --- Persist lineup (authoritative replace-from-DB) ---
 # Guard: avoid accidental full wipe unless explicitly confirmed
 if not lineup:
