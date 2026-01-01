@@ -69,9 +69,9 @@ except Exception as e:
 
 # === Email autosend toggles — init keys (do not use `value=` anywhere) ===
 for _k, _default in [
-    ("autoc_send_st_on_create", True),
-    ("autoc_send_agent_on_create", True),
-    ("autoc_send_players_on_create", True),
+    ("autoc_send_st_on_create", False),
+    ("autoc_send_agent_on_create", False),
+    ("autoc_send_players_on_create", False),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _default
