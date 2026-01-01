@@ -1582,19 +1582,19 @@ else:
         except Exception as e:
             st.error(f"Could not insert lineup: {e}")
 
-# Post-save sanity check (DB-authoritative)
-try:
-    post = _select_df("gig_musicians", "count(*) as c", where_eq={"gig_id": gid_str})
-    n_roles = int(post.iloc[0]["c"]) if (isinstance(post, pd.DataFrame) and not post.empty) else 0
-    st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
-except Exception:
-    pass
+    # Post-save sanity check (DB-authoritative)
+    try:
+        post = _select_df("gig_musicians", "count(*) as c", where_eq={"gig_id": gid_str})
+        n_roles = int(post.iloc[0]["c"]) if (isinstance(post, pd.DataFrame) and not post.empty) else 0
+        st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
+    except Exception:
+        pass
 
-# --- 🔄 Hard-reset lineup buffer + widgets so next render seeds from DB ---
-st.session_state.pop(buf_key, None)
-st.session_state.pop(buf_gid_key, None)
-st.session_state["_force_lineup_reset"] = gid_str
-st.session_state["_edit_just_saved_gid"] = gid_str
+    # --- 🔄 Hard-reset lineup buffer + widgets so next render seeds from DB ---
+    st.session_state.pop(buf_key, None)
+    st.session_state.pop(buf_gid_key, None)
+    st.session_state["_force_lineup_reset"] = gid_str
+    st.session_state["_edit_just_saved_gid"] = gid_str
 
     # --- Persist deposits (delete→insert, only if table exists) ---
     if dep_rows:
