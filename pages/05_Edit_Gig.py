@@ -1002,7 +1002,7 @@ def _matches_role(instr: str, role: str) -> bool:
 
 # === Buffered lineup editor (no form; widgets update live) ===
 # Use the per-gig buffer seeded earlier
-lineup_buf = st.session_state[buf_key]
+# lineup_buf = st.session_state[buf_key]
 
 line_cols = st.columns(3)
 lineup: List[Dict] = []
