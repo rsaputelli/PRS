@@ -962,6 +962,14 @@ st.session_state[buf_key] = cur_map_from_db
 st.session_state[buf_gid_key] = gid_str
 
 lineup_buf = st.session_state[buf_key]
+with st.expander("🧪 LINEUP SEED DEBUG", expanded=True):
+    st.json({
+        "gid": gid_str,
+        "assigned_df_rows": len(assigned_df),
+        "cur_map_from_db": cur_map_from_db,
+        "buffer_after_seed": st.session_state.get(buf_key),
+        "buf_gid_key": st.session_state.get(buf_gid_key),
+    })
     
 #DBG - Keep for future troubleshooting if needed
 # st.caption(f"DBG buf_gid_key={st.session_state.get(buf_gid_key)}")
