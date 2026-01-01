@@ -879,33 +879,19 @@ buf_key = k("lineup_buf")
 buf_gid_key = k("lineup_buf_gid")
 
 # -----------------------------
-# Hard reset lineup widgets on first load / after save
+# Lineup widget hygiene (no destructive reset)
 # -----------------------------
-widget_prefix = f"edit_role_"
-needs_reset = False
+widget_prefix = "edit_role_"
 
-# Trigger reset if:
-#   - first render for this gig, or
-#   - buffer was reseeded, or
-#   - we just switched gigs
-if (
-    st.session_state.get("_force_lineup_reset") == gid_str
-    or st.session_state.get(buf_gid_key) != gid_str
-    or buf_key not in st.session_state
-):
-    needs_reset = True
-
-if needs_reset:
+# Only reset widgets when the save-handler explicitly requested it
+if st.session_state.get("_force_lineup_reset") == gid_str:
     for key in list(st.session_state.keys()):
         if key.startswith(widget_prefix):
             del st.session_state[key]
 
-    # Clear any stale buffer too
-    st.session_state.pop(buf_key, None)
-    st.session_state.pop(buf_gid_key, None)
-
-    # mark reset handled for this gig
+    # Do NOT clear buffer here — reseed happens in the DB load step
     st.session_state["_force_lineup_reset"] = None
+
 
 # -----------------------------
 # Lineup (Role Assignments)
@@ -1568,38 +1554,48 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         except Exception as e:
             st.error(f"Could not save private event details: {e}")
 
-    # --- Persist lineup (no table-exists gate) ---
-    # Guard: avoid accidental full wipe unless explicitly confirmed
-    if not lineup:
-        st.warning("No roles are assigned. To clear the entire lineup, check the box below and save again.")
-        if not st.checkbox("Yes, clear all lineup for this gig", key=k("confirm_clear_lineup")):
-            st.stop()
+# --- Persist lineup (authoritative replace-from-DB) ---
+# Guard: avoid accidental full wipe unless explicitly confirmed
+if not lineup:
+    st.warning("No roles are assigned. To clear the entire lineup, check the box below and save again.")
+    if not st.checkbox("Yes, clear all lineup for this gig", key=k("confirm_clear_lineup")):
+        st.stop()
 
-    try:
-        sb.table("gig_musicians").delete().eq("gig_id", gid_str).execute()
-    except Exception as e:
-        st.error(f"Could not clear existing lineup: {e}")
-    else:
-        if lineup:
-            try:
-                rows = []
-                for r in lineup:
-                    rows.append(_filter_to_schema("gig_musicians", {
-                        "gig_id": gid_str,
-                        "role": r["role"],
-                        "musician_id": r["musician_id"],
-                    }))
-                if rows:
-                    sb.table("gig_musicians").insert(rows).execute()
-            except Exception as e:
-                st.error(f"Could not insert lineup: {e}")
-    # Post-save sanity check
-    try:
-        post = _select_df("gig_musicians", "count(*) as c", where_eq={"gig_id": gid_str})
-        n_roles = int(post.iloc[0]["c"]) if (isinstance(post, pd.DataFrame) and not post.empty) else 0
-        st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
-    except Exception:
-        pass
+# Write lineup: delete → insert ONLY current selections
+try:
+    sb.table("gig_musicians").delete().eq("gig_id", gid_str).execute()
+except Exception as e:
+    st.error(f"Could not clear existing lineup: {e}")
+else:
+    if lineup:
+        try:
+            rows = [
+                _filter_to_schema(
+                    "gig_musicians",
+                    {"gig_id": gid_str, "role": r["role"], "musician_id": r["musician_id"]}
+                )
+                for r in lineup
+                if r.get("musician_id")
+            ]
+            if rows:
+                sb.table("gig_musicians").insert(rows).execute()
+        except Exception as e:
+            st.error(f"Could not insert lineup: {e}")
+
+# Post-save sanity check (DB-authoritative)
+try:
+    post = _select_df("gig_musicians", "count(*) as c", where_eq={"gig_id": gid_str})
+    n_roles = int(post.iloc[0]["c"]) if (isinstance(post, pd.DataFrame) and not post.empty) else 0
+    st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
+except Exception:
+    pass
+
+# --- 🔄 Hard-reset lineup buffer + widgets so next render seeds from DB ---
+st.session_state.pop(buf_key, None)
+st.session_state.pop(buf_gid_key, None)
+st.session_state["_force_lineup_reset"] = gid_str
+st.session_state["_edit_just_saved_gid"] = gid_str
+
     # --- Persist deposits (delete→insert, only if table exists) ---
     if dep_rows:
         if table_exists:
