@@ -875,6 +875,35 @@ with sv2:
                                          key=f"edit_sound_vendor_phone_{gid}")
 
 # -----------------------------
+# Hard reset lineup widgets on first load / after save
+# -----------------------------
+widget_prefix = f"edit_role_"
+needs_reset = False
+
+# Trigger reset if:
+#   - first render for this gig, or
+#   - buffer was reseeded, or
+#   - we just switched gigs
+if (
+    st.session_state.get("_force_lineup_reset") == gid_str
+    or st.session_state.get(buf_gid_key) != gid_str
+    or buf_key not in st.session_state
+):
+    needs_reset = True
+
+if needs_reset:
+    for key in list(st.session_state.keys()):
+        if key.startswith(widget_prefix):
+            del st.session_state[key]
+
+    # Clear any stale buffer too
+    st.session_state.pop(buf_key, None)
+    st.session_state.pop(buf_gid_key, None)
+
+    # mark reset handled for this gig
+    st.session_state["_force_lineup_reset"] = None
+
+# -----------------------------
 # Lineup (Role Assignments)
 # -----------------------------
 st.markdown("---")
@@ -1634,12 +1663,14 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     # Remember which gig was just saved so we can refresh its widget state on the next run
     st.session_state["_edit_just_saved_gid"] = gid_str
 
-    # Bust caches so the next render reflects changes immediately
+    # Bust caches and force fresh widget + buffer seed next render
     st.cache_data.clear()
+    st.session_state["_force_lineup_reset"] = gid_str
+
     st.success("Gig updated successfully ✅")
     # 🔄 Force next render to reseed lineup from DB
-    st.session_state.pop(buf_key, None)
-    st.session_state.pop(buf_gid_key, None)
+    # st.session_state.pop(buf_key, None)
+    # st.session_state.pop(buf_gid_key, None)
     with st.expander("🧩 LINEUP POST-SAVE TRACE", expanded=True):
         rows = (
             sb.table("gig_musicians")
