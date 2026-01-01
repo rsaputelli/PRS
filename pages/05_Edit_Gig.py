@@ -1060,7 +1060,10 @@ for idx, role in enumerate(ROLE_CHOICES):
         )
 
         # immediately reflect current selection in the buffer
-        lineup_buf[role] = sel
+        if sel == "" or sel.startswith("__ADD_MUS__"):
+            lineup_buf[role] = ""
+        else:
+            lineup_buf[role] = sel
 
         if sel and not sel.startswith("__ADD_MUS__"):
             lineup.append({"role": role, "musician_id": sel})
