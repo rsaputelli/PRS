@@ -1016,12 +1016,27 @@ line_cols = st.columns(3)
 lineup: List[Dict] = []
 role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
 
+# ---- FORCE widgets to match buffer on first render ----
+for role in ROLE_CHOICES:
+    wkey = k(f"edit_role_{role}")
+    buf_val = lineup_buf.get(role, "")
+
+    # If widget has a stale value that doesn't match DB/buffer,
+    # wipe it so the selectbox hydrates from lineup_buf
+    if wkey in st.session_state and st.session_state[wkey] != buf_val:
+        del st.session_state[wkey]
+
+# ---- Now render the selectboxes ----
 for idx, role in enumerate(ROLE_CHOICES):
     with line_cols[idx % 3]:
         sentinel = f"__ADD_MUS__:{role}"
         role_df = mus_df.copy()
         if "instrument" in role_df.columns:
-            role_df = role_df[role_df["instrument"].fillna("").apply(lambda x: _matches_role(x, role))]
+            role_df = role_df[
+                role_df["instrument"]
+                .fillna("")
+                .apply(lambda x: _matches_role(x, role))
+            ]
         if role_df.empty:
             role_df = mus_df
         if "active" in role_df.columns:
@@ -1052,7 +1067,8 @@ for idx, role in enumerate(ROLE_CHOICES):
         sel = st.selectbox(
             role,
             options=mus_options_ids,
-            index=(mus_options_ids.index(default_val) if default_val in mus_options_ids else 0),
+            index=(mus_options_ids.index(default_val)
+                   if default_val in mus_options_ids else 0),
             format_func=mus_fmt,
             key=k(f"edit_role_{role}"),
         )
@@ -1066,6 +1082,7 @@ for idx, role in enumerate(ROLE_CHOICES):
         role_add_boxes[role] = st.empty()
 
 # === end of role-assignment loop ===
+
 
 # PATCH: Determine newly added players
 new_player_ids = {p["musician_id"] for p in lineup if p["musician_id"]}
