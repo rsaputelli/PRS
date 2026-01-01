@@ -944,11 +944,11 @@ if isinstance(assigned_df, pd.DataFrame) and not assigned_df.empty:
 # except Exception as e:
     # st.error(f"DBG exception on select: {e}")
 
-# ----- One-time lineup buffer per gig (reseeds if DB changed) -----
+# ----- Lineup buffer: ALWAYS mirror DB at start of render -----
 buf_key = k("lineup_buf")
 buf_gid_key = k("lineup_buf_gid")
 
-# Build current map from DB
+# Build canonical map from DB
 cur_map_from_db: Dict[str, str] = {}
 if not assigned_df.empty:
     for _, r in assigned_df.iterrows():
@@ -956,17 +956,12 @@ if not assigned_df.empty:
             str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
         )
 
-existing_gid = st.session_state.get(buf_gid_key)
-
-# 🔒 Authoritative reseed rule:
-# Always reseed from DB on first render of a gig,
-# OR after a gig switch, OR if buffer is missing.
-if existing_gid != gid_str or buf_key not in st.session_state:
-    st.session_state[buf_key] = cur_map_from_db
-    st.session_state[buf_gid_key] = gid_str
+# 🔒 Authoritative rule:
+# The buffer is *not* a cache — it is a live reflection of DB on load.
+st.session_state[buf_key] = cur_map_from_db
+st.session_state[buf_gid_key] = gid_str
 
 lineup_buf = st.session_state[buf_key]
-
     
 #DBG - Keep for future troubleshooting if needed
 # st.caption(f"DBG buf_gid_key={st.session_state.get(buf_gid_key)}")
