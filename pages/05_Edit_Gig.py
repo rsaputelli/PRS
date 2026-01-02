@@ -944,13 +944,19 @@ if not assigned_df.empty:
 
 # Seed buffer ONLY if:
 #   - buffer doesn't exist yet, OR
-#   - we're opening a different gig
+#   - we're opening a different gig, OR
+#   - a save explicitly forced a reset
+force_reset = st.session_state.get("_force_lineup_reset") == gid_str
+
 if (
     buf_key not in st.session_state
     or st.session_state.get(buf_gid_key) != gid_str
+    or force_reset
 ):
     st.session_state[buf_key] = cur_map_from_db
     st.session_state[buf_gid_key] = gid_str
+    st.session_state["_force_lineup_reset"] = None  # consume flag
+
 
 lineup_buf = st.session_state[buf_key]
 
@@ -1568,189 +1574,189 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         except Exception as e:
             st.error(f"Could not save private event details: {e}")
 
-# --- Rebuild authoritative lineup from buffer (DB will mirror this) ---
-lineup = []
-for role, mus_id in (lineup_buf or {}).items():
-    # keep only real musician selections (ignore blanks + add-new sentinels)
-    if mus_id and not str(mus_id).startswith("__ADD_MUS__"):
-        lineup.append({
-            "role": role,
-            "musician_id": mus_id,
-        })
+    # --- Rebuild authoritative lineup from buffer (DB will mirror this) ---
+    lineup = []
+    for role, mus_id in (lineup_buf or {}).items():
+        # keep only real musician selections (ignore blanks + add-new sentinels)
+        if mus_id and not str(mus_id).startswith("__ADD_MUS__"):
+            lineup.append({
+                "role": role,
+                "musician_id": mus_id,
+            })
 
-# --- Persist lineup (authoritative replace-from-DB) ---
+    # --- Persist lineup (authoritative replace-from-DB) ---
 
-st.json(
-    {
-        "DEBUG_lineup_being_saved": lineup,
-        "DEBUG_buffer_now": lineup_buf,
-        "DEBUG_dep_rows_present": bool(dep_rows) if "dep_rows" in locals() else None,
-    },
-    expanded=True,
-)
+    st.json(
+        {
+            "DEBUG_lineup_being_saved": lineup,
+            "DEBUG_buffer_now": lineup_buf,
+            "DEBUG_dep_rows_present": bool(dep_rows) if "dep_rows" in locals() else None,
+        },
+        expanded=True,
+    )
 
-# Guard: avoid accidental full wipe unless explicitly confirmed
-if not lineup:
-    st.warning("No roles are assigned. To clear the entire lineup, check the box below and save again.")
-    if not st.checkbox("Yes, clear all lineup for this gig", key=k("confirm_clear_lineup")):
-        st.stop()
+    # Guard: avoid accidental full wipe unless explicitly confirmed
+    if not lineup:
+        st.warning("No roles are assigned. To clear the entire lineup, check the box below and save again.")
+        if not st.checkbox("Yes, clear all lineup for this gig", key=k("confirm_clear_lineup")):
+            st.stop()
 
 
-# Write lineup: delete → insert ONLY current selections
-try:
-    sb.table("gig_musicians").delete().eq("gig_id", gid_str).execute()
-except Exception as e:
-    st.error(f"Could not clear existing lineup: {e}")
-else:
-    if lineup:
-        try:
-            rows = [
-                _filter_to_schema(
-                    "gig_musicians",
-                    {"gig_id": gid_str, "role": r["role"], "musician_id": r["musician_id"]}
-                )
-                for r in lineup
-                if r.get("musician_id")
-            ]
-            if rows:
-                sb.table("gig_musicians").insert(rows).execute()
-        except Exception as e:
-            st.error(f"Could not insert lineup: {e}")
-
-    # Post-save sanity check (DB-authoritative)
+    # Write lineup: delete → insert ONLY current selections
     try:
-        post = _select_df("gig_musicians", "count(*) as c", where_eq={"gig_id": gid_str})
-        n_roles = int(post.iloc[0]["c"]) if (isinstance(post, pd.DataFrame) and not post.empty) else 0
-        st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
-    except Exception:
-        pass
-
-    # --- 🔄 Hard-reset lineup buffer + widgets so next render seeds from DB ---
-    st.session_state.pop(buf_key, None)
-    st.session_state.pop(buf_gid_key, None)
-    st.session_state["_force_lineup_reset"] = gid_str
-    st.session_state["_edit_just_saved_gid"] = gid_str
-
-    # --- Persist deposits (delete→insert, only if table exists) ---
-    if dep_rows:
-        if table_exists:
+        sb.table("gig_musicians").delete().eq("gig_id", gid_str).execute()
+    except Exception as e:
+        st.error(f"Could not clear existing lineup: {e}")
+    else:
+        if lineup:
             try:
-                sb.table("gig_deposits").delete().eq("gig_id", gid_str).execute()
+                rows = [
+                    _filter_to_schema(
+                        "gig_musicians",
+                        {"gig_id": gid_str, "role": r["role"], "musician_id": r["musician_id"]}
+                    )
+                    for r in lineup
+                    if r.get("musician_id")
+                ]
+                if rows:
+                    sb.table("gig_musicians").insert(rows).execute()
             except Exception as e:
-                st.error(f"Could not clear existing deposits: {e}")
-            else:
+                st.error(f"Could not insert lineup: {e}")
+
+        # Post-save sanity check (DB-authoritative)
+        try:
+            post = _select_df("gig_musicians", "count(*) as c", where_eq={"gig_id": gid_str})
+            n_roles = int(post.iloc[0]["c"]) if (isinstance(post, pd.DataFrame) and not post.empty) else 0
+            st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
+        except Exception:
+            pass
+
+        # --- 🔄 Hard-reset lineup buffer + widgets so next render seeds from DB ---
+        st.session_state.pop(buf_key, None)
+        st.session_state.pop(buf_gid_key, None)
+        st.session_state["_force_lineup_reset"] = gid_str
+        st.session_state["_edit_just_saved_gid"] = gid_str
+
+        # --- Persist deposits (delete→insert, only if table exists) ---
+        if dep_rows:
+            if table_exists:
                 try:
-                    rows = []
-                    for d in dep_rows:
-                        rows.append(_filter_to_schema("gig_deposits", {
-                            "gig_id": gid_str,
-                            "seq": d["sequence"],
-                            "due_date": d["due_date"].isoformat() if isinstance(d["due_date"], (date, datetime)) else d["due_date"],
-                            "amount": float(d["amount"] or 0.0),
-                            "is_percentage": bool(d["is_percentage"]),
-                        }))
-                    if rows:
-                        sb.table("gig_deposits").insert(rows).execute()
+                    sb.table("gig_deposits").delete().eq("gig_id", gid_str).execute()
                 except Exception as e:
-                    st.error(f"Could not insert deposits: {e}")
+                    st.error(f"Could not clear existing deposits: {e}")
+                else:
+                    try:
+                        rows = []
+                        for d in dep_rows:
+                            rows.append(_filter_to_schema("gig_deposits", {
+                                "gig_id": gid_str,
+                                "seq": d["sequence"],
+                                "due_date": d["due_date"].isoformat() if isinstance(d["due_date"], (date, datetime)) else d["due_date"],
+                                "amount": float(d["amount"] or 0.0),
+                                "is_percentage": bool(d["is_percentage"]),
+                            }))
+                        if rows:
+                            sb.table("gig_deposits").insert(rows).execute()
+                    except Exception as e:
+                        st.error(f"Could not insert deposits: {e}")
 
-            # Tiny toast confirming how many deposits were saved
-            try:
-                post_deps = _select_df("gig_deposits", "count(*) as c", where_eq={"gig_id": gid_str})
-                n_deps = int(post_deps.iloc[0]["c"]) if (isinstance(post_deps, pd.DataFrame) and not post_deps.empty) else 0
-                st.toast(f"Saved deposits: {n_deps} row(s).", icon="💵")
-            except Exception:
-                pass
-        else:
-            st.info("Deposits were not persisted because the 'gig_deposits' table is missing.")
+                # Tiny toast confirming how many deposits were saved
+                try:
+                    post_deps = _select_df("gig_deposits", "count(*) as c", where_eq={"gig_id": gid_str})
+                    n_deps = int(post_deps.iloc[0]["c"]) if (isinstance(post_deps, pd.DataFrame) and not post_deps.empty) else 0
+                    st.toast(f"Saved deposits: {n_deps} row(s).", icon="💵")
+                except Exception:
+                    pass
+            else:
+                st.info("Deposits were not persisted because the 'gig_deposits' table is missing.")
 
-    # ---- Queue calendar upsert for this gig and also run immediately ----
-    try:
-        gid = gid_str.strip()
-        if not gid:
-            raise ValueError("Missing gig_id for calendar upsert")
-        st.session_state["pending_cal_upsert"] = {
-            "gig_id": gid,
-            "calendar_name": "Philly Rock and Soul",  # must match calendar_utils
+        # ---- Queue calendar upsert for this gig and also run immediately ----
+        try:
+            gid = gid_str.strip()
+            if not gid:
+                raise ValueError("Missing gig_id for calendar upsert")
+            st.session_state["pending_cal_upsert"] = {
+                "gig_id": gid,
+                "calendar_name": "Philly Rock and Soul",  # must match calendar_utils
+            }
+        except Exception as e:
+            st.warning(f"Could not queue calendar upsert: {e}")
+
+        try:
+            res = upsert_band_calendar_event(
+                gig_id=gid_str,
+                sb=sb,
+                calendar_name="Philly Rock and Soul",  # keep this exact name
+            )
+            if isinstance(res, dict) and res.get("error"):
+                st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
+            else:
+                action = (res or {}).get("action", "updated")
+                ev_id  = (res or {}).get("eventId")
+                st.success(f"PRS Calendar {action}.")
+                if ev_id:
+                    st.caption(f"Event ID: {ev_id}")
+        except Exception as e:
+            st.error(f"Calendar upsert exception: {e}")
+
+        # ---- Queue autosend (sound-tech / agent / players) if toggled/selected ----
+        # Persist the per-gig sound-tech-on-save flag so the autosend runner can see it
+        st.session_state[f"edit_autoc_send_now_{gid_str}"] = bool(autoc_send_now)
+
+        if any([
+            st.session_state.get("autoc_send_st_on_create", False),
+            st.session_state.get("autoc_send_agent_on_create", False),
+            st.session_state.get("autoc_send_players_on_create", False),
+            autoc_send_now,  # respect the per-gig checkbox as well
+        ]):
+            guard_key = f"autosend_guard__{gid_str}"
+            if not st.session_state.get(guard_key, False):
+                if gid_str not in st.session_state["autosend_queue"]:
+                    st.session_state["autosend_queue"].append(gid_str)
+                try:
+                    st.rerun()
+                except Exception:
+                    _safe_rerun("autosend after edit save")
+
+            ...
+        # any lineup / deposit post-save checks
+
+        # Remember which gig was just saved so we can refresh its widget state on the next run
+        st.session_state["_edit_just_saved_gid"] = gid_str
+
+        # Bust caches and force fresh widget + buffer seed next render
+        st.cache_data.clear()
+        st.session_state["_force_lineup_reset"] = gid_str
+
+        st.success("Gig updated successfully ✅")
+        # 🔄 Force next render to reseed lineup from DB
+        # st.session_state.pop(buf_key, None)
+        # st.session_state.pop(buf_gid_key, None)
+        with st.expander("🧩 LINEUP POST-SAVE TRACE", expanded=True):
+            rows = (
+                sb.table("gig_musicians")
+                  .select("musician_id, role")
+                  .eq("gig_id", gid_str)
+                  .execute()
+                  .data or []
+            )
+
+            st.json({
+                "from_db_after_save": [
+                    {
+                        "role": r.get("role"),
+                        "musician_id": str(r.get("musician_id"))
+                    }
+                    for r in rows
+                ],
+                "buffer_after_save": lineup_buf,
+            })
+        
+        # ----- Defer baseline refresh until after confirmation flow -----
+        st.session_state["autosend__refresh_baseline_pending"] = {
+            "gig_id": gid_str,
+            "queued_at": datetime.utcnow().isoformat()
         }
-    except Exception as e:
-        st.warning(f"Could not queue calendar upsert: {e}")
-
-    try:
-        res = upsert_band_calendar_event(
-            gig_id=gid_str,
-            sb=sb,
-            calendar_name="Philly Rock and Soul",  # keep this exact name
-        )
-        if isinstance(res, dict) and res.get("error"):
-            st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
-        else:
-            action = (res or {}).get("action", "updated")
-            ev_id  = (res or {}).get("eventId")
-            st.success(f"PRS Calendar {action}.")
-            if ev_id:
-                st.caption(f"Event ID: {ev_id}")
-    except Exception as e:
-        st.error(f"Calendar upsert exception: {e}")
-
-    # ---- Queue autosend (sound-tech / agent / players) if toggled/selected ----
-    # Persist the per-gig sound-tech-on-save flag so the autosend runner can see it
-    st.session_state[f"edit_autoc_send_now_{gid_str}"] = bool(autoc_send_now)
-
-    if any([
-        st.session_state.get("autoc_send_st_on_create", False),
-        st.session_state.get("autoc_send_agent_on_create", False),
-        st.session_state.get("autoc_send_players_on_create", False),
-        autoc_send_now,  # respect the per-gig checkbox as well
-    ]):
-        guard_key = f"autosend_guard__{gid_str}"
-        if not st.session_state.get(guard_key, False):
-            if gid_str not in st.session_state["autosend_queue"]:
-                st.session_state["autosend_queue"].append(gid_str)
-            try:
-                st.rerun()
-            except Exception:
-                _safe_rerun("autosend after edit save")
-
-        ...
-    # any lineup / deposit post-save checks
-
-    # Remember which gig was just saved so we can refresh its widget state on the next run
-    st.session_state["_edit_just_saved_gid"] = gid_str
-
-    # Bust caches and force fresh widget + buffer seed next render
-    st.cache_data.clear()
-    st.session_state["_force_lineup_reset"] = gid_str
-
-    st.success("Gig updated successfully ✅")
-    # 🔄 Force next render to reseed lineup from DB
-    # st.session_state.pop(buf_key, None)
-    # st.session_state.pop(buf_gid_key, None)
-    with st.expander("🧩 LINEUP POST-SAVE TRACE", expanded=True):
-        rows = (
-            sb.table("gig_musicians")
-              .select("musician_id, role")
-              .eq("gig_id", gid_str)
-              .execute()
-              .data or []
-        )
-
-        st.json({
-            "from_db_after_save": [
-                {
-                    "role": r.get("role"),
-                    "musician_id": str(r.get("musician_id"))
-                }
-                for r in rows
-            ],
-            "buffer_after_save": lineup_buf,
-        })
-    
-    # ----- Defer baseline refresh until after confirmation flow -----
-    st.session_state["autosend__refresh_baseline_pending"] = {
-        "gig_id": gid_str,
-        "queued_at": datetime.utcnow().isoformat()
-    }
 
     # ----- Persist autosend baseline (current lineup becomes prior, gig-scoped) -----
     # try:
