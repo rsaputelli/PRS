@@ -1574,11 +1574,22 @@ for role, mus_id in (lineup_buf or {}).items():
         })
 
 # --- Persist lineup (authoritative replace-from-DB) ---
+
+st.json(
+    {
+        "DEBUG_lineup_being_saved": lineup,
+        "DEBUG_buffer_now": lineup_buf,
+        "DEBUG_dep_rows_present": bool(dep_rows) if "dep_rows" in locals() else None,
+    },
+    expanded=True,
+)
+
 # Guard: avoid accidental full wipe unless explicitly confirmed
 if not lineup:
     st.warning("No roles are assigned. To clear the entire lineup, check the box below and save again.")
     if not st.checkbox("Yes, clear all lineup for this gig", key=k("confirm_clear_lineup")):
         st.stop()
+
 
 # Write lineup: delete → insert ONLY current selections
 try:
