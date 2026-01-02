@@ -1064,9 +1064,8 @@ for idx, role in enumerate(ROLE_CHOICES):
             lineup_buf[role] = ""
         else:
             lineup_buf[role] = sel
+
         st.write("DBG_SELECTION", {"role": role, "sel": sel})
-            # do NOT append to lineup here — buffer is the canonical state
-            pass
 
         role_add_boxes[role] = st.empty()
 
