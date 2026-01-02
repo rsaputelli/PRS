@@ -1169,20 +1169,11 @@ line_cols = st.columns(3)
 lineup: List[Dict] = []
 role_add_boxes: Dict[str, st.delta_generator.DeltaGenerator] = {}
 
-# ---- FORCE widgets to match buffer on first render ----
-for role in ROLE_CHOICES:
-    wkey = k(f"edit_role_{role}")
-    buf_val = lineup_buf.get(role, "")
-
-    # If widget has a stale value that doesn't match DB/buffer,
-    # wipe it so the selectbox hydrates from lineup_buf
-    if wkey in st.session_state and st.session_state[wkey] != buf_val:
-        del st.session_state[wkey]
-
-# ---- Now render the selectboxes ----
+# ---- Render selectboxes directly from buffer (no forced resets) ----
 for idx, role in enumerate(ROLE_CHOICES):
     with line_cols[idx % 3]:
         sentinel = f"__ADD_MUS__:{role}"
+
         role_df = mus_df.copy()
         if "instrument" in role_df.columns:
             role_df = role_df[
@@ -1220,12 +1211,13 @@ for idx, role in enumerate(ROLE_CHOICES):
         sel = st.selectbox(
             role,
             options=mus_options_ids,
-            index=(mus_options_ids.index(default_val) if default_val in mus_options_ids else 0),
+            index=(mus_options_ids.index(default_val)
+                   if default_val in mus_options_ids else 0),
             format_func=mus_fmt,
             key=k(f"edit_role_{role}"),
         )
 
-        # immediately reflect current selection in the buffer
+        # 🔹 this is the ONLY source of truth now
         if sel == "" or sel.startswith("__ADD_MUS__"):
             lineup_buf[role] = ""
         else:
@@ -1235,6 +1227,7 @@ for idx, role in enumerate(ROLE_CHOICES):
             st.write("DBG_SELECTION", {"role": role, "sel": sel})
 
         role_add_boxes[role] = st.empty()
+
 
 # === Rebuild authoritative lineup from buffer ===
 lineup = [
