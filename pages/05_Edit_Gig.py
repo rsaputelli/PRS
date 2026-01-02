@@ -17,8 +17,8 @@ from lib.calendar_utils import upsert_band_calendar_event
 # -----------------------------
 # Debug toggles (set True when needed)
 # -----------------------------
-DEBUG_LINEUP = False           # lineup buffer + selection debug
-DEBUG_SAVE_TRACE = False       # lineup/deposit trace on save
+DEBUG_LINEUP = True           # lineup buffer + selection debug
+DEBUG_SAVE_TRACE = True       # lineup/deposit trace on save
 
 # -----------------------------
 # Page config
