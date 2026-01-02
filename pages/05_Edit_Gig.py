@@ -1787,24 +1787,22 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "band_name": (band_name or None),
         "agent_id": agent_id_val,
         "venue_id": venue_id_val,
-        "sound_tech_id": sound_tech_id_val,  # selection-only
+        "sound_tech_id": sound_tech_id_val,
         "private_flag": bool(is_private),
-        # keep legacy is_private for now in case the column still exists; schema filter will drop it if not
         "is_private": bool(is_private),
+
+        # NEW unified field
+        "is_1099_eligible": bool(is_1099_eligible),
+
         "notes": (notes or None),
         "organizer_street": st.session_state.get(f"priv_addr_street_{gid}") or None,
         "organizer_city": st.session_state.get(f"priv_addr_city_{gid}") or None,
         "organizer_state": st.session_state.get(f"priv_addr_state_{gid}") or None,
         "organizer_zip": st.session_state.get(f"priv_addr_zip_{gid}") or None,
-        "sound_by_venue_name": (sound_by_venue_name or None),  # pure text
-        "sound_by_venue_phone": (
-            sound_by_venue_phone or None
-        ),  # pure text (may contain email or phone)
+        "sound_by_venue_name": (sound_by_venue_name or None),
+        "sound_by_venue_phone": (sound_by_venue_phone or None),
         "sound_provided": bool(sound_provided),
         "sound_fee": sound_fee_val,
-        "is_1099_eligible": bool(is_1099_eligible),
-        if "eligible_1099" in _table_columns("gigs")
-        else None,
         "overtime_rate": overtime_rate or None,
     }
 
