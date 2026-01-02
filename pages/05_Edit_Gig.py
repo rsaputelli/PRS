@@ -960,11 +960,15 @@ with c1:
         "Private Event?", value=initial_private, key=f"priv_{gid}"
     )
 with c2:
-    eligible_1099 = st.checkbox(
+    # -------- 1099 Eligible --------
+    is_1099_eligible_val = bool(row.get("is_1099_eligible", False))
+
+    is_1099_eligible = st.checkbox(
         "1099 Eligible",
-        value=bool(row.get("eligible_1099", False)),
+        value=is_1099_eligible_val,
         key=f"elig1099_{gid}",
     )
+
 
 # Preselect newly created tech (set in previous run)
 _pre_key = f"preselect_sound_{gid}"
@@ -1798,7 +1802,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         ),  # pure text (may contain email or phone)
         "sound_provided": bool(sound_provided),
         "sound_fee": sound_fee_val,
-        "eligible_1099": bool(eligible_1099)
+        "is_1099_eligible": bool(is_1099_eligible),
         if "eligible_1099" in _table_columns("gigs")
         else None,
         "overtime_rate": overtime_rate or None,
