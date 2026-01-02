@@ -593,7 +593,7 @@ with vs1:
     venue_add_box = st.empty()  # anchor directly under the select
 
     is_private = st.checkbox("Private Event?", value=False, key="is_private_in")
-    is_1099_eligible = st.checkbox("1099 Eligible", value=False, key="newgig_is1099")
+    # is_1099_eligible = st.checkbox("1099 Eligible", value=False, key="newgig_is1099")
 
 with vs2:
     SOUND_ADD = "__ADD_SOUND__"
