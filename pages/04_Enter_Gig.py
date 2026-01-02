@@ -593,7 +593,7 @@ with vs1:
     venue_add_box = st.empty()  # anchor directly under the select
 
     is_private = st.checkbox("Private Event?", value=False, key="is_private_in")
-    eligible_1099 = st.checkbox("1099 Eligible", value=False, key="eligible_1099_in")
+    is_1099_eligible = st.checkbox("1099 Eligible", value=False, key="newgig_is1099")
 
 with vs2:
     SOUND_ADD = "__ADD_SOUND__"
@@ -711,6 +711,14 @@ for idx, role in enumerate(ROLE_CHOICES):
 # ============================
 st.markdown("---")
 st.subheader("Notes")
+
+# --- 1099 Eligibility (safe anchor) ---
+is_1099_eligible_in = st.checkbox(
+    "1099 Eligible",
+    value=False,
+    key="is_1099_eligible_in",
+)
+
 st.text_area(
     "Notes / Special Instructions (optional)",
     height=100,
@@ -1050,6 +1058,8 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "organizer_state": st.session_state.get("priv_addr_state_in") or None,
         "organizer_zip": st.session_state.get("priv_addr_zip_in") or None,
         "overtime_rate": st.session_state.get("priv_ot_rate_in") or None,
+        # NEW — unified 1099 flag
+        "is_1099_eligible": bool(st.session_state.get("is_1099_eligible_in", False)),
         # private block (only if is_private)
         # "private_event_type": st.session_state.get("priv_type_in") or None if st.session_state.get("is_private_in") else None,
         # "organizer": st.session_state.get("priv_org_in") or None if st.session_state.get("is_private_in") else None,
@@ -1057,7 +1067,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         # "private_contact": st.session_state.get("priv_contact_in") or None if st.session_state.get("is_private_in") else None,
         # "private_contact_info": st.session_state.get("priv_contact_info_in") or None if st.session_state.get("is_private_in") else None,
         # "additional_services": st.session_state.get("priv_addsvc_in") or None if st.session_state.get("is_private_in") else None,
-        # "overtime_rate": st.session_state.get("priv_ot_rate_in") or None,        
+        # "overtime_rate": st.session_state.get("priv_ot_rate_in") or None,           
     }
     gig_payload = _filter_to_schema("gigs", gig_payload)
 
