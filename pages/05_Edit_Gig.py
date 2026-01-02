@@ -930,7 +930,7 @@ if isinstance(assigned_df, pd.DataFrame) and not assigned_df.empty:
 # except Exception as e:
     # st.error(f"DBG exception on select: {e}")
 
-# ----- Lineup buffer: ALWAYS mirror DB at start of render -----
+# ----- Lineup buffer: mirror DB ONLY on first load / after save / gig switch -----
 buf_key = k("lineup_buf")
 buf_gid_key = k("lineup_buf_gid")
 
@@ -942,12 +942,18 @@ if not assigned_df.empty:
             str(r.get("musician_id")) if pd.notna(r.get("musician_id")) else ""
         )
 
-# 🔒 Authoritative rule:
-# The buffer is *not* a cache — it is a live reflection of DB on load.
-st.session_state[buf_key] = cur_map_from_db
-st.session_state[buf_gid_key] = gid_str
+# Seed buffer ONLY if:
+#   - buffer doesn't exist yet, OR
+#   - we're opening a different gig
+if (
+    buf_key not in st.session_state
+    or st.session_state.get(buf_gid_key) != gid_str
+):
+    st.session_state[buf_key] = cur_map_from_db
+    st.session_state[buf_gid_key] = gid_str
 
 lineup_buf = st.session_state[buf_key]
+
 with st.expander("🧪 LINEUP SEED DEBUG", expanded=True):
     st.json({
         "gid": gid_str,
