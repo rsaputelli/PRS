@@ -2001,6 +2001,24 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
 
+        # Always reload lineup from DB after save (needed for diff + autosend)
+        rows = (
+            sb.table("gig_musicians")
+            .select("musician_id, role")
+            .eq("gig_id", gid_str)
+            .execute()
+            .data
+            or []
+        )
+
+        from_db_after_save = [
+            {
+                "role": r.get("role"),
+                "musician_id": str(r.get("musician_id")),
+            }
+            for r in rows
+        ]
+
         # ============================================================
         # 🚀 AUTO-SEND ONLY TO *NEWLY ADDED* MUSICIANS  (run FIRST)
         # ============================================================
