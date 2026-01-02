@@ -2001,8 +2001,48 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
 
-        # ---- Queue autosend (sound-tech / agent / players) if toggled/selected ----
-        # Persist the per-gig sound-tech-on-save flag so the autosend runner can see it
+        # ============================================================
+        # 🚀 AUTO-SEND ONLY TO *NEWLY ADDED* MUSICIANS  (run FIRST)
+        # ============================================================
+
+        before = cur_map_from_db or {}   # lineup before save
+        after = {r["role"]: r["musician_id"] for r in from_db_after_save}
+
+        new_assignments = []
+
+        for role, new_mid in after.items():
+            old_mid = before.get(role)
+
+            # New fill
+            if not old_mid and new_mid:
+                new_assignments.append((role, new_mid))
+
+            # Replacement (different musician)
+            elif old_mid and new_mid and old_mid != new_mid:
+                new_assignments.append((role, new_mid))
+
+        if DEBUG_LINEUP:
+            st.write("AUTO-SEND TRACE", {
+                "before": before,
+                "after": after,
+                "new_assignments": new_assignments,
+            })
+
+        for role, musician_id in new_assignments:
+            try:
+                send_lineup_email(
+                    gig_id=gid_str,
+                    musician_id=musician_id,
+                    role=role,
+                    trigger="lineup_added",
+                )
+            except Exception as e:
+                st.warning(f"Email not sent for {role}: {e}")
+
+        # ============================================================
+        # ---- Queue autosend (sound-tech / agent / players) IF toggled
+        # ============================================================
+
         st.session_state[f"edit_autoc_send_now_{gid_str}"] = bool(autoc_send_now)
 
         if any(
@@ -2010,7 +2050,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 st.session_state.get("autoc_send_st_on_create", False),
                 st.session_state.get("autoc_send_agent_on_create", False),
                 st.session_state.get("autoc_send_players_on_create", False),
-                autoc_send_now,  # respect the per-gig checkbox as well
+                autoc_send_now,
             ]
         ):
             guard_key = f"autosend_guard__{gid_str}"
@@ -2021,32 +2061,3 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     st.rerun()
                 except Exception:
                     _safe_rerun("autosend after edit save")
-
-        if DEBUG_SAVE_TRACE:
-            with st.expander("🧩 LINEUP POST-SAVE TRACE", expanded=True):
-                rows = (
-                    sb.table("gig_musicians")
-                    .select("musician_id, role")
-                    .eq("gig_id", gid_str)
-                    .execute()
-                    .data
-                    or []
-                )
-                st.json(
-                    {
-                        "from_db_after_save": [
-                            {
-                                "role": r.get("role"),
-                                "musician_id": str(r.get("musician_id")),
-                            }
-                            for r in rows
-                        ],
-                        "buffer_after_save": lineup_buf,
-                    }
-                )
-
-        st.success("Gig updated successfully ✅")
-        # Bust caches and force fresh widget + buffer seed next render
-        st.cache_data.clear()
-        st.session_state["_force_lineup_reset"] = gid_str
-        st.session_state["_edit_just_saved_gid"] = gid_str
