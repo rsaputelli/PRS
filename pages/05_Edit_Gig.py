@@ -1921,34 +1921,39 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 else 0
             )
             st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
-        except Exception:
-            pass
 
-        # --- Hard-reset lineup buffer + widgets so next render seeds from DB ---
-        # (Replaced with immediate reseed to prevent ghost lineup)
+            # -----------------------------------------
+            # 🧹 Bust lineup-related caches after save
+            # -----------------------------------------
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
 
-        # Re-pull lineup from DB and reseed buffer immediately
-        rows = (
-            sb.table("gig_musicians")
-            .select("musician_id, role")
-            .eq("gig_id", gid_str)
-            .execute()
-            .data
-            or []
-        )
+            # -------------------------------------------------------
+            # 🔄 Re-pull lineup from DB and reseed buffer immediately
+            # -------------------------------------------------------
+            rows = (
+                sb.table("gig_musicians")
+                .select("musician_id, role")
+                .eq("gig_id", gid_str)
+                .execute()
+                .data
+                or []
+            )
 
-        st.session_state[buf_key] = {
-            str(r.get("role")): str(r.get("musician_id") or "")
-            for r in rows
-        }
-        st.session_state[buf_gid_key] = gid_str
+            st.session_state[buf_key] = {
+                str(r.get("role")): str(r.get("musician_id") or "")
+                for r in rows
+            }
+            st.session_state[buf_gid_key] = gid_str
 
-        # Mark save + force reseed behavior
-        st.session_state["_force_lineup_reset"] = gid_str
-        st.session_state["_edit_just_saved_gid"] = gid_str
+            st.session_state["_force_lineup_reset"] = gid_str
+            st.session_state["_edit_just_saved_gid"] = gid_str
 
-        # 🔄 Trigger a single clean rerun so UI reflects DB immediately
-        st.rerun()
+            # 🔁 One clean rerun so UI reflects DB-fresh lineup
+            st.rerun()
+
 
         # --- Persist deposits (delete→insert, only if table exists) ---
         if dep_rows:
