@@ -1111,19 +1111,21 @@ if (
 
 lineup_buf: Dict[str, str] = st.session_state[buf_key]
 
-if DEBUG_LINEUP:
-    with st.expander("🧪 LINEUP SEED DEBUG", expanded=True):
-        st.json(
-            {
-                "gid": gid_str,
-                "assigned_df_rows": len(assigned_df),
-                "cur_map_from_db": cur_map_from_db,
-                "buffer_after_seed": st.session_state.get(buf_key),
-                "buf_gid_key": st.session_state.get(buf_gid_key),
-            }
-        )
+# --- DEBUG: LINEUP SEED TRACE (disabled; keep for troubleshooting) ---
+# if DEBUG_LINEUP:
+#     with st.expander("🧪 LINEUP SEED DEBUG", expanded=True):
+#         st.json(
+#             {
+#                 "gid": gid_str,
+#                 "assigned_df_rows": len(assigned_df),
+#                 "cur_map_from_db": cur_map_from_db,
+#                 "buffer_after_seed": st.session_state.get(buf_key),
+#                 "buf_gid_key": st.session_state.get(buf_gid_key),
+#             }
+#         )
 
 import re
+
 
 ROLE_INSTRUMENT_MAP = {
     "Keyboard": {"substr": ["keyboard", "keys", "piano", "pianist", "synth"]},
@@ -1227,11 +1229,11 @@ for idx, role in enumerate(ROLE_CHOICES):
         else:
             lineup_buf[role] = sel
 
-        if DEBUG_LINEUP:
-            st.write("DBG_SELECTION", {"role": role, "sel": sel})
+        # --- DEBUG: ROLE SELECTION TRACE (disabled; keep for troubleshooting) ---
+        # if DEBUG_LINEUP:
+        #     st.write("DBG_SELECTION", {"role": role, "sel": sel})
 
         role_add_boxes[role] = st.empty()
-
 
 # === Rebuild authoritative lineup from buffer ===
 lineup = [
@@ -1855,18 +1857,19 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 }
             )
 
-    if DEBUG_SAVE_TRACE:
-        st.json(
-            {
-                "DEBUG_lineup_being_saved": lineup_to_save,
-                "DEBUG_buffer_now": lineup_buf,
-                "DEBUG_dep_rows_present": bool(dep_rows) if "dep_rows" in locals() else None,
-            },
-            expanded=True,
-        )
+    # --- DEBUG: LINEUP SAVE PAYLOAD (disabled; preserved) ---
+    # if DEBUG_SAVE_TRACE:
+    #     st.json(
+    #         {
+    #             "DEBUG_lineup_being_saved": lineup_to_save,
+    #             "DEBUG_buffer_now": lineup_buf,
+    #             "DEBUG_dep_rows_present": bool(dep_rows) if "dep_rows" in locals() else None,
+    #         }
+    #     )
 
     # Guard: avoid accidental full wipe unless explicitly confirmed
     if not lineup_to_save:
+
         st.warning(
             "No roles are assigned. To clear the entire lineup, check the box below and save again."
         )
@@ -2041,12 +2044,16 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             elif old_mid and new_mid and old_mid != new_mid:
                 new_assignments.append((role, new_mid))
 
-        if DEBUG_LINEUP:
-            st.write("AUTO-SEND TRACE", {
-                "before": before,
-                "after": after,
-                "new_assignments": new_assignments,
-            })
+        # --- DEBUG: AUTO-SEND DIFF TRACE (disabled; preserved) ---
+        # if DEBUG_LINEUP:
+        #     st.write(
+        #         "AUTO-SEND TRACE",
+        #         {
+        #             "before": before,
+        #             "after": after,
+        #             "new_assignments": new_assignments,
+        #         },
+        #     )
 
         for role, musician_id in new_assignments:
             try:
