@@ -1107,7 +1107,7 @@ if (
 ):
     st.session_state[buf_key] = cur_map_from_db
     st.session_state[buf_gid_key] = gid_str
-    st.session_state["_force_lineup_reset"] = None  # consume flag
+    st.session_state.pop("_force_lineup_reset", None)  # consume flag properly
 
 lineup_buf: Dict[str, str] = st.session_state[buf_key]
 
