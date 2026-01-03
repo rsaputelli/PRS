@@ -1922,40 +1922,46 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             )
             st.toast(f"Saved lineup: {n_roles} role(s).", icon="✅")
 
-            # -------------------------------------------------
-            # Everything below is allowed to fail without crash
-            # -------------------------------------------------
+        except Exception:
+            # save succeeded — do not block on post-check errors
+            pass
+
+
+        # -------------------------------------------------
+        # Reseed buffer immediately from DB (no ghost lineup)
+        # -------------------------------------------------
+        try:
+            # 🧹 Bust lineup-related caches after save
             try:
-                # 🧹 Bust lineup-related caches after save
-                try:
-                    st.cache_data.clear()
-                except Exception:
-                    pass
+                st.cache_data.clear()
+            except Exception:
+                pass
 
-                # 🔄 Re-pull lineup from DB and reseed buffer immediately
-                rows = (
-                    sb.table("gig_musicians")
-                    .select("musician_id, role")
-                    .eq("gig_id", gid_str)
-                    .execute()
-                    .data
-                    or []
-                )
+            # 🔄 Reload lineup from DB
+            rows = (
+                sb.table("gig_musicians")
+                .select("musician_id, role")
+                .eq("gig_id", gid_str)
+                .execute()
+                .data
+                or []
+            )
 
-                st.session_state[buf_key] = {
-                    str(r.get("role")): str(r.get("musician_id") or "")
-                    for r in rows
-                }
-                st.session_state[buf_gid_key] = gid_str
+            st.session_state[buf_key] = {
+                str(r.get("role")): str(r.get("musician_id") or "")
+                for r in rows
+            }
+            st.session_state[buf_gid_key] = gid_str
 
-                st.session_state["_force_lineup_reset"] = gid_str
-                st.session_state["_edit_just_saved_gid"] = gid_str
+            st.session_state["_force_lineup_reset"] = gid_str
+            st.session_state["_edit_just_saved_gid"] = gid_str
 
-                # 🔁 One clean rerun so UI reflects DB-fresh lineup
-                st.rerun()
+            # 🔁 refresh UI using DB-fresh lineup
+            st.rerun()
 
-            except Exception as e:
-                st.warning(f"Lineup reseed fallback: {e}")
+        except Exception as e:
+            st.warning(f"Lineup reseed fallback: {e}")
+
 
         # --- Persist deposits (delete→insert, only if table exists) ---
         if dep_rows:
