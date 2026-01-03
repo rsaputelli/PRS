@@ -1097,17 +1097,24 @@ if not assigned_df.empty:
 # Seed buffer ONLY if:
 #   - buffer doesn't exist yet, OR
 #   - we're opening a different gig, OR
-#   - a save explicitly forced a reset
+#   - a save explicitly forced a reset, OR
+#   - this is the first render after page load for this gig
 force_reset = st.session_state.get("_force_lineup_reset") == gid_str
+initial_page_load = st.session_state.get("_edit_last_rendered_gid") != gid_str
 
 if (
     buf_key not in st.session_state
     or st.session_state.get(buf_gid_key) != gid_str
     or force_reset
+    or initial_page_load
 ):
+    # Always reseed from DB in these cases
     st.session_state[buf_key] = cur_map_from_db
     st.session_state[buf_gid_key] = gid_str
-    st.session_state.pop("_force_lineup_reset", None)  # consume flag properly
+    st.session_state.pop("_force_lineup_reset", None)
+
+# Track last gig rendered to detect page-entry reuse
+st.session_state["_edit_last_rendered_gid"] = gid_str
 
 lineup_buf: Dict[str, str] = st.session_state[buf_key]
 
