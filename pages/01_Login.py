@@ -18,6 +18,32 @@ st.title("Sign In")
 if "user" not in st.session_state:
     st.session_state["user"] = None
 
+# =========================================
+# PASSWORD RECOVERY MODE (reset link flow)
+# =========================================
+params = st.query_params
+is_recovery = params.get("type") == "recovery"
+
+if is_recovery:
+    st.subheader("Reset Your Password")
+
+    new_pw = st.text_input("New password", type="password")
+    new_pw2 = st.text_input("Confirm new password", type="password")
+
+    if st.button("Update Password"):
+        if not new_pw or new_pw != new_pw2:
+            st.error("Passwords do not match.")
+        else:
+            try:
+                sb.auth.update_user({"password": new_pw})
+                st.success("Password updated successfully. Please sign in.")
+                st.info("You may now log in with your new password.")
+                st.stop()
+            except Exception as e:
+                st.error(f"Password reset failed: {e}")
+
+    st.stop()
+
 # If already logged in
 if st.session_state["user"]:
     st.success(f"Signed in as {st.session_state['user']['email']}")
