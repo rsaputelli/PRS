@@ -118,7 +118,7 @@ else:
                         "email": email,
                         "password": password,
                         "options": {
-                            "emailRedirectTo": "https://prs-band.streamlit.app/01_Login"
+                            "emailRedirectTo": "https://booking-management.streamlit.app/01_Login?type=recovery"
                         },
                     }
                 )
