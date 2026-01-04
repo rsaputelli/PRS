@@ -16,21 +16,23 @@ SUPABASE_URL = _get_secret("SUPABASE_URL")
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY")
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-
 st.title("Sign In")
 
 # Session bootstrap
 if "user" not in st.session_state:
     st.session_state["user"] = None
 
+# =========================================
+# PASSWORD RESET UI (two different paths)
+# 1) ?type=recovery param
+# 2) Supabase sent us back with access_token hash
+# =========================================
 
-# ======================================================
-# PASSWORD RESET FLOW (Supabase sends ?type=recovery)
-# ======================================================
 params = st.query_params
 is_recovery = params.get("type") == "recovery"
+force_reset = st.session_state.get("force_password_reset", False)
 
-if is_recovery:
+if is_recovery or force_reset:
     st.subheader("Reset Your Password")
 
     new_pw = st.text_input("New password", type="password")
@@ -41,23 +43,18 @@ if is_recovery:
             st.error("Passwords do not match.")
         else:
             try:
-                # User is already in a temporary Supabase session here
                 sb.auth.update_user({"password": new_pw})
+
+                # clear reset flag
+                st.session_state["force_password_reset"] = False
 
                 st.success("Password updated successfully.")
                 st.info("Please sign in with your new password.")
-
-                # Clear any temporary session
-                st.session_state["user"] = None
-                st.session_state.pop("sb_access_token", None)
-                st.session_state.pop("sb_refresh_token", None)
-
                 st.stop()
             except Exception as e:
                 st.error(f"Password reset failed: {e}")
 
     st.stop()
-
 
 # ======================================================
 # NORMAL LOGIN / SIGNUP UI
