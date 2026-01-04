@@ -168,6 +168,17 @@ if gigs_df.empty:
     st.stop()
 
 # ===============================
+# VENUE LOOKUP (works for all roles)
+# ===============================
+def load_venue_lookup() -> dict[str, str]:
+    venues_df = _select_df("venues", "id,name")
+    if venues_df.empty:
+        return {}
+    return {str(row["id"]): row["name"] for _, row in venues_df.iterrows()}
+
+venue_lookup = load_venue_lookup()
+
+# ===============================
 # NORMALIZE / ENRICH DATA
 # ===============================
 gigs = gigs_df.copy()
@@ -195,8 +206,9 @@ if "end_time" in gigs.columns:
 
 # Venue name from venue_id
 if "venue_id" in gigs.columns:
-    gigs["venue_name"] = gigs["venue_id"].map(venue_lookup).fillna("")
-
+    gigs["venue_name"] = (
+        gigs["venue_id"].astype(str).map(venue_lookup).fillna("")
+)
 
 # ===============================
 # DATE FILTER (Future vs All)

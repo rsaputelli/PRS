@@ -10,6 +10,7 @@ import streamlit as st
 from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
+from lib.auth import IS_ADMIN
 
 # -----------------------------
 # Page config + Header
@@ -23,6 +24,10 @@ render_header(title="Staffing Report", emoji="📋")
 if "user" not in st.session_state or not st.session_state["user"]:
     st.error("Please sign in from the Login page.")
     st.stop()
+    
+if not IS_ADMIN():
+    st.error("This page is restricted to administrators.")
+    st.stop()    
 
 # -----------------------------
 # Supabase helpers
