@@ -96,7 +96,15 @@ else:
 
         if st.button("Create Account"):
             try:
-                res = sb.auth.sign_up({"email": email, "password": password})
+                res = sb.auth.sign_up(
+                    {
+                        "email": email,
+                        "password": password,
+                        "options": {
+                            "emailRedirectTo": "https://prs-band.streamlit.app/01_Login"
+                        },
+                    }
+                )
 
                 if res.user:
                     st.success("Account created! Please check your email to confirm.")
@@ -119,9 +127,12 @@ else:
 
         if st.button("Send Reset Link"):
             try:
-                sb.auth.reset_password_email(email)
-                st.success(
-                    "Password reset email sent. Check your inbox (and spam folder)."
+                sb.auth.reset_password_email(
+                    email,
+                    options={
+                        "emailRedirectTo": "https://prs-band.streamlit.app/01_Login"
+                    },
                 )
+                st.success("Password reset email sent. Check your inbox (and spam folder).")
             except Exception as e:
                 st.error(f"Could not send reset email: {e}")
