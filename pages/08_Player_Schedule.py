@@ -100,39 +100,53 @@ st.markdown("---")
 
 
 # ===============================
-# MODE SELECTOR: My Gigs vs All Gigs
+# ROLE-SCOPED VIEW MODE LOGIC
 # ===============================
+
+is_admin = IS_ADMIN()
+player_email = email
+
+# Guests = logged-in but not mapped to musician record
+role = (
+    "admin" if is_admin
+    else (profile.get("role") if profile and profile.get("role") else "guest")
+)
+
+# Default = musicians see only their gigs
+view_mode = "my"
+
+
 if role == "admin":
-    mode = st.radio(
+    # Admins may choose
+    view_mode = st.radio(
         "Schedule View:",
-        ["My Gigs", "All Gigs"],
+        ["my", "all"],
         index=1,
+        format_func=lambda x: "My Gigs" if x == "my" else "All Gigs",
         horizontal=True,
     )
+
 elif role in ("musician", "sound_tech"):
-    mode = st.radio(
-        "Schedule View:",
-        ["My Gigs", "All Gigs"],
-        index=0,
-        horizontal=True,
-    )
+    # Musicians / Sound Techs → My gigs only
+    st.info("You are viewing your assigned gigs only.", icon="🎸")
+    view_mode = "my"
+
 else:
-    # Guest user (not yet mapped to musician)
-    st.info(
-        "You are logged in, but your musician profile isn't linked yet. "
-        "You may view the full gig schedule below."
+    # Guest / unmapped users → All gigs only
+    st.warning(
+        "You are viewing the public band schedule. "
+        "If you are a band member and should see your personal gig schedule, "
+        "please contact the site administrator.",
+        icon="👤",
     )
-    mode = "All Gigs"
+    view_mode = "all"
 
 
 # ===============================
 # LOAD GIGS
 # ===============================
+
 def load_gigs_for_user(player_email: str) -> pd.DataFrame:
-    """
-    Lookup gigs where this user is booked.
-    Uses the same RPC you already had wired: get_player_gigs(player_email).
-    """
     try:
         res = sb.rpc("get_player_gigs", {"player_email": player_email}).execute()
         return pd.DataFrame(res.data or [])
@@ -144,26 +158,14 @@ def load_all_gigs() -> pd.DataFrame:
     return _select_df("gigs", "*")
 
 
-# === Load venue lookup table (id -> name), same idea as 02_Schedule_View ===
-def load_venue_lookup() -> dict[int, str]:
-    venues_df = _select_df("venues", "id,name")
-    if venues_df.empty:
-        return {}
-    return {row["id"]: row["name"] for _, row in venues_df.iterrows()}
-
-
-venue_lookup = load_venue_lookup()
-
-# --- Base gigs set ---
-if mode == "My Gigs":
-    gigs_df = load_gigs_for_user(email)
+if view_mode == "my":
+    gigs_df = load_gigs_for_user(player_email)
 else:
     gigs_df = load_all_gigs()
 
 if gigs_df.empty:
-    st.info("No gigs found.")
+    st.info("No gigs found for this view.", icon="ℹ️")
     st.stop()
-
 
 # ===============================
 # NORMALIZE / ENRICH DATA
