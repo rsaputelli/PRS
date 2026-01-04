@@ -3,6 +3,10 @@ import streamlit as st
 from supabase import create_client, Client
 import os
 
+
+# -------------------------
+# Supabase Init
+# -------------------------
 def _get_secret(name, default=None):
     if hasattr(st, "secrets") and name in st.secrets:
         return st.secrets[name]
@@ -12,15 +16,17 @@ SUPABASE_URL = _get_secret("SUPABASE_URL")
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY")
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
+
 st.title("Sign In")
 
 # Session bootstrap
 if "user" not in st.session_state:
     st.session_state["user"] = None
 
-# =========================================
-# PASSWORD RECOVERY MODE (reset link flow)
-# =========================================
+
+# ======================================================
+# PASSWORD RESET FLOW (Supabase sends ?type=recovery)
+# ======================================================
 params = st.query_params
 is_recovery = params.get("type") == "recovery"
 
@@ -35,16 +41,27 @@ if is_recovery:
             st.error("Passwords do not match.")
         else:
             try:
+                # User is already in a temporary Supabase session here
                 sb.auth.update_user({"password": new_pw})
-                st.success("Password updated successfully. Please sign in.")
-                st.info("You may now log in with your new password.")
+
+                st.success("Password updated successfully.")
+                st.info("Please sign in with your new password.")
+
+                # Clear any temporary session
+                st.session_state["user"] = None
+                st.session_state.pop("sb_access_token", None)
+                st.session_state.pop("sb_refresh_token", None)
+
                 st.stop()
             except Exception as e:
                 st.error(f"Password reset failed: {e}")
 
     st.stop()
 
-# If already logged in
+
+# ======================================================
+# NORMAL LOGIN / SIGNUP UI
+# ======================================================
 if st.session_state["user"]:
     st.success(f"Signed in as {st.session_state['user']['email']}")
     if st.button("Sign out"):
@@ -108,7 +125,6 @@ else:
 
                 if res.user:
                     st.success("Account created! Please check your email to confirm.")
-                    # Optional auto-login after signup
                     if res.session:
                         st.session_state["sb_access_token"] = res.session.access_token
                         st.session_state["sb_refresh_token"] = res.session.refresh_token
@@ -133,6 +149,8 @@ else:
                         "emailRedirectTo": "https://prs-band.streamlit.app/01_Login"
                     },
                 )
-                st.success("Password reset email sent. Check your inbox (and spam folder).")
+                st.success(
+                    "Password reset email sent. Check your inbox (and spam folder)."
+                )
             except Exception as e:
                 st.error(f"Could not send reset email: {e}")
