@@ -2,6 +2,57 @@
 import streamlit as st
 from supabase import create_client, Client
 import os
+import streamlit as st
+import json
+
+# =========================================
+# Capture Supabase recovery tokens from URL hash
+# =========================================
+if "_recovery_checked" not in st.session_state:
+    st.session_state["_recovery_checked"] = False
+
+if not st.session_state["_recovery_checked"]:
+    # Run JS in the browser to read window.location.hash
+    hash_json = st.experimental_js(
+        """
+        () => {
+            const h = window.location.hash || "";
+            if (!h.startsWith("#")) return "";
+            const params = Object.fromEntries(
+                h.substring(1).split("&").map(p => p.split("="))
+            );
+            return JSON.stringify(params);
+        }
+        """
+    )
+
+    st.session_state["_recovery_checked"] = True
+
+    if hash_json:
+        try:
+            params = json.loads(hash_json)
+            access = params.get("access_token")
+            refresh = params.get("refresh_token")
+
+            if access and refresh:
+                from supabase import create_client
+
+                sb.auth.set_session(
+                    access_token=access,
+                    refresh_token=refresh,
+                )
+
+                st.session_state["sb_access_token"] = access
+                st.session_state["sb_refresh_token"] = refresh
+                st.session_state["user"] = {"email": sb.auth.get_user().user.email}
+
+                # Force password reset UI
+                st.session_state["force_password_reset"] = True
+                st.success("Recovery verified — please enter a new password.")
+                st.rerun()
+
+        except Exception as e:
+            st.warning(f"Recovery token parse failed: {e}")
 
 
 # -------------------------
@@ -115,7 +166,7 @@ else:
                         "email": email,
                         "password": password,
                         "options": {
-                            "emailRedirectTo": "https://booking-management.streamlit.app/01_Login?type=recovery"
+                            "emailRedirectTo": "https://booking-management.streamlit.app/01_Login"
                         },
                     }
                 )
@@ -143,7 +194,7 @@ else:
                 sb.auth.reset_password_email(
                     email,
                     options={
-                        "emailRedirectTo": "https://prs-band.streamlit.app/01_Login"
+                        "emailRedirectTo": "https://booking-management.streamlit.app/01_Login"
                     },
                 )
                 st.success(
