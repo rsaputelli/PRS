@@ -243,7 +243,7 @@ elif mode == "Forgot Password":
             sb.auth.reset_password_email(
                 email,
                 options={
-                    "redirect_to": "https://booking-management.streamlit.app/Login?type=recovery"
+                    "redirect_to": "sb.auth.reset_password_email(email)"
                 },
             )
 
