@@ -11,32 +11,19 @@ st.components.v1.html(
     <script>
       const h = window.location.hash;
 
-      // Handle either param order:
-      // #access_token=...&type=recovery
-      // #type=recovery&access_token=...
-      if (h && (h.includes("type=recovery") || h.includes("access_token"))) {
+      if (h && h.includes("access_token")) {
+        const q = h.substring(1);   // strip leading '#'
+        const url =
+          "/Login"
+          + "?type=recovery&"
+          + q;
 
-        const q = new URLSearchParams(h.substring(1));
-
-        const token   = q.get("access_token");
-        const refresh = q.get("refresh_token") || "";
-
-        if (token) {
-          const url =
-            "/Login"
-            + "?type=recovery"
-            + "&access_token=" + encodeURIComponent(token)
-            + "&refresh_token=" + encodeURIComponent(refresh);
-
-          window.top.location.replace(url);
-        }
+        window.top.location.replace(url);
       }
     </script>
     """,
     height=0,
 )
-
-
 
 
 st.caption(f"Running file: {__file__}")

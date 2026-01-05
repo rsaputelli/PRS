@@ -20,26 +20,22 @@ st.components.v1.html(
     """
     <script>
       const h = window.location.hash;
+
+      // Only run on Supabase recovery links
       if (h && h.includes("access_token")) {
-        const q = new URLSearchParams(h.substring(1));
-        const token   = q.get("access_token");
-        const refresh = q.get("refresh_token") || "";
 
-        if (token) {
-          const url =
-            "/Login"
-            + "?type=recovery"
-            + "&access_token=" + encodeURIComponent(token)
-            + "&refresh_token=" + encodeURIComponent(refresh);
+        // Turn #a=b&c=d into ?a=b&c=d
+        const qs = h.replace('#', '?');
 
-          window.location.replace(url);
-        }
+        // Send full token set to /Login as real query params
+        const url = "/Login" + qs;
+
+        window.top.location.replace(url);
       }
     </script>
     """,
     height=0,
 )
-
 
 # -----------------------------
 # RECOVERY TOKEN SESSION SETUP
@@ -61,7 +57,13 @@ if is_recovery:
             st.session_state["sb_access_token"] = access_token
             st.session_state["sb_refresh_token"] = refresh_token or ""
 
-            # 🔎 DEBUG — verify session actually established
+            session = sb.auth.get_session()
+            st.success("SUPABASE SESSION OBJECT")
+            st.json({
+                "user_id": getattr(session.user, "id", None) if session else None,
+                "expires_at": getattr(session, "expires_at", None) if session else None,
+            })
+
             st.warning("SESSION RESTORED")
             st.json({
                 "access_token_present": bool(access_token),
@@ -71,9 +73,6 @@ if is_recovery:
 
         except Exception as e:
             st.error(f"Could not establish recovery session: {e}")
-
-st.title("🔐 Login")
-
 
 # -----------------------------
 # PASSWORD RESET MODE
@@ -110,7 +109,7 @@ if is_recovery or force_reset:
 
     st.stop()
 
-
+st.title("🔐 Login")
 # -----------------------------
 # MODE SELECTOR
 # -----------------------------
