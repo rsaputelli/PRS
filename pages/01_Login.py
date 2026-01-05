@@ -41,38 +41,29 @@ st.components.v1.html(
 # RECOVERY TOKEN SESSION SETUP
 # -----------------------------
 params = st.query_params
-st.info("DEBUG PARAMS")
-st.json(dict(params))
 is_recovery = params.get("type") == "recovery"
 force_reset = st.session_state.get("force_password_reset", False)
 
+st.info("DEBUG PARAMS")
+st.json(dict(params))
+
+# Try to establish a real session from the recovery link
 if is_recovery:
-    access_token = params.get("access_token")
-    refresh_token = params.get("refresh_token")
+    try:
+        session = sb.auth.exchange_code_for_session(params)
 
-    if is_recovery and access_token:
-        try:
-            sb.auth.set_session(access_token, refresh_token or "")
+        st.session_state["sb_access_token"]  = session.session.access_token
+        st.session_state["sb_refresh_token"] = session.session.refresh_token
 
-            st.session_state["sb_access_token"] = access_token
-            st.session_state["sb_refresh_token"] = refresh_token or ""
+        st.success("SESSION RESTORED (exchange_code_for_session)")
+        st.json({
+            "user_id": session.user.id if session and session.user else None,
+            "expires_at": session.session.expires_at if session and session.session else None,
+        })
 
-            session = sb.auth.get_session()
-            st.success("SUPABASE SESSION OBJECT")
-            st.json({
-                "user_id": getattr(session.user, "id", None) if session else None,
-                "expires_at": getattr(session, "expires_at", None) if session else None,
-            })
+    except Exception as e:
+        st.error(f"Could not exchange recovery code for session: {e}")
 
-            st.warning("SESSION RESTORED")
-            st.json({
-                "access_token_present": bool(access_token),
-                "refresh_token_present": bool(refresh_token),
-                "query_params_seen": dict(params)
-            })
-
-        except Exception as e:
-            st.error(f"Could not establish recovery session: {e}")
 
 # -----------------------------
 # DEBUG: SESSION CHECK (PRE-RESET)
