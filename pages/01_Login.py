@@ -48,8 +48,18 @@ if is_recovery:
     if is_recovery and access_token:
         try:
             sb.auth.set_session(access_token, refresh_token or "")
+
             st.session_state["sb_access_token"] = access_token
             st.session_state["sb_refresh_token"] = refresh_token or ""
+
+            # 🔎 DEBUG — verify session actually established
+            st.warning("SESSION RESTORED")
+            st.json({
+                "access_token_present": bool(access_token),
+                "refresh_token_present": bool(refresh_token),
+                "query_params_seen": dict(params)
+            })
+
         except Exception as e:
             st.error(f"Could not establish recovery session: {e}")
 
