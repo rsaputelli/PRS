@@ -170,6 +170,27 @@ def upsert_package(name: str, default_price: str | float):
 st.set_page_config(page_title="Contract Review & Send", page_icon="🎶", layout="wide")
 st.title("Contract Review & Send (Admin)")
 
+# --- Forward Supabase recovery links to /Login ---
+st.components.v1.html(
+    """
+    <script>
+      const h = window.location.hash;
+      if (h && h.includes("access_token")) {
+        // Convert hash → query params and forward to /Login
+        const target = "/Login?" + h.substring(1).replaceAll("#","&");
+        window.location.replace(target);
+      }
+    </script>
+    """,
+    height=0,
+)
+
+# Auth/role check (replace with your auth session)
+user_id = st.session_state.get("user_id")  # set this after login via Supabase Auth
+if not user_id:
+    st.error("Please sign in.")
+    st.stop()
+
 # Auth/role check (replace with your auth session)
 user_id = st.session_state.get("user_id")  # set this after login via Supabase Auth
 if not user_id:
