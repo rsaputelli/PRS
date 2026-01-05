@@ -10,25 +10,29 @@ st.components.v1.html(
     """
     <script>
       const h = window.location.hash;
+
       if (h && h.includes("access_token")) {
         const q = new URLSearchParams(h.substring(1));
-        const token = q.get("access_token");
+
+        const token   = q.get("access_token");
         const refresh = q.get("refresh_token") || "";
 
         if (token) {
           const url =
-            "/Login?type=recovery"
+            "/Login"
+            + "?type=recovery"
             + "&access_token=" + encodeURIComponent(token)
             + "&refresh_token=" + encodeURIComponent(refresh);
 
-          // Redirect top-level window (outside iframe)
-          window.top?.location.replace(url);
+          window.top.location.replace(url);
         }
       }
     </script>
     """,
     height=0,
 )
+
+
 
 
 st.caption(f"Running file: {__file__}")
