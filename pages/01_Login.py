@@ -18,24 +18,30 @@ EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 st.components.v1.html(
     """
     <script>
-      const h = window.location.hash;
+      // Run ASAP
+      (function () {
+        const h = window.location.hash;
 
-      // If Supabase sent recovery tokens in the hash…
-      if (h && h.includes("access_token")) {
-        const q = new URLSearchParams(h.substring(1));
+        // Supabase sends tokens in the hash
+        if (h && h.includes("access_token")) {
 
-        const token   = q.get("access_token");
-        const refresh = q.get("refresh_token") || "";
-        const ttype   = q.get("type") || "recovery";
+          const q = new URLSearchParams(h.substring(1));
 
-        // Write them to browser storage so Streamlit can read them
-        sessionStorage.setItem("sb_recovery_access", token || "");
-        sessionStorage.setItem("sb_recovery_refresh", refresh || "");
-        sessionStorage.setItem("sb_recovery_type",   ttype || "recovery");
+          const token   = q.get("access_token");
+          const refresh = q.get("refresh_token") || "";
 
-        // Clean the URL (remove hash) without reload
-        history.replaceState(null, "", window.location.pathname);
-      }
+          // Build canonical recovery URL with REAL query params
+          const url =
+            "/Login"
+            + "?type=recovery"
+            + "&access_token=" + encodeURIComponent(token)
+            + "&refresh_token=" + encodeURIComponent(refresh);
+
+          // Clear the hash & reload at the new URL
+          try { window.parent.location.replace(url); }
+          catch (e) { window.location.replace(url); }
+        }
+      })();
     </script>
     """,
     height=0,
