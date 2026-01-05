@@ -11,7 +11,11 @@ st.components.v1.html(
     <script>
       const h = window.location.hash;
 
-      if (h && h.includes("access_token")) {
+      // Handle either param order:
+      // #access_token=...&type=recovery
+      // #type=recovery&access_token=...
+      if (h && (h.includes("type=recovery") || h.includes("access_token"))) {
+
         const q = new URLSearchParams(h.substring(1));
 
         const token   = q.get("access_token");
