@@ -69,26 +69,44 @@ elif is_recovery and params.get("code"):
         st.error(f"Code-exchange recovery failed: {e}")
 
 # 3️⃣ Show Reset UI only when a session exists
+
 if is_recovery:
     st.subheader("Reset Your Password")
 
-    new_pw = st.text_input("New Password", type="password")
+    new_pw  = st.text_input("New Password", type="password")
     new_pw2 = st.text_input("Confirm Password", type="password")
 
     if st.button("Update Password"):
         if new_pw != new_pw2:
             st.error("Passwords do not match.")
-        elif len(new_pw) < 6:
+            st.stop()
+
+        if len(new_pw) < 6:
             st.error("Password must be at least 6 characters.")
-        else:
-            try:
-                sb.auth.update_user({"password": new_pw})
-                st.success("Password updated successfully. Please sign in.")
+            st.stop()
+
+        try:
+            # 🔹 ALWAYS re-establish session before updating password
+            access  = st.session_state.get("sb_access_token")
+            refresh = st.session_state.get("sb_refresh_token")
+
+            if not access:
+                st.error("Recovery session missing — reload using the email link.")
                 st.stop()
-            except Exception as e:
-                st.error(f"Could not update password: {e}")
+
+            sb.auth.set_session(access, refresh or "")
+
+            # 🔹 Now Supabase has a valid session
+            sb.auth.update_user({"password": new_pw})
+
+            st.success("Password updated successfully. Please sign in.")
+            st.stop()
+
+        except Exception as e:
+            st.error(f"Could not update password: {e}")
 
     st.stop()
+
 
 # -----------------------------------------------------------
 # NORMAL LOGIN UI
