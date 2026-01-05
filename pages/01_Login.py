@@ -4,55 +4,41 @@ from supabase import create_client, Client
 import os
 import streamlit as st
 import json
+from streamlit import components
 
 # =========================================
 # Capture Supabase recovery tokens from URL hash
+# (works in Streamlit Cloud)
 # =========================================
 if "_recovery_checked" not in st.session_state:
     st.session_state["_recovery_checked"] = False
 
 if not st.session_state["_recovery_checked"]:
-    # Run JS in the browser to read window.location.hash
-    hash_json = st.experimental_js(
+    components.v1.html(
         """
-        () => {
-            const h = window.location.hash || "";
-            if (!h.startsWith("#")) return "";
-            const params = Object.fromEntries(
-                h.substring(1).split("&").map(p => p.split("="))
-            );
-            return JSON.stringify(params);
+        <script>
+        const hash = window.location.hash || "";
+        if (hash.startsWith("#")) {
+            const params = new URLSearchParams(hash.substring(1));
+            const access = params.get("access_token");
+            const refresh = params.get("refresh_token");
+
+            if (access && refresh) {
+                const url = new URL(window.location.href);
+                url.searchParams.set("access_token", access);
+                url.searchParams.set("refresh_token", refresh);
+                url.searchParams.set("type", "recovery");
+                window.location.replace(url.toString());
+            }
         }
-        """
+        </script>
+        """,
+        height=0,
+        scrolling=False,
     )
 
     st.session_state["_recovery_checked"] = True
-
-    if hash_json:
-        try:
-            params = json.loads(hash_json)
-            access = params.get("access_token")
-            refresh = params.get("refresh_token")
-
-            if access and refresh:
-                from supabase import create_client
-
-                sb.auth.set_session(
-                    access_token=access,
-                    refresh_token=refresh,
-                )
-
-                st.session_state["sb_access_token"] = access
-                st.session_state["sb_refresh_token"] = refresh
-                st.session_state["user"] = {"email": sb.auth.get_user().user.email}
-
-                # Force password reset UI
-                st.session_state["force_password_reset"] = True
-                st.success("Recovery verified — please enter a new password.")
-                st.rerun()
-
-        except Exception as e:
-            st.warning(f"Recovery token parse failed: {e}")
+    st.stop()
 
 
 # -------------------------
