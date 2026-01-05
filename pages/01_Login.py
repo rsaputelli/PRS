@@ -1,203 +1,147 @@
-# pages/01_Login.py
 import streamlit as st
 from supabase import create_client, Client
-import os
-import streamlit as st
-import json
-from streamlit import components
 
-components.v1.html(
-    """
-    <script>
-    const h = window.location.hash || "";
-    window.parent.postMessage({hash: h}, "*");
-    </script>
-    """,
-    height=0,
-)
+# -----------------------------
+# CONFIG
+# -----------------------------
+st.set_page_config(page_title="Login", page_icon="🔐", layout="centered")
 
-msg = st.experimental_get_query_params().get("hash_debug", None)
-st.write("HASH DEBUG:", msg)
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-# =========================================
-# Capture Supabase recovery tokens from URL hash
-# (works in Streamlit Cloud)
-# =========================================
-if "_recovery_checked" not in st.session_state:
-    st.session_state["_recovery_checked"] = False
+sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-if not st.session_state["_recovery_checked"]:
-    components.v1.html(
-        """
-        <script>
-        const hash = window.location.hash || "";
-        if (hash.startsWith("#")) {
-            const params = new URLSearchParams(hash.substring(1));
-            const access = params.get("access_token");
-            const refresh = params.get("refresh_token");
-
-            if (access && refresh) {
-                const url = new URL(window.location.href);
-                url.searchParams.set("access_token", access);
-                url.searchParams.set("refresh_token", refresh);
-                url.searchParams.set("type", "recovery");
-                window.location.replace(url.toString());
-            }
-        }
-        </script>
-        """,
-        height=0,
-        scrolling=False,
-    )
-
-    st.session_state["_recovery_checked"] = True
-    st.stop()
+# 👇 IMPORTANT — this must match the Login page URL
+EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 
 
-# -------------------------
-# Supabase Init
-# -------------------------
-def _get_secret(name, default=None):
-    if hasattr(st, "secrets") and name in st.secrets:
-        return st.secrets[name]
-    return os.getenv(name, default)
-
-SUPABASE_URL = _get_secret("SUPABASE_URL")
-SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY")
-sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-st.title("Sign In")
-
-# Session bootstrap
-if "user" not in st.session_state:
-    st.session_state["user"] = None
-
-# =========================================
-# PASSWORD RESET UI (two different paths)
-# 1) ?type=recovery param
-# 2) Supabase sent us back with access_token hash
-# =========================================
-
+# -----------------------------
+# RECOVERY TOKEN SESSION SETUP
+# -----------------------------
 params = st.query_params
 is_recovery = params.get("type") == "recovery"
 force_reset = st.session_state.get("force_password_reset", False)
 
+if is_recovery:
+    access_token = params.get("access_token")
+    refresh_token = params.get("refresh_token")
+
+    if access_token and refresh_token:
+        try:
+            sb.auth.set_session(access_token, refresh_token)
+            st.session_state["sb_access_token"] = access_token
+            st.session_state["sb_refresh_token"] = refresh_token
+        except Exception as e:
+            st.error(f"Could not establish recovery session: {e}")
+
+
+st.title("🔐 Login")
+
+
+# -----------------------------
+# PASSWORD RESET MODE
+# -----------------------------
 if is_recovery or force_reset:
     st.subheader("Reset Your Password")
 
-    new_pw = st.text_input("New password", type="password")
-    new_pw2 = st.text_input("Confirm new password", type="password")
+    new_pw = st.text_input("New Password", type="password")
+    new_pw_confirm = st.text_input("Confirm Password", type="password")
 
     if st.button("Update Password"):
-        if not new_pw or new_pw != new_pw2:
+        if new_pw != new_pw_confirm:
             st.error("Passwords do not match.")
+        elif len(new_pw) < 6:
+            st.error("Password must be at least 6 characters.")
         else:
             try:
                 sb.auth.update_user({"password": new_pw})
 
-                # clear reset flag
                 st.session_state["force_password_reset"] = False
-
-                st.success("Password updated successfully.")
-                st.info("Please sign in with your new password.")
+                st.success("Password updated successfully. Please sign in.")
                 st.stop()
+
             except Exception as e:
-                st.error(f"Password reset failed: {e}")
+                st.error(f"Could not update password: {e}")
 
     st.stop()
 
-# ======================================================
-# NORMAL LOGIN / SIGNUP UI
-# ======================================================
-if st.session_state["user"]:
-    st.success(f"Signed in as {st.session_state['user']['email']}")
-    if st.button("Sign out"):
-        st.session_state["user"] = None
-        st.session_state.pop("sb_access_token", None)
-        st.session_state.pop("sb_refresh_token", None)
-        st.rerun()
 
-else:
-    mode = st.radio(
-        "Authentication",
-        ["Sign In", "Create Account", "Forgot Password"],
-        horizontal=True,
-    )
+# -----------------------------
+# MODE SELECTOR
+# -----------------------------
+mode = st.radio(
+    "Choose an option",
+    ["Sign In", "Create Account", "Forgot Password"],
+    horizontal=True,
+)
 
-    # -------------------------
-    # SIGN IN
-    # -------------------------
-    if mode == "Sign In":
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
 
-        if st.button("Sign In"):
-            try:
-                res = sb.auth.sign_in_with_password(
-                    {"email": email, "password": password}
-                )
-                if res.user:
-                    st.session_state["sb_access_token"] = res.session.access_token
-                    st.session_state["sb_refresh_token"] = res.session.refresh_token
-                    st.session_state["user"] = {"email": res.user.email}
-                    st.success("Logged in successfully!")
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials.")
-            except Exception as e:
-                st.error(f"Login failed: {e}")
+# -----------------------------
+# SIGN IN
+# -----------------------------
+if mode == "Sign In":
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
 
-    # -------------------------
-    # CREATE ACCOUNT
-    # -------------------------
-    elif mode == "Create Account":
-        email = st.text_input("Email")
-        password = st.text_input(
-            "Password",
-            type="password",
-            help="Minimum 6 characters (Supabase default)",
-        )
+    if st.button("Sign In"):
+        try:
+            res = sb.auth.sign_in_with_password(
+                {"email": email, "password": password}
+            )
 
-        if st.button("Create Account"):
-            try:
-                res = sb.auth.sign_up(
-                    {
-                        "email": email,
-                        "password": password,
-                        "options": {
-                            "emailRedirectTo": "https://booking-management.streamlit.app/01_Login"
-                        },
-                    }
-                )
+            if res.user is None:
+                st.error("Invalid email or password.")
+            else:
+                st.success("Signed in successfully.")
+        except Exception as e:
+            st.error(f"Sign-in failed: {e}")
 
-                if res.user:
-                    st.success("Account created! Please check your email to confirm.")
-                    if res.session:
-                        st.session_state["sb_access_token"] = res.session.access_token
-                        st.session_state["sb_refresh_token"] = res.session.refresh_token
-                        st.session_state["user"] = {"email": res.user.email}
-                        st.rerun()
-                else:
-                    st.error("Account could not be created.")
-            except Exception as e:
-                st.error(f"Signup failed: {e}")
 
-    # -------------------------
-    # FORGOT PASSWORD
-    # -------------------------
-    elif mode == "Forgot Password":
-        email = st.text_input("Email")
+# -----------------------------
+# CREATE ACCOUNT
+# -----------------------------
+elif mode == "Create Account":
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
 
-        if st.button("Send Reset Link"):
-            try:
-                sb.auth.reset_password_email(
-                    email,
-                    options={
-                        "emailRedirectTo": "https://booking-management.streamlit.app/01_Login"
+    if st.button("Create Account"):
+        try:
+            sb.auth.sign_up(
+                {
+                    "email": email,
+                    "password": password,
+                    "options": {
+                        "emailRedirectTo": EMAIL_REDIRECT_URL,
                     },
-                )
-                st.success(
-                    "Password reset email sent. Check your inbox (and spam folder)."
-                )
-            except Exception as e:
-                st.error(f"Could not send reset email: {e}")
+                }
+            )
+
+            st.success(
+                "Account created. Please check your email to confirm and continue."
+            )
+
+        except Exception as e:
+            st.error(f"Account creation failed: {e}")
+
+
+# -----------------------------
+# FORGOT PASSWORD
+# -----------------------------
+elif mode == "Forgot Password":
+    email = st.text_input("Email")
+
+    if st.button("Send Reset Link"):
+        try:
+            sb.auth.reset_password_email(
+                email,
+                options={
+                    "emailRedirectTo": EMAIL_REDIRECT_URL,
+                },
+            )
+
+            st.success(
+                "Password reset email sent. Check your inbox (and spam folder)."
+            )
+
+        except Exception as e:
+            st.error(f"Could not send reset email: {e}")
