@@ -19,38 +19,37 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 
 # --- Convert Supabase password-reset hash → real query params ---
-st.components.v1.html(
-    """
-    <script>
-      const h = window.location.hash;
+html = """
+<script>
+const h = window.location.hash;
 
-      // If Supabase sent tokens in the hash, convert them to ?params
-      if (h && h.includes("access_token")) {
+// Only run if Supabase sent tokens in the hash
+if (h && h.includes("access_token")) {
+  const q = new URLSearchParams(h.substring(1));
 
-        const q = new URLSearchParams(h.substring(1));
+  const token   = q.get("access_token");
+  const refresh = q.get("refresh_token") || "";
 
-        const token   = q.get("access_token");
-        const refresh = q.get("refresh_token") || "";
+  if (token) {
+    const url =
+      "/Login"
+      + "?type=recovery"
+      + "&access_token=" + encodeURIComponent(token)
+      + "&refresh_token=" + encodeURIComponent(refresh);
 
-        if (token) {
-          const url =
-            "/Login"
-            + "?type=recovery"
-            + "&access_token=" + encodeURIComponent(token)
-            + "&refresh_token=" + encodeURIComponent(refresh);
+    // Hard redirect BEFORE Streamlit renders anything
+    try {
+      window.parent.location.replace(url);
+    } catch (e) {
+      window.location.replace(url);
+    }
+  }
+}
+</script>
+"""
 
-          // Force a clean reload with real params
-          try {
-              window.parent.location.replace(url);
-            } catch (e) {
-              window.location.replace(url);
-            }
-        }
-      }
-    </script>
-    """,
-    height=0,
-)
+st.components.v1.html(html, height=0)
+st.stop()  # ⬅️ IMPORTANT — do not render page until redirect completes
 
 # -----------------------------
 # RECOVERY TOKEN SESSION SETUP
