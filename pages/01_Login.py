@@ -1,3 +1,6 @@
+# -----------------------------
+# 01_Login.py
+# -----------------------------
 import streamlit as st
 from supabase import create_client, Client
 
@@ -15,49 +18,39 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 # 👇 IMPORTANT — this must match the Login page URL
 EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 
-# --- Capture recovery tokens even if they arrive directly on /Login ---
+# --- Convert Supabase password-reset hash → real query params ---
 st.components.v1.html(
     """
     <script>
-    (function () {
+      const h = window.location.hash;
 
-      function bridgeHashTokens() {
-
-        const h = window.location.hash;
-        if (!h || !h.includes("access_token")) return;
-
-        console.log("🔁 Converting Supabase hash → query params", h);
+      // If Supabase sent tokens in the hash, convert them to ?params
+      if (h && h.includes("access_token")) {
 
         const q = new URLSearchParams(h.substring(1));
-        const token   = q.get("access_token")  || "";
+
+        const token   = q.get("access_token");
         const refresh = q.get("refresh_token") || "";
 
-        // Build clean query URL for Streamlit
-        const base = window.location.pathname || "/Login";
-        const url =
-          base +
-          "?type=recovery" +
-          "&access_token=" + encodeURIComponent(token) +
-          "&refresh_token=" + encodeURIComponent(refresh);
+        if (token) {
+          const url =
+            "/Login"
+            + "?type=recovery"
+            + "&access_token=" + encodeURIComponent(token)
+            + "&refresh_token=" + encodeURIComponent(refresh);
 
-        console.log("➡️ Rewriting URL to", url);
-
-        // Replace URL (no navigation) → then reload so Python sees params
-        window.history.replaceState({}, "", url);
-        window.location.reload();
+          // Force a clean reload with real params
+          try {
+              window.parent.location.replace(url);
+            } catch (e) {
+              window.location.replace(url);
+            }
+        }
       }
-
-      // Run now + shortly after render (Streamlit can repaint)
-      bridgeHashTokens();
-      setTimeout(bridgeHashTokens, 50);
-      setTimeout(bridgeHashTokens, 200);
-
-    })();
     </script>
     """,
     height=0,
 )
-
 
 # -----------------------------
 # RECOVERY TOKEN SESSION SETUP
