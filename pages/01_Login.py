@@ -15,6 +15,24 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 # 👇 IMPORTANT — this must match the Login page URL
 EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 
+# --- Convert Supabase hash tokens → query params so Streamlit can read them ---
+st.components.v1.html(
+    """
+    <script>
+      const h = window.location.hash;
+      if (h && h.includes("type=recovery")) {
+        const q = new URLSearchParams(h.substring(1));
+        const token = q.get("access_token");
+        const refresh = q.get("refresh_token");
+        if (token) {
+          const url = `/Login?type=recovery&access_token=${token}&refresh_token=${refresh||""}`;
+          window.location.replace(url);
+        }
+      }
+    </script>
+    """,
+    height=0,
+)
 
 # -----------------------------
 # RECOVERY TOKEN SESSION SETUP
@@ -27,14 +45,13 @@ if is_recovery:
     access_token = params.get("access_token")
     refresh_token = params.get("refresh_token")
 
-    if access_token and refresh_token:
+    if is_recovery and access_token:
         try:
-            sb.auth.set_session(access_token, refresh_token)
+            sb.auth.set_session(access_token, refresh_token or "")
             st.session_state["sb_access_token"] = access_token
-            st.session_state["sb_refresh_token"] = refresh_token
+            st.session_state["sb_refresh_token"] = refresh_token or ""
         except Exception as e:
             st.error(f"Could not establish recovery session: {e}")
-
 
 st.title("🔐 Login")
 
@@ -135,7 +152,7 @@ elif mode == "Forgot Password":
         try:
             sb.auth.reset_password_email(
                 email,
-                redirect_to=EMAIL_REDIRECT_URL,
+                options={"emailRedirectTo": EMAIL_REDIRECT_URL + "?type=recovery"}
             )
 
             st.success("Password reset email sent. Check your inbox (and spam folder).")
