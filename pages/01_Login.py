@@ -152,11 +152,14 @@ elif mode == "Forgot Password":
         try:
             sb.auth.reset_password_email(
                 email,
-                options={"emailRedirectTo": EMAIL_REDIRECT_URL + "?type=recovery"}
+                options={
+                    "redirect_to": "https://booking-management.streamlit.app/Login?type=recovery"
+                },
             )
 
-            st.success("Password reset email sent. Check your inbox (and spam folder).")
+            st.success("Password reset email sent. Check your inbox.")
 
         except Exception as e:
             st.error(f"Could not send reset email: {e}")
+
 
