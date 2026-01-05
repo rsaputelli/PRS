@@ -4,6 +4,7 @@ import streamlit as st
 from email.message import EmailMessage
 from docx import Document
 from supabase import create_client, Client
+st.caption(f"Running file: {__file__}")
 
 # ─────────────── Config (safe secrets + env) ───────────────
 def _get_secret(name: str, default: str | None = None, required: bool = False) -> str | None:
