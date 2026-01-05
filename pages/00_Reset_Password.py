@@ -26,88 +26,19 @@ def qp(key):
 
 params = {k: qp(k) for k in raw_params}
 
+st.subheader("DEBUG — do not worry, this is temporary")
 
-# --------------------------------------------------
-# Robust hash→query converter (runs BEFORE UI load)
-# --------------------------------------------------
-st.components.v1.html("""
-<script>
-(function () {
-  const h = window.location.hash;
-  if (!h || !h.includes("access_token")) return;
+st.write("🔹 RAW PARAMS:", raw_params)
+st.write("🔹 NORMALIZED PARAMS:", params)
 
-  const q = new URLSearchParams(h.substring(1));
+from datetime import datetime
+st.write("🔹 Timestamp:", datetime.utcnow().isoformat())
 
-  const url =
-    window.location.pathname
-    + "?type=recovery"
-    + "&access_token=" + encodeURIComponent(q.get("access_token"))
-    + "&refresh_token=" + encodeURIComponent(q.get("refresh_token") || "");
+# Try to show Supabase session state (if any)
+try:
+    current = sb.auth.get_session()
+    st.write("🔹 sb.auth.get_session():", current)
+except Exception as e:
+    st.write("🔸 get_session() error:", e)
 
-  if (!window.location.search.includes("access_token"))
-    window.location.replace(url);
-})();
-</script>
-""", height=0)
-
-
-# Track whether session attached successfully
-st.session_state.setdefault("reset_session_ready", False)
-
-is_recovery = params.get("type") == "recovery"
-
-
-# --------------------------------------------------
-# Token session flow  (?access_token=…)
-# --------------------------------------------------
-if is_recovery and params.get("access_token"):
-    try:
-        sb.auth.set_session(
-            params["access_token"],
-            params.get("refresh_token") or ""
-        )
-        st.session_state["reset_session_ready"] = True
-    except Exception as e:
-        st.error(f"Could not attach recovery session: {e}")
-
-
-# --------------------------------------------------
-# PKCE ?code=… flow
-# --------------------------------------------------
-elif is_recovery and params.get("code"):
-    try:
-        resp = sb.auth.exchange_code_for_session(params["code"])
-        session = getattr(resp, "session", resp)
-        sb.auth.set_session(session.access_token, session.refresh_token)
-        st.session_state["reset_session_ready"] = True
-    except Exception as e:
-        st.error(f"PKCE recovery failed: {e}")
-
-
-# --------------------------------------------------
-# Require valid session BEFORE UI
-# --------------------------------------------------
-if not st.session_state["reset_session_ready"]:
-    st.warning("This reset link is not active yet — if you just opened it, refresh once.")
-    st.stop()
-
-
-# --------------------------------------------------
-# Password Reset Form
-# --------------------------------------------------
-st.subheader("Reset Your Password")
-
-pw1 = st.text_input("New Password", type="password")
-pw2 = st.text_input("Confirm Password", type="password")
-
-if st.button("Update Password"):
-    if pw1 != pw2:
-        st.error("Passwords do not match.")
-    elif len(pw1) < 6:
-        st.error("Password must be at least 6 characters.")
-    else:
-        try:
-            sb.auth.update_user({"password": pw1})
-            st.success("Password updated — you may now sign in.")
-        except Exception as e:
-            st.error(f"Password reset failed: {e}")
+st.write("🔹 reset_session_ready:", st.session_state.get("reset_session_ready"))
