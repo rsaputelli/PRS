@@ -6,18 +6,27 @@ from docx import Document
 from supabase import create_client, Client
 
 # --- Handle Supabase password-recovery links globally (must run first) ---
+import streamlit as st
+
 st.components.v1.html(
     """
     <script>
       const h = window.location.hash;
       if (h && h.includes("access_token")) {
         const target = "/Login?" + h.substring(1).replaceAll("#","&");
-        window.location.replace(target);
+
+        // Redirect the TOP-LEVEL app window (not the iframe)
+        if (window.top) {
+          window.top.location.replace(target);
+        } else {
+          window.location.replace(target);
+        }
       }
     </script>
     """,
     height=0,
 )
+
 
 st.caption(f"Running file: {__file__}")
 
