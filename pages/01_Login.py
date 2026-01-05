@@ -12,32 +12,25 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 
-# -----------------------------------------------------------
-# 1) CAPTURE TOKENS DIRECTLY FROM HASH (NO REDIRECT)
-# -----------------------------------------------------------
+# --- Normalize Supabase recovery redirects (supports BOTH flows) ---
 st.components.v1.html(
     """
     <script>
-      // Run ASAP
       (function () {
         const h = window.location.hash;
 
-        // Supabase sends tokens in the hash
+        // If Supabase sent tokens in the hash, convert them to ?params
         if (h && h.includes("access_token")) {
-
           const q = new URLSearchParams(h.substring(1));
-
           const token   = q.get("access_token");
           const refresh = q.get("refresh_token") || "";
 
-          // Build canonical recovery URL with REAL query params
           const url =
             "/Login"
             + "?type=recovery"
             + "&access_token=" + encodeURIComponent(token)
             + "&refresh_token=" + encodeURIComponent(refresh);
 
-          // Clear the hash & reload at the new URL
           try { window.parent.location.replace(url); }
           catch (e) { window.location.replace(url); }
         }
@@ -47,64 +40,35 @@ st.components.v1.html(
     height=0,
 )
 
-# Read values that JS just stored
-stored_access  = st.experimental_get_query_params().get("_ignore", [None])[0]  # noop to trigger rerun
-access_token   = st.session_state.get("sb_recovery_access")
-refresh_token  = st.session_state.get("sb_recovery_refresh")
-recovery_type  = st.session_state.get("sb_recovery_type")
+params = st.query_params
+is_recovery = params.get("type") == "recovery"
 
-
-# Bridge from sessionStorage → session_state
-if "sb_recovery_access" not in st.session_state:
-    st.session_state["sb_recovery_access"]  = None
-    st.session_state["sb_recovery_refresh"] = None
-    st.session_state["sb_recovery_type"]    = None
-
-st.components.v1.html(
-    """
-    <script>
-      // Push sessionStorage values into Streamlit session_state
-      const a = sessionStorage.getItem("sb_recovery_access");
-      const r = sessionStorage.getItem("sb_recovery_refresh");
-      const t = sessionStorage.getItem("sb_recovery_type");
-
-      if (a) {
-        window.parent.postMessage(
-          {type: "sb_recovery_tokens", access: a, refresh: r, rtype: t},
-          "*"
-        );
-      }
-    </script>
-    """,
-    height=0,
-)
-
-msg = st.experimental_get_query_params()  # keep rerun stable
-
-
-# -----------------------------------------------------------
-# 2) RECEIVE TOKENS & CREATE SESSION
-# -----------------------------------------------------------
-if "sb_recovery_ready" not in st.session_state:
-    st.session_state["sb_recovery_ready"] = False
-
-
-def _try_establish_session():
+# 1️⃣ HASH TOKEN FLOW
+if is_recovery and params.get("access_token"):
     try:
-        a = st.session_state["sb_recovery_access"]
-        r = st.session_state["sb_recovery_refresh"]
-
-        if a:
-            sb.auth.set_session(a, r or "")
-            st.session_state["sb_recovery_ready"] = True
+        sb.auth.set_session(
+            params.get("access_token"),
+            params.get("refresh_token") or ""
+        )
+        st.session_state["sb_access_token"]  = params["access_token"]
+        st.session_state["sb_refresh_token"] = params.get("refresh_token") or ""
     except Exception as e:
-        st.error(f"Could not establish recovery session: {e}")
+        st.error(f"Token session restore failed: {e}")
 
-# -----------------------------------------------------------
-# 3) PASSWORD RESET UI (ONLY WHEN SESSION EXISTS)
-# -----------------------------------------------------------
-is_recovery = st.session_state.get("sb_recovery_ready", False)
+# 2️⃣ PKCE CODE FLOW (CURRENT BEHAVIOR)
+elif is_recovery and params.get("code"):
+    try:
+        resp = sb.auth.exchange_code_for_session(params["code"])
+        session = getattr(resp, "session", resp)
 
+        st.session_state["sb_access_token"]  = session.access_token
+        st.session_state["sb_refresh_token"] = session.refresh_token
+
+        sb.auth.set_session(session.access_token, session.refresh_token)
+    except Exception as e:
+        st.error(f"Code-exchange recovery failed: {e}")
+
+# 3️⃣ Show Reset UI only when a session exists
 if is_recovery:
     st.subheader("Reset Your Password")
 
@@ -125,7 +89,6 @@ if is_recovery:
                 st.error(f"Could not update password: {e}")
 
     st.stop()
-
 
 # -----------------------------------------------------------
 # NORMAL LOGIN UI
