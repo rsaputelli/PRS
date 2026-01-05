@@ -7,9 +7,10 @@ from supabase import create_client, Client
 st.set_page_config(page_title="Login", page_icon="🔐", layout="centered")
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
-sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
 
 # 👇 IMPORTANT — this must match the Login page URL
 EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
