@@ -19,37 +19,50 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 
 # --- Convert Supabase password-reset hash → real query params ---
-html = """
-<script>
-const h = window.location.hash;
+st.components.v1.html(
+    """
+    <script>
+      const h = window.location.hash;
 
-// Only run if Supabase sent tokens in the hash
-if (h && h.includes("access_token")) {
-  const q = new URLSearchParams(h.substring(1));
+      if (h && h.includes("access_token")) {
 
-  const token   = q.get("access_token");
-  const refresh = q.get("refresh_token") || "";
+        const q = new URLSearchParams(h.substring(1));
 
-  if (token) {
-    const url =
-      "/Login"
-      + "?type=recovery"
-      + "&access_token=" + encodeURIComponent(token)
-      + "&refresh_token=" + encodeURIComponent(refresh);
+        const token   = q.get("access_token");
+        const refresh = q.get("refresh_token") || "";
 
-    // Hard redirect BEFORE Streamlit renders anything
-    try {
-      window.parent.location.replace(url);
-    } catch (e) {
-      window.location.replace(url);
-    }
-  }
-}
-</script>
-"""
+        if (token) {
+          const url =
+            "/Login"
+            + "?type=recovery"
+            + "&access_token=" + encodeURIComponent(token)
+            + "&refresh_token=" + encodeURIComponent(refresh);
 
-st.components.v1.html(html, height=0)
-st.stop()  # ⬅️ IMPORTANT — do not render page until redirect completes
+          // In some environments Streamlit runs inside an iframe
+          try {
+            window.parent.location.replace(url);
+          } catch (e) {
+            window.location.replace(url);
+          }
+        }
+      }
+    </script>
+    """,
+    height=0,
+)
+
+# --- Only pause if we are mid-redirect from hash → params
+params = st.query_params
+hash_redirect_in_progress = (
+    params.get("type") == "recovery"
+    and not params.get("access_token")
+    and not params.get("refresh_token")
+)
+
+if hash_redirect_in_progress:
+    st.info("Restoring secure reset session…")
+    st.stop()
+
 
 # -----------------------------
 # RECOVERY TOKEN SESSION SETUP
