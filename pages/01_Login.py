@@ -136,7 +136,7 @@ elif mode == "Forgot Password":
             sb.auth.reset_password_email(
                 email,
                 options={
-                    "redirectTo": EMAIL_REDIRECT_URL,
+                    redirect_to: EMAIL_REDIRECT_URL,
                 },
             )
 
