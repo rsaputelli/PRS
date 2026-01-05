@@ -43,7 +43,7 @@ st.components.v1.html(
 params = st.query_params
 is_recovery = params.get("type") == "recovery"
 
-# 1️⃣ HASH TOKEN FLOW
+# 1️⃣ HASH TOKEN FLOW (access_token + refresh_token)
 if is_recovery and params.get("access_token"):
     try:
         sb.auth.set_session(
@@ -52,10 +52,13 @@ if is_recovery and params.get("access_token"):
         )
         st.session_state["sb_access_token"]  = params["access_token"]
         st.session_state["sb_refresh_token"] = params.get("refresh_token") or ""
+
+        st.success("Recovery session established (hash tokens).")
     except Exception as e:
         st.error(f"Token session restore failed: {e}")
 
-# 2️⃣ PKCE CODE FLOW (CURRENT BEHAVIOR)
+
+# 2️⃣ PKCE CODE FLOW
 elif is_recovery and params.get("code"):
     try:
         resp = sb.auth.exchange_code_for_session(params["code"])
@@ -65,8 +68,29 @@ elif is_recovery and params.get("code"):
         st.session_state["sb_refresh_token"] = session.refresh_token
 
         sb.auth.set_session(session.access_token, session.refresh_token)
+
+        st.success("Recovery session established (PKCE).")
     except Exception as e:
         st.error(f"Code-exchange recovery failed: {e}")
+
+
+# 2️⃣-bis  VERIFY-LINK TOKEN FLOW (THIS IS YOUR CASE)
+elif is_recovery and params.get("token"):
+    try:
+        token = params.get("token")
+
+        resp = sb.auth.exchange_code_for_session(token)
+        session = getattr(resp, "session", resp)
+
+        st.session_state["sb_access_token"]  = session.access_token
+        st.session_state["sb_refresh_token"] = session.refresh_token
+
+        sb.auth.set_session(session.access_token, session.refresh_token)
+
+        st.success("Recovery session established (verify token).")
+    except Exception as e:
+        st.error(f"Token-hash recovery failed: {e}")
+
 
 # 3️⃣ Show Reset UI only when a session exists
 
