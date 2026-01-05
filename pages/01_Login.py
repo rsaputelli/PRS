@@ -90,6 +90,23 @@ if is_recovery:
 
         except Exception as e:
             st.error(f"Could not establish recovery session: {e}")
+            
+# --- PKCE fallback: some Supabase projects send ?code= instead of tokens ---
+if is_recovery and not st.session_state.get("sb_access_token"):
+
+    code = params.get("code")
+    if code:
+        try:
+            resp = sb.auth.exchange_code_for_session(code)
+
+            session_obj = getattr(resp, "session", resp)
+
+            st.session_state["sb_access_token"]  = session_obj.access_token
+            st.session_state["sb_refresh_token"] = session_obj.refresh_token
+
+            st.success("SESSION RESTORED (via code exchange)")
+        except Exception as e:
+            st.error(f"Could not exchange recovery code for session: {e}")
 
 # -----------------------------
 # DEBUG: SESSION CHECK (PRE-RESET)
