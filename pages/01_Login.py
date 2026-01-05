@@ -15,17 +15,23 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 # 👇 IMPORTANT — this must match the Login page URL
 EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 
-# --- Convert Supabase hash tokens → query params so Streamlit can read them ---
+# --- Capture recovery tokens even if they arrive directly on /Login ---
 st.components.v1.html(
     """
     <script>
       const h = window.location.hash;
-      if (h && h.includes("type=recovery")) {
+      if (h && h.includes("access_token")) {
         const q = new URLSearchParams(h.substring(1));
-        const token = q.get("access_token");
-        const refresh = q.get("refresh_token");
+        const token   = q.get("access_token");
+        const refresh = q.get("refresh_token") || "";
+
         if (token) {
-          const url = `/Login?type=recovery&access_token=${token}&refresh_token=${refresh||""}`;
+          const url =
+            "/Login"
+            + "?type=recovery"
+            + "&access_token=" + encodeURIComponent(token)
+            + "&refresh_token=" + encodeURIComponent(refresh);
+
           window.location.replace(url);
         }
       }
@@ -33,6 +39,7 @@ st.components.v1.html(
     """,
     height=0,
 )
+
 
 # -----------------------------
 # RECOVERY TOKEN SESSION SETUP
