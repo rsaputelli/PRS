@@ -135,14 +135,11 @@ elif mode == "Forgot Password":
         try:
             sb.auth.reset_password_email(
                 email,
-                options={
-                    redirect_to: EMAIL_REDIRECT_URL,
-                },
+                redirect_to=EMAIL_REDIRECT_URL,
             )
 
-            st.success(
-                "Password reset email sent. Check your inbox (and spam folder)."
-            )
+            st.success("Password reset email sent. Check your inbox (and spam folder).")
 
         except Exception as e:
             st.error(f"Could not send reset email: {e}")
+
