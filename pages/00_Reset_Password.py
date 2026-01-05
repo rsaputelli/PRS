@@ -1,3 +1,7 @@
+# --------------------------------------------------
+# 00_Reset_Password.py  — resilient recovery handler
+# --------------------------------------------------
+
 import streamlit as st
 from supabase import create_client, Client
 
@@ -8,7 +12,19 @@ sb: Client = create_client(
     st.secrets["SUPABASE_ANON_KEY"]
 )
 
-params = st.query_params
+raw_params = st.query_params
+
+
+# --------------------------------------------------
+# Normalize Streamlit query params (lists → strings)
+# --------------------------------------------------
+def qp(key):
+    v = raw_params.get(key)
+    if isinstance(v, list):
+        return v[0]
+    return v
+
+params = {k: qp(k) for k in raw_params}
 
 
 # --------------------------------------------------
@@ -35,14 +51,16 @@ st.components.v1.html("""
 """, height=0)
 
 
-# Track whether session is ready
+# Track whether session attached successfully
 st.session_state.setdefault("reset_session_ready", False)
 
+is_recovery = params.get("type") == "recovery"
+
 
 # --------------------------------------------------
-# Token session flow
+# Token session flow  (?access_token=…)
 # --------------------------------------------------
-if params.get("type") == "recovery" and params.get("access_token"):
+if is_recovery and params.get("access_token"):
     try:
         sb.auth.set_session(
             params["access_token"],
@@ -54,9 +72,9 @@ if params.get("type") == "recovery" and params.get("access_token"):
 
 
 # --------------------------------------------------
-# PKCE ?code= flow
+# PKCE ?code=… flow
 # --------------------------------------------------
-elif params.get("type") == "recovery" and params.get("code"):
+elif is_recovery and params.get("code"):
     try:
         resp = sb.auth.exchange_code_for_session(params["code"])
         session = getattr(resp, "session", resp)
