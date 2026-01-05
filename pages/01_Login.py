@@ -75,6 +75,25 @@ if is_recovery:
             st.error(f"Could not establish recovery session: {e}")
 
 # -----------------------------
+# DEBUG: SESSION CHECK (PRE-RESET)
+# -----------------------------
+st.markdown("### DEBUG: SESSION CHECK (PRE-RESET)")
+
+try:
+    dbg_session = sb.auth.get_session()
+    st.json({
+        "supabase_user": getattr(dbg_session.user, "id", None) if dbg_session else None,
+        "expires_at": getattr(dbg_session, "expires_at", None) if dbg_session else None,
+        "has_access_token_state": bool(st.session_state.get("sb_access_token")),
+        "has_refresh_token_state": bool(st.session_state.get("sb_refresh_token")),
+        "force_reset_flag": st.session_state.get("force_password_reset", False),
+    })
+except Exception as e:
+    st.error(f"DEBUG session fetch error: {e}")
+
+st.markdown("---")
+
+# -----------------------------
 # PASSWORD RESET MODE
 # -----------------------------
 if is_recovery or force_reset:
