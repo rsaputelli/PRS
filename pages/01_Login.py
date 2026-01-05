@@ -10,7 +10,7 @@ SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
+EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login?type=recovery"
 
 # --- Normalize Supabase recovery redirects (supports BOTH flows) ---
 st.components.v1.html(
