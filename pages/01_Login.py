@@ -94,9 +94,6 @@ def _try_establish_session():
     except Exception as e:
         st.error(f"Could not establish recovery session: {e}")
 
-
-st.experimental_on_event("streamlit:message", lambda m: None)
-
 # -----------------------------------------------------------
 # 3) PASSWORD RESET UI (ONLY WHEN SESSION EXISTS)
 # -----------------------------------------------------------
