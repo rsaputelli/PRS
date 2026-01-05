@@ -132,16 +132,11 @@ except Exception as e:
 
 st.markdown("---")
 
-# --- Guard: Do NOT show reset UI until session is ready ---
-session_ready = (
-    st.session_state.get("sb_access_token")
-    or params.get("access_token")
-    or (sb.auth.get_session() and sb.auth.get_session().user)
-)
-
-if is_recovery and not session_ready:
+# Do NOT block if the URL still contains a hash token
+if is_recovery and not session_ready and "#access_token" not in st.request.url:
     st.info("Restoring secure reset session… please wait.")
     st.stop()
+
 
 # -----------------------------
 # PASSWORD RESET MODE
