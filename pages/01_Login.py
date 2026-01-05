@@ -72,6 +72,14 @@ if is_recovery or force_reset:
             st.error("Password must be at least 6 characters.")
         else:
             try:
+                # 🔹 Ensure the recovery session is active
+                access = st.session_state.get("sb_access_token")
+                refresh = st.session_state.get("sb_refresh_token")
+
+                if access:
+                    sb.auth.set_session(access, refresh)
+
+                # 🔹 Now Supabase has a valid session — update password
                 sb.auth.update_user({"password": new_pw})
 
                 st.session_state["force_password_reset"] = False
