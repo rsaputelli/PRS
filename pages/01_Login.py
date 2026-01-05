@@ -19,25 +19,37 @@ EMAIL_REDIRECT_URL = "https://booking-management.streamlit.app/Login"
 st.components.v1.html(
     """
     <script>
-      const h = window.location.hash;
+      (function () {
+        const h = window.location.hash || "";
+        const s = window.location.search || "";
 
-      if (h && h.includes("access_token")) {
+        // If Supabase sent tokens in the hash, promote them to query params
+        if (h.includes("access_token")) {
+          const q = new URLSearchParams(h.substring(1));
+          const token   = q.get("access_token");
+          const refresh = q.get("refresh_token") || "";
 
-        const q = new URLSearchParams(h.substring(1));
+          if (token) {
+            const url =
+              "/Login"
+              + "?type=recovery"
+              + "&access_token=" + encodeURIComponent(token)
+              + "&refresh_token=" + encodeURIComponent(refresh);
 
-        const token   = q.get("access_token");
-        const refresh = q.get("refresh_token") || "";
-
-        if (token) {
-          const url =
-            "/Login"
-            + "?type=recovery"
-            + "&access_token=" + encodeURIComponent(token)
-            + "&refresh_token=" + encodeURIComponent(refresh);
-
-          window.top.location.replace(url);
+            window.top.location.replace(url);
+            return;
+          }
         }
-      }
+
+        // If we have type=recovery but NO tokens yet,
+        // reload once to give Supabase a chance to append them
+        if (s.includes("type=recovery") && !s.includes("access_token")) {
+          // Preserve the hash on reload if present
+          if (h) {
+            window.top.location.replace("/Login" + s + h);
+          }
+        }
+      })();
     </script>
     """,
     height=0,
