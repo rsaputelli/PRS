@@ -6,6 +6,19 @@ import streamlit as st
 import json
 from streamlit import components
 
+components.v1.html(
+    """
+    <script>
+    const h = window.location.hash || "";
+    window.parent.postMessage({hash: h}, "*");
+    </script>
+    """,
+    height=0,
+)
+
+msg = st.experimental_get_query_params().get("hash_debug", None)
+st.write("HASH DEBUG:", msg)
+
 # =========================================
 # Capture Supabase recovery tokens from URL hash
 # (works in Streamlit Cloud)
