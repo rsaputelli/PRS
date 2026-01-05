@@ -38,6 +38,8 @@ st.components.v1.html(
 # RECOVERY TOKEN SESSION SETUP
 # -----------------------------
 params = st.query_params
+st.info("DEBUG PARAMS")
+st.json(dict(params))
 is_recovery = params.get("type") == "recovery"
 force_reset = st.session_state.get("force_password_reset", False)
 
