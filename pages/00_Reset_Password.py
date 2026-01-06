@@ -1,44 +1,28 @@
-# --------------------------------------------------
-# 00_Reset_Password.py  — resilient recovery handler
-# --------------------------------------------------
-
 import streamlit as st
-from supabase import create_client, Client
+from supabase import create_client
 
-st.set_page_config(page_title="Reset Password", layout="centered")
+st.set_page_config(page_title="Reset Password — DEBUG")
 
-sb: Client = create_client(
-    st.secrets["SUPABASE_URL"],
-    st.secrets["SUPABASE_ANON_KEY"]
-)
+sb = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_KEY"])
 
-raw_params = st.query_params
+st.subheader("🔍 RESET DEBUG — LIVE URL INSPECTION")
 
+# --- Dump the browser URL + hash BEFORE anything else ---
+st.components.v1.html("""
+<div id="dbg" style="padding:10px;border:1px solid #ddd;"></div>
+<script>
+  const out = document.getElementById("dbg");
+  out.innerText =
+    "href:  " + window.location.href + "\\n" +
+    "path:  " + window.location.pathname + "\\n" +
+    "search:" + window.location.search + "\\n" +
+    "hash:  " + window.location.hash;
+</script>
+""", height=120)
 
-# --------------------------------------------------
-# Normalize Streamlit query params (lists → strings)
-# --------------------------------------------------
-def qp(key):
-    v = raw_params.get(key)
-    if isinstance(v, list):
-        return v[0]
-    return v
+st.write("🔹 query_params:", st.query_params)
 
-params = {k: qp(k) for k in raw_params}
-
-st.subheader("DEBUG — do not worry, this is temporary")
-
-st.write("🔹 RAW PARAMS:", raw_params)
-st.write("🔹 NORMALIZED PARAMS:", params)
-
-from datetime import datetime
-st.write("🔹 Timestamp:", datetime.utcnow().isoformat())
-
-# Try to show Supabase session state (if any)
 try:
-    current = sb.auth.get_session()
-    st.write("🔹 sb.auth.get_session():", current)
+    st.write("🔹 get_session():", sb.auth.get_session())
 except Exception as e:
     st.write("🔸 get_session() error:", e)
-
-st.write("🔹 reset_session_ready:", st.session_state.get("reset_session_ready"))
