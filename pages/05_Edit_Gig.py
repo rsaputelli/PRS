@@ -14,12 +14,6 @@ from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
 
-user, session = restore_session()
-
-if not user:
-    st.error("You must be signed in to view this page.")
-    st.stop()
-
 # -----------------------------
 # Debug toggles (set True when needed)
 # -----------------------------
