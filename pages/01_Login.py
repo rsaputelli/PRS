@@ -150,12 +150,39 @@ if mode == "Sign In":
     if st.button("Sign In"):
         try:
             res = sb.auth.sign_in_with_password({"email": email, "password": pw})
+
+            # 🔍 DEBUG — INSPECT WHAT SUPABASE RETURNED
+            st.subheader("🔍 LOGIN DEBUG — Raw Auth Response")
+            st.json({
+                "user_id": getattr(res.user, "id", None),
+                "email": getattr(res.user, "email", None),
+                "has_access_token": bool(getattr(res.session, "access_token", None)),
+                "has_refresh_token": bool(getattr(res.session, "refresh_token", None)),
+            })
+
             if res.user:
                 st.success("Signed in successfully.")
             else:
                 st.error("Invalid login.")
+
         except Exception as e:
             st.error(f"Sign-in failed: {e}")
+
+
+
+# if mode == "Sign In":
+    # email = st.text_input("Email")
+    # pw = st.text_input("Password", type="password")
+
+    # if st.button("Sign In"):
+        # try:
+            # res = sb.auth.sign_in_with_password({"email": email, "password": pw})
+            # if res.user:
+                # st.success("Signed in successfully.")
+            # else:
+                # st.error("Invalid login.")
+        # except Exception as e:
+            # st.error(f"Sign-in failed: {e}")
 
 elif mode == "Create Account":
     email = st.text_input("Email")
@@ -181,7 +208,7 @@ elif mode == "Forgot Password":
         try:
             sb.auth.reset_password_email(
                 email,
-                options={"redirect_to": "https://booking-management.streamlit.app/Reset_Password"},
+                options={"redirect_to": "https://booking-management.streamlit.app/00_Reset_Password"},
             )
             st.success("Password reset email sent.")
         except Exception as e:
