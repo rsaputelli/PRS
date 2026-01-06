@@ -7,18 +7,15 @@ sb: Client = create_client(
 )
 
 def restore_session():
-    # Already restored?
-    if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
-        return sb.auth.get_user(), sb.auth.get_session()
+    access = st.session_state.get("sb_access_token")
+    refresh = st.session_state.get("sb_refresh_token")
 
-    # Try restoring from Supabase cookie
+    if access and refresh:
+        # 🔹 Re-attach session for this request/page
+        sb.auth.set_session(access, refresh)
+
     session = sb.auth.get_session()
-    if session and session.access_token:
-        st.session_state["sb_access_token"]  = session.access_token
-        st.session_state["sb_refresh_token"] = session.refresh_token
-        sb.auth.set_session(session.access_token, session.refresh_token)
-        return sb.auth.get_user(), session
+    user = session.user if session else None
+    return user, session
 
-    # Nothing yet — treat as anonymous
-    return None, None
 

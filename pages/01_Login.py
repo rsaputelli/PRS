@@ -149,22 +149,25 @@ if mode == "Sign In":
 
     if st.button("Sign In"):
         try:
-            res = sb.auth.sign_in_with_password({"email": email, "password": pw})
+            res = sb.auth.sign_in_with_password(
+                {"email": email, "password": pw}
+            )
 
-            st.subheader("🔍 LOGIN DEBUG — Raw Auth Response")
-            st.json({
-                "user_id": getattr(res.user, "id", None),
-                "email": getattr(res.user, "email", None),
-                "has_access_token": bool(getattr(res.session, "access_token", None)),
-                "has_refresh_token": bool(getattr(res.session, "refresh_token", None)),
-            })
-
-            if res.session:
+            if res.user:
+                # 🔹 persist session across pages
                 st.session_state["sb_access_token"]  = res.session.access_token
                 st.session_state["sb_refresh_token"] = res.session.refresh_token
-                sb.auth.set_session(res.session.access_token, res.session.refresh_token)
-                st.success("Signed in successfully.")
 
+                sb.auth.set_session(
+                    res.session.access_token,
+                    res.session.refresh_token
+                )
+
+                st.success("Signed in successfully.")
+            else:
+                st.error("Invalid login.")
+        except Exception as e:
+            st.error(f"Sign-in failed: {e}")
 
             # if res.user:
                 # st.session_state["sb_session"] = {
