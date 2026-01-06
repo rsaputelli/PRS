@@ -178,11 +178,11 @@ if mode == "Sign In":
                 # }
 
                 # st.success("Signed in successfully.")
-            else:
-                st.error("Invalid login.")
+            # else:
+                # st.error("Invalid login.")
 
-        except Exception as e:
-            st.error(f"Sign-in failed: {e}")
+        # except Exception as e:
+            # st.error(f"Sign-in failed: {e}")
 
 # if mode == "Sign In":
     # email = st.text_input("Email")
