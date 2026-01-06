@@ -6,29 +6,32 @@ from docx import Document
 from supabase import create_client, Client
 
 # --- Handle Supabase password-recovery links globally (must run first) ---
-st.components.v1.html("""
-<script>
-  const h = window.location.hash;
+st.components.v1.html(
+    """
+    <script>
+      const h = window.location.hash;
 
-  if (h && h.includes("access_token")) {
+      if (h && h.includes("access_token")) {
+        const q = new URLSearchParams(h.substring(1));
 
-    const q = new URLSearchParams(h.substring(1));
+        const token   = q.get("access_token");
+        const refresh = q.get("refresh_token") || "";
 
-    const token   = q.get("access_token");
-    const refresh = q.get("refresh_token") || "";
+        if (token) {
+          const url =
+            "/Reset_Password"
+            + "?type=recovery"
+            + "&access_token=" + encodeURIComponent(token)
+            + "&refresh_token=" + encodeURIComponent(refresh);
 
-    if (token) {
-      const url =
-        "/Login"
-        + "?type=recovery"
-        + "&access_token=" + encodeURIComponent(token)
-        + "&refresh_token=" + encodeURIComponent(refresh);
+          window.top.location.replace(url);
+        }
+      }
+    </script>
+    """,
+    height=0,
+)
 
-      window.top.location.replace(url);
-    }
-  }
-</script>
-""", height=0)
 
 st.caption(f"Running file: {__file__}")
 

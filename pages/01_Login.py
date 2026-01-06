@@ -222,7 +222,7 @@ elif mode == "Forgot Password":
         try:
             sb.auth.reset_password_email(
                 email,
-                options={"redirect_to": "https://booking-management.streamlit.app/00_Reset_Password"},
+                options={"redirect_to": "https://booking-management.streamlit.app/Reset_Password"},
             )
             st.success("Password reset email sent.")
         except Exception as e:
