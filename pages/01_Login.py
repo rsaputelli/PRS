@@ -151,7 +151,6 @@ if mode == "Sign In":
         try:
             res = sb.auth.sign_in_with_password({"email": email, "password": pw})
 
-            # 🔍 DEBUG — INSPECT WHAT SUPABASE RETURNED
             st.subheader("🔍 LOGIN DEBUG — Raw Auth Response")
             st.json({
                 "user_id": getattr(res.user, "id", None),
@@ -161,14 +160,19 @@ if mode == "Sign In":
             })
 
             if res.user:
+                st.session_state["sb_session"] = {
+                    "access_token": res.session.access_token,
+                    "refresh_token": res.session.refresh_token,
+                    "email": res.user.email,
+                    "user_id": res.user.id,
+                }
+
                 st.success("Signed in successfully.")
             else:
                 st.error("Invalid login.")
 
         except Exception as e:
             st.error(f"Sign-in failed: {e}")
-
-
 
 # if mode == "Sign In":
     # email = st.text_input("Email")
