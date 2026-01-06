@@ -159,15 +159,22 @@ if mode == "Sign In":
                 "has_refresh_token": bool(getattr(res.session, "refresh_token", None)),
             })
 
-            if res.user:
-                st.session_state["sb_session"] = {
-                    "access_token": res.session.access_token,
-                    "refresh_token": res.session.refresh_token,
-                    "email": res.user.email,
-                    "user_id": res.user.id,
-                }
-
+            if res.session:
+                st.session_state["sb_access_token"]  = res.session.access_token
+                st.session_state["sb_refresh_token"] = res.session.refresh_token
+                sb.auth.set_session(res.session.access_token, res.session.refresh_token)
                 st.success("Signed in successfully.")
+
+
+            # if res.user:
+                # st.session_state["sb_session"] = {
+                    # "access_token": res.session.access_token,
+                    # "refresh_token": res.session.refresh_token,
+                    # "email": res.user.email,
+                    # "user_id": res.user.id,
+                # }
+
+                # st.success("Signed in successfully.")
             else:
                 st.error("Invalid login.")
 

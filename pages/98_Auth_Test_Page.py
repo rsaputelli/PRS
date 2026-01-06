@@ -5,6 +5,10 @@ st.title("🔍 Auth Test Page")
 
 user, session = restore_session()
 
+if not user:
+    st.error("You must be signed in to view this page.")
+    st.stop()
+
 st.write("### Session Diagnostic")
 st.json({
     "user_id": getattr(user, "id", None),
