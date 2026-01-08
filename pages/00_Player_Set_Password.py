@@ -55,7 +55,6 @@ if st.button("Save Password"):
             st.error("No account found for that email.")
             st.stop()
 
-
         # OPTIONAL — enable later if you want phone verification
         # stored_phone = user.get("phone") or ""
         # if phone_last4 and not stored_phone.endswith(phone_last4):
@@ -64,7 +63,7 @@ if st.button("Save Password"):
 
         # 🔐 Update the password
         sb.auth.admin.update_user_by_id(
-            user["id"],
+            user.id,
             {"password": pw1}
         )
 
