@@ -15,23 +15,28 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 st.components.v1.html(
     """
     <script>
-    (function () {
-      const h = window.location.hash;
-      if (!h || !h.includes("access_token")) return;
+      (function () {
+        const h = window.location.hash;
+        if (!h || !h.includes("access_token")) return;
 
-      const q = new URLSearchParams(h.substring(1));
+        const q = new URLSearchParams(h.substring(1));
 
-      const url =
-        window.location.pathname
-        + "?type=recovery"
-        + "&access_token=" + encodeURIComponent(q.get("access_token"))
-        + "&refresh_token=" + encodeURIComponent(q.get("refresh_token") || "");
+        const url =
+          window.location.pathname
+          + "?type=recovery"
+          + "&access_token=" + encodeURIComponent(q.get("access_token"))
+          + "&refresh_token=" + encodeURIComponent(q.get("refresh_token") || "");
 
-      window.location.replace(url);
-    })();
+        // 🔹 Force redirect at the TOP level (important in Streamlit)
+        if (window.top) {
+          window.top.location.replace(url);
+        } else {
+          window.location.replace(url);
+        }
+      })();
     </script>
     """,
-    height=0,
+    height=1,   # <— give the component a tiny render surface
 )
 
 params = st.query_params
