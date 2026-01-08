@@ -42,14 +42,19 @@ if st.button("Save Password"):
         st.stop()
 
     try:
-        # 🔎 Look up existing user
-        users = sb.auth.admin.list_users(email=email)
+        # 🔎 Get all users (paginated) and find matching email
+        resp = sb.auth.admin.list_users()
+        users = resp.get("users", [])
 
-        if not users or len(users.get("users", [])) == 0:
+        user = next(
+            (u for u in users if u.get("email", "").lower() == email.lower()),
+            None,
+        )
+
+        if not user:
             st.error("No account found for that email.")
             st.stop()
 
-        user = users["users"][0]
 
         # OPTIONAL — enable later if you want phone verification
         # stored_phone = user.get("phone") or ""
