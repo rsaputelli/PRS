@@ -72,7 +72,7 @@ sb_svc: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_S
 
 # 🔎 SESSION DIAGNOSTIC (temporary)
 # st.write("🔎 SESSION DIAGNOSTIC")
-# st.write("supabase_user:", st.session_state.get("supabase_user"))
+st.write("supabase_user:", st.session_state.get("supabase_user"))
 # st.write("sb_access_token:", st.session_state.get("sb_access_token"))
 # st.write("sb_refresh_token:", st.session_state.get("sb_refresh_token"))
 
