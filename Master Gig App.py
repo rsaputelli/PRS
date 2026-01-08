@@ -117,9 +117,19 @@ def send_email_smtp(to_addrs, subject, body_html, attachment_name, attachment_by
         s.starttls(context=ctx); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
 def role_is_admin(user_id: str) -> bool:
-    # profiles(role: 'admin'|'standard')
-    data = sb.table("profiles").select("role").eq("user_id", user_id).single().execute().data
-    return bool(data and data.get("role") == "admin")
+    # profiles(role: 'admin' | 'standard')
+    res = (
+        sb.table("profiles")
+        .select("role")
+        .eq("id", user_id)   # ✅ correct column
+        .execute()
+    )
+
+    if not res.data:
+        return False
+
+    return res.data[0]["role"] == "admin"
+
 
 def load_gig_view(gig_id: str) -> dict:
     """Join gigs + venues + payments to build merge fields."""
