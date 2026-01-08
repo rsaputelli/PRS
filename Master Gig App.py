@@ -71,10 +71,10 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 sb_svc: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else sb
 
 # 🔎 SESSION DIAGNOSTIC (temporary)
-st.write("🔎 SESSION DIAGNOSTIC")
-st.write("supabase_user:", st.session_state.get("supabase_user"))
-st.write("sb_access_token:", st.session_state.get("sb_access_token"))
-st.write("sb_refresh_token:", st.session_state.get("sb_refresh_token"))
+# st.write("🔎 SESSION DIAGNOSTIC")
+# st.write("supabase_user:", st.session_state.get("supabase_user"))
+# st.write("sb_access_token:", st.session_state.get("sb_access_token"))
+# st.write("sb_refresh_token:", st.session_state.get("sb_refresh_token"))
 
 
 # ─────────────── Helpers ───────────────
