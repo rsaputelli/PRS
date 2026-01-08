@@ -116,6 +116,8 @@ def send_email_smtp(to_addrs, subject, body_html, attachment_name, attachment_by
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
         s.starttls(context=ctx); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
+st.write("DEBUG: role_is_admin version = id-column")
+
 def role_is_admin(user_id: str) -> bool:
     # profiles(role: 'admin' | 'standard')
     res = (
