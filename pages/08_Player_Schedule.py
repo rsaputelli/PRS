@@ -6,49 +6,54 @@ import pandas as pd
 from datetime import datetime, date
 from supabase import create_client, Client
 
-from lib.auth import is_logged_in, current_user, IS_ADMIN
+# from lib.auth import is_logged_in, current_user, IS_ADMIN
 from lib.ui_header import render_header
+from auth_helper import require_login
 
+user, session, user_id = require_login()
+auth_email = (user.email or "").lower().strip()
+
+from auth_helper import sb
 
 # ===============================
 # Supabase Init
 # ===============================
-def _get_secret(name, required: bool = False):
-    val = st.secrets.get(name)
-    if required and not val:
-        st.error(f"Missing secret: {name}")
-        st.stop()
-    return val
+# def _get_secret(name, required: bool = False):
+    # val = st.secrets.get(name)
+    # if required and not val:
+        # st.error(f"Missing secret: {name}")
+        # st.stop()
+    # return val
 
 
-SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
-SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
+# SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
+# SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 
-sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+# sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# Attach session if available
-if (
-    st.session_state.get("sb_access_token")
-    and st.session_state.get("sb_refresh_token")
-):
-    try:
-        sb.auth.set_session(
-            access_token=st.session_state["sb_access_token"],
-            refresh_token=st.session_state["sb_refresh_token"],
-        )
-    except Exception:
-        pass
+Attach session if available
+# if (
+    # st.session_state.get("sb_access_token")
+    # and st.session_state.get("sb_refresh_token")
+# ):
+    # try:
+        # sb.auth.set_session(
+            # access_token=st.session_state["sb_access_token"],
+            # refresh_token=st.session_state["sb_refresh_token"],
+        # )
+    # except Exception:
+        # pass
 
 
 # ===============================
 # AUTH — Unified PRS Login Model
 # ===============================
-if not is_logged_in():
-    st.error("Please log in to view your schedule.")
-    st.stop()
+# if not is_logged_in():
+    # st.error("Please log in to view your schedule.")
+    # st.stop()
 
-USER = current_user()
-email = (USER.get("email") or "").lower().strip()
+# USER = current_user()
+# email = (USER.get("email") or "").lower().strip()
 
 
 # ===============================
@@ -69,28 +74,39 @@ def _select_df(table: str, select: str = "*", where_eq: dict | None = None) -> p
 
 
 # ===============================
-# ROLE DETECTION (Option C)
+# ROLE DETECTION
 # ===============================
-def get_profile_record():
-    """Try to pull the user's profile row. If none exists, return None."""
-    try:
-        res = sb.table("profiles").select("*").eq("email", email).limit(1).execute()
-        rows = res.data or []
-        return rows[0] if rows else None
-    except Exception:
-        return None
+res = (
+    sb.table("profiles")
+    .select("role")
+    .eq("id", user_id)
+    .execute()
+)
 
+role = res.data[0]["role"] if res.data else "standard"
+is_admin = role == "admin"
 
-profile = get_profile_record()
+player_email = auth_email
 
-if IS_ADMIN():
-    role = "admin"
-elif profile and profile.get("role"):
-    role = profile["role"]
-else:
-    # BEFORE profiles exist, musicians get blocked from "My Gigs" but can still see "All Gigs"
-    role = "guest"   # means logged-in but unmapped user
+musician = None
 
+if not is_admin:
+    m_res = (
+        sb.table("musicians")
+        .select("id, display_name")
+        .ilike("email", auth_email)
+        .limit(1)
+        .execute()
+    )
+
+    if not m_res.data:
+        st.error(
+            "Your account is not linked to a musician record. "
+            "Please contact the administrator."
+        )
+        st.stop()
+
+    musician = m_res.data[0]
 
 # ===============================
 # HEADER
@@ -103,21 +119,51 @@ st.markdown("---")
 # ROLE-SCOPED VIEW MODE LOGIC
 # ===============================
 
-is_admin = IS_ADMIN()
-player_email = email
+# is_admin = IS_ADMIN()
+# player_email = email
 
 # Guests = logged-in but not mapped to musician record
-role = (
-    "admin" if is_admin
-    else (profile.get("role") if profile and profile.get("role") else "guest")
-)
+# role = (
+    # "admin" if is_admin
+    # else (profile.get("role") if profile and profile.get("role") else "guest")
+# )
 
 # Default = musicians see only their gigs
+# view_mode = "my"
+
+
+# if role == "admin":
+    # Admins may choose
+    # view_mode = st.radio(
+        # "Schedule View:",
+        # ["my", "all"],
+        # index=1,
+        # format_func=lambda x: "My Gigs" if x == "my" else "All Gigs",
+        # horizontal=True,
+    # )
+
+# elif role in ("musician", "sound_tech"):
+    # Musicians / Sound Techs → My gigs only
+    # st.info("You are viewing your assigned gigs only.", icon="🎸")
+    # view_mode = "my"
+
+# else:
+    # Guest / unmapped users → All gigs only
+    # st.warning(
+        # "You are viewing the public band schedule. "
+        # "If you are a band member and should see your personal gig schedule, "
+        # "please contact the site administrator.",
+        # icon="👤",
+    # )
+    # view_mode = "all"
+
+# ===============================
+# ROLE-SCOPED VIEW MODE LOGIC
+# ===============================
+
 view_mode = "my"
 
-
-if role == "admin":
-    # Admins may choose
+if is_admin:
     view_mode = st.radio(
         "Schedule View:",
         ["my", "all"],
@@ -125,21 +171,8 @@ if role == "admin":
         format_func=lambda x: "My Gigs" if x == "my" else "All Gigs",
         horizontal=True,
     )
-
-elif role in ("musician", "sound_tech"):
-    # Musicians / Sound Techs → My gigs only
-    st.info("You are viewing your assigned gigs only.", icon="🎸")
-    view_mode = "my"
-
 else:
-    # Guest / unmapped users → All gigs only
-    st.warning(
-        "You are viewing the public band schedule. "
-        "If you are a band member and should see your personal gig schedule, "
-        "please contact the site administrator.",
-        icon="👤",
-    )
-    view_mode = "all"
+    st.info("You are viewing your assigned gigs only.", icon="🎸")
 
 
 # ===============================

@@ -30,3 +30,31 @@ def restore_session():
         st.session_state.pop("user_id", None)
 
     return user, session
+
+def require_login():
+    user, session = restore_session()
+    user_id = st.session_state.get("user_id")
+
+    if not user_id:
+        st.error("Please sign in.")
+        st.stop()
+
+    return user, session, user_id
+
+
+def require_admin():
+    user, session, user_id = require_login()
+
+    res = (
+        sb.table("profiles")
+        .select("role")
+        .eq("id", user_id)
+        .execute()
+    )
+
+    role = res.data[0]["role"] if res.data else None
+    if role != "admin":
+        st.error("Admins only.")
+        st.stop()
+
+    return user, session, user_id
