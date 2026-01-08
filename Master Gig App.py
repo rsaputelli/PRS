@@ -4,36 +4,8 @@ import streamlit as st
 from email.message import EmailMessage
 from docx import Document
 from supabase import create_client, Client
+from auth_helper import restore_session
 
-# --- Handle Supabase password-recovery links globally (must run first) ---
-# st.components.v1.html(
-    # """
-    # <script>
-      # const h = window.location.hash;
-
-      # if (h && h.includes("access_token")) {
-        # const q = new URLSearchParams(h.substring(1));
-
-        # const token   = q.get("access_token");
-        # const refresh = q.get("refresh_token") || "";
-
-        # if (token) {
-          # const url =
-            # "/Reset_Password"
-            # + "?type=recovery"
-            # + "&access_token=" + encodeURIComponent(token)
-            # + "&refresh_token=" + encodeURIComponent(refresh);
-
-          # window.top.location.replace(url);
-        # }
-      # }
-    # </script>
-    # """,
-    # height=0,
-# )
-
-
-# st.caption(f"Running file: {__file__}")
 
 # ─────────────── Config (safe secrets + env) ───────────────
 def _get_secret(name: str, default: str | None = None, required: bool = False) -> str | None:
@@ -69,6 +41,10 @@ SUPABASE_SERVICE_KEY = _get_secret("SUPABASE_SERVICE_KEY")  # optional
 
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 sb_svc: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else sb
+
+# 🔑 Restore Supabase session on every load
+user, session = restore_session()
+
 
 # 🔎 SESSION DIAGNOSTIC (temporary)
 # st.write("🔎 SESSION DIAGNOSTIC")
@@ -219,19 +195,16 @@ st.set_page_config(page_title="Contract Review & Send", page_icon="🎶", layout
 st.title("Master Gig App (Admin)")
 
 # Auth/role check (replace with your auth session)
-user_id = st.session_state.get("user_id")  # set this after login via Supabase Auth
+user_id = st.session_state.get("user_id")
+
 if not user_id:
     st.error("Please sign in.")
     st.stop()
 
-# Auth/role check (replace with your auth session)
-user_id = st.session_state.get("user_id")  # set this after login via Supabase Auth
-if not user_id:
-    st.error("Please sign in.")
-    st.stop()
 if not role_is_admin(user_id):
     st.error("Admins only.")
     st.stop()
+
 
 gig_id = st.query_params.get("gig_id", ["demo-001"])[0]
 try:
