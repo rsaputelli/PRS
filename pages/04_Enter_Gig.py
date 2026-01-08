@@ -70,38 +70,29 @@ try:
 except Exception as e:
     st.error(f"Calendar diagnostics unavailable (import/exec error): {e}")
 
-# === Email autosend toggles — init keys (do not use `value=` anywhere) ===
-for _k, _default in [
-    ("autoc_send_st_on_create", False),
-    ("autoc_send_agent_on_create", False),
-    ("autoc_send_players_on_create", False),
-]:
-    if _k not in st.session_state:
-        st.session_state[_k] = _default
-
-# --- Safe admin accessor (must exist before any calls) ---
-# def _IS_ADMIN() -> bool:
-    # u = st.session_state.get("user") or {}
-    # return bool(
-        # st.session_state.get("IS_ADMIN",
-            # st.session_state.get("is_admin",
-                # u.get("is_admin", True)  # default True so toggles render if unknown
-            # )
-        # )
-    # )
-
-# === Email autosend toggles UI (admin-only) ===
-# if IS_ADMIN():
+if IS_ADMIN():
     st.markdown("### Auto-send on Save")
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.checkbox("Sound tech", key="autoc_send_st_on_create", help="Email the sound tech on save")
+        st.checkbox(
+            "Sound tech",
+            key="autoc_send_st_on_create",
+            help="Email the sound tech on save",
+        )
     with c2:
-        st.checkbox("Agent", key="autoc_send_agent_on_create", help="Email the agent on save")
+        st.checkbox(
+            "Agent",
+            key="autoc_send_agent_on_create",
+            help="Email the agent on save",
+        )
     with c3:
-        st.checkbox("Players", key="autoc_send_players_on_create", help="Email all assigned players on save")
-# non-admins just don’t see the toggles; no extra caption needed
+        st.checkbox(
+            "Players",
+            key="autoc_send_players_on_create",
+            help="Email all assigned players on save",
+        )
 
+# non-admins just don’t see the toggles; no extra caption needed
 
 
 # ---- Persisted auto-send log (renders every run; always visible) ----

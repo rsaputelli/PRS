@@ -31,7 +31,7 @@ from auth_helper import sb
 
 # sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-Attach session if available
+# Attach session if available
 # if (
     # st.session_state.get("sb_access_token")
     # and st.session_state.get("sb_refresh_token")
