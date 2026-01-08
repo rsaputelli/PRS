@@ -6,26 +6,31 @@ st.components.v1.html(
     <script>
     console.log("🎯 RESET PAGE SHIM RUNNING");
 
-    const h = window.location.hash;
+    // ⭐ Read hash from the TOP page, not the iframe
+    const h = window.top.location.hash;
+
     if (!h || !h.includes("access_token")) {
-      console.log("❌ No hash present");
+      console.log("❌ No hash found in top window");
       return;
     }
 
     const q = new URLSearchParams(h.substring(1));
 
     const url =
-      window.location.pathname
+      window.top.location.pathname
       + "?type=recovery"
       + "&access_token=" + encodeURIComponent(q.get("access_token") || "")
       + "&refresh_token=" + encodeURIComponent(q.get("refresh_token") || "");
 
     console.log("🔁 Redirecting to", url);
-    window.location.replace(url);
+
+    // ⭐ Redirect the TOP page (not the iframe)
+    window.top.location.replace(url);
     </script>
     """,
     height=0,
 )
+
 
 st.write("🔎 Debug: page loaded but no redirect yet")
 
