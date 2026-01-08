@@ -1,5 +1,8 @@
 ##---auth_helper.py
 
+import streamlit as st
+from supabase import create_client
+
 def restore_session():
     access = st.session_state.get("sb_access_token")
     refresh = st.session_state.get("sb_refresh_token")
