@@ -70,27 +70,26 @@ try:
 except Exception as e:
     st.error(f"Calendar diagnostics unavailable (import/exec error): {e}")
 
-if IS_ADMIN():
-    st.markdown("### Auto-send on Save")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.checkbox(
-            "Sound tech",
-            key="autoc_send_st_on_create",
-            help="Email the sound tech on save",
-        )
-    with c2:
-        st.checkbox(
-            "Agent",
-            key="autoc_send_agent_on_create",
-            help="Email the agent on save",
-        )
-    with c3:
-        st.checkbox(
-            "Players",
-            key="autoc_send_players_on_create",
-            help="Email all assigned players on save",
-        )
+st.markdown("### Auto-send on Save")
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.checkbox(
+        "Sound tech",
+        key="autoc_send_st_on_create",
+        help="Email the sound tech on save",
+    )
+with c2:
+    st.checkbox(
+        "Agent",
+        key="autoc_send_agent_on_create",
+        help="Email the agent on save",
+    )
+with c3:
+    st.checkbox(
+        "Players",
+        key="autoc_send_players_on_create",
+        help="Email all assigned players on save",
+    )
 
 # non-admins just don’t see the toggles; no extra caption needed
 
