@@ -7,7 +7,7 @@ import re
 st.set_page_config(page_title="Create / Update Password", layout="centered")
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SERVICE_ROLE_KEY = st.secrets["SUPABASE_SERVICE_ROLE_KEY"]  # required for admin ops
+SERVICE_ROLE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]  # required for admin ops
 sb = create_client(SUPABASE_URL, SERVICE_ROLE_KEY)
 
 st.title("Create / Update Your Password")
