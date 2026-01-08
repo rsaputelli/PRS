@@ -793,40 +793,39 @@ if st.session_state.get("is_private_in", False):
 # ============================
 deposit_rows: List[Dict] = []
 
-if IS_ADMIN():
-    st.markdown("---")
-    st.subheader("Finance (Admin Only)")
-    add_deps = st.number_input(
-        "Number of deposits (0–4)",
-        min_value=0,
-        max_value=4,
-        step=1,
-        value=int(st.session_state.get("num_deposits", 0)),
-        key="num_deposits",
-    )
+st.markdown("---")
+st.subheader("Finance (Admin Only)")
+add_deps = st.number_input(
+    "Number of deposits (0–4)",
+    min_value=0,
+    max_value=4,
+    step=1,
+    value=int(st.session_state.get("num_deposits", 0)),
+    key="num_deposits",
+)
 
-    for i in range(int(add_deps)):
-        cdl, cda, cdm = st.columns([1, 1, 1])
-        with cdl:
-            st.date_input(
-                f"Deposit {i+1} due",
-                value=date.today(),
-                key=f"dep_due_{i}",
-            )
-        with cda:
-            st.number_input(
-                f"Deposit {i+1} amount",
-                min_value=0.0,
-                step=50.0,
-                format="%.2f",
-                key=f"dep_amt_{i}",
-            )
-        with cdm:
-            st.checkbox(
-                f"Deposit {i+1} is % of fee",
-                value=False,
-                key=f"dep_pct_{i}",
-            )
+for i in range(int(add_deps)):
+    cdl, cda, cdm = st.columns([1, 1, 1])
+    with cdl:
+        st.date_input(
+            f"Deposit {i+1} due",
+            value=date.today(),
+            key=f"dep_due_{i}",
+        )
+    with cda:
+        st.number_input(
+            f"Deposit {i+1} amount",
+            min_value=0.0,
+            step=50.0,
+            format="%.2f",
+            key=f"dep_amt_{i}",
+        )
+    with cdm:
+        st.checkbox(
+            f"Deposit {i+1} is % of fee",
+            value=False,
+            key=f"dep_pct_{i}",
+        )
 
 
 # ============================
