@@ -12,7 +12,7 @@ if not user:
 # -------------------------------------------------
 # GLOBAL ADMIN LAYOUT (SAFE ZONE)
 # -------------------------------------------------
-from auth_logout import logout_and_redirect
+from lib.auth_logout import logout_and_redirect
 
 with st.sidebar:
     if st.button("🚪 Logout"):
