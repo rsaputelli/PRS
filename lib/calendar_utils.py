@@ -357,9 +357,9 @@ def upsert_band_calendar_event(
 ):
     
     # ---- TEMP DEBUG: secrets visibility ---
-    import streamlit as st
-    st.warning(f"DEBUG gcal_ids = {dict(st.secrets.get('gcal_ids', {}))}")
-    st.warning(f"DEBUG TEST_KEY = {st.secrets.get('TEST_KEY')}")
+    # import streamlit as st
+    # st.warning(f"DEBUG gcal_ids = {dict(st.secrets.get('gcal_ids', {}))}")
+    # st.warning(f"DEBUG TEST_KEY = {st.secrets.get('TEST_KEY')}")
     
     """
     Create or update a Calendar event for the given gig.
@@ -385,7 +385,14 @@ def upsert_band_calendar_event(
             except Exception:
                 _fetch_soundtech_name = None
 
-            gm_rows = _gig_musicians_rows_from_sb(sb_client, gid)
+            gm_rows = (
+                sb_client.table("gig_musicians")
+                .select("musician_id, role")
+                .eq("gig_id", gid)
+                .execute()
+                .data
+                or []
+            )
             ordered_ids, roles_by_mid = [], {}
             for r in gm_rows:
                 mid = r.get("musician_id")
