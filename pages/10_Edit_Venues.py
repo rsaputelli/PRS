@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 import os
 
-from lib.auth import is_logged_in, current_user, IS_ADMIN
+from auth_helper import require_admin
 from supabase import create_client, Client
 
 # ==========================================
@@ -41,13 +41,6 @@ if (
         st.error("Your session has expired. Please log in again.")
         st.stop()
 
-# Auth gate
-if not is_logged_in():
-    st.error("Please sign in from the Login page.")
-    st.stop()
-
-USER = current_user()
-
 # DEBUG ---------------------------------------------------------
 # st.write("DEBUG USER EMAIL:", USER.get("email"))
 # st.write("DEBUG PRS_ADMINS LOADED:", st.secrets.get("PRS_ADMINS"))
@@ -59,8 +52,8 @@ USER = current_user()
 # ==========================================
 # ADMIN 
 # ==========================================
-if not IS_ADMIN():
-    st.error("You do not have permission to edit venues.")
+user, session, user_id = require_admin()
+if not user:
     st.stop()
 
 
