@@ -59,7 +59,9 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
 # -----------------------------
 from auth_helper import require_admin
 
-require_admin()
+user, session, user_id = require_admin()
+if not user:
+    st.stop()
 
 # -----------------------------
 # Header AFTER gate
