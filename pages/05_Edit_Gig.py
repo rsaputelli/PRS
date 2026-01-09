@@ -2013,6 +2013,11 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 sb=sb,
                 calendar_name="Philly Rock and Soul",  # keep this exact name
             )
+
+            # DEBUG — confirm execution + inspect result
+            st.info("Calendar upsert executed (inline)")
+            st.json(res)
+
             if isinstance(res, dict) and res.get("error"):
                 st.error(
                     f"Calendar upsert failed: {res.get('error')} "
@@ -2026,6 +2031,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     st.caption(f"Event ID: {ev_id}")
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
+
 
         # Always reload lineup from DB after save (needed for diff + autosend)
         rows = (
