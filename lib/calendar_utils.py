@@ -371,7 +371,7 @@ def upsert_band_calendar_event(
     def _inject_lineup_and_details_html(gig: dict, sb_client, gid: str) -> None:
         try:
             from tools.send_player_confirms import (
-                _gig_musicians_rows, _fetch_musicians_map,
+                _fetch_musicians_map,
                 _stage_pref, _nz, _fmt_time12, _fmt_addr, _html_escape
             )
             try:
@@ -379,7 +379,7 @@ def upsert_band_calendar_event(
             except Exception:
                 _fetch_soundtech_name = None
 
-            gm_rows = _gig_musicians_rows(gid)
+            gm_rows = _gig_musicians_rows_from_sb(sb_client, gid)
             ordered_ids, roles_by_mid = [], {}
             for r in gm_rows:
                 mid = r.get("musician_id")
