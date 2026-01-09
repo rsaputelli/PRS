@@ -20,6 +20,19 @@ from auth_helper import require_admin
 # ============================
 st.set_page_config(page_title="Enter Gig", page_icon="📝", layout="wide")
 
+# ============================
+# Secrets / Supabase
+# ============================
+def _get_secret(name: str, default=None, required: bool = False):
+    if hasattr(st, "secrets") and name in st.secrets:
+        val = st.secrets[name]
+    else:
+        val = os.environ.get(name, default)
+    if required and (val is None or str(val).strip() == ""):
+        st.error(f"Missing required secret: {name}")
+        st.stop()
+    return val
+
 SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
