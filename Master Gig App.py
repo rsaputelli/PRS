@@ -10,6 +10,10 @@ from docx import Document
 from supabase import create_client, Client
 from auth_helper import restore_session, require_admin
 
+if st.session_state.get("force_logged_out"):
+    st.error("You have been logged out.")
+    st.stop()
+
 
 # ─────────────── Config (safe secrets + env) ───────────────
 def _get_secret(name: str, default: str | None = None, required: bool = False) -> str | None:
@@ -206,7 +210,12 @@ st.title("Master Gig App (Admin)")
 user_id = st.session_state.get("user_id")
 
 
-gig_id = st.query_params.get("gig_id", ["demo-001"])[0]
+gig_id = st.query_params.get("gig_id", [None])[0]
+
+if not gig_id:
+    st.info("No gig selected. Open this page from a gig context.")
+    st.stop()
+
 try:
     data = load_gig_view(gig_id)
 except Exception as e:
