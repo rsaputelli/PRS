@@ -94,7 +94,7 @@ if not is_admin:
     m_res = (
         sb.table("musicians")
         .select("id, display_name")
-        .ilike("email", f"{auth_email.strip()}%")
+        .eq("user_id", user_id)
         .limit(1)
         .execute()
     )
