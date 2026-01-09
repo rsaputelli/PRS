@@ -16,10 +16,6 @@ if not user:
 st.title("Master Gig App (Admin)")
 st.error("Admins only.")
 
-
-Master Gig App (Admin)
-Admins only.
-
 # -------------------------------------------------
 # Debug (ADMIN ONLY)
 # -------------------------------------------------
