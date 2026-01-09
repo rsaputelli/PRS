@@ -61,6 +61,11 @@ from auth_helper import require_admin
 
 require_admin()
 
+# -----------------------------
+# Header AFTER gate
+# -----------------------------
+render_header(title="Edit Gig", emoji="✏️")
+
 # ---- Process pending calendar upsert (rerun-proof) ----
 try:
     from lib.calendar_utils import upsert_band_calendar_event as _upsert_band_calendar_event_for_queue
@@ -82,11 +87,6 @@ try:
             st.info(f"Queued calendar event {action} for gig {_pending['gig_id']}.")
 except Exception as e:
     st.error(f"Calendar upsert processor error: {e}")
-
-# -----------------------------
-# Header AFTER gate
-# -----------------------------
-render_header(title="Edit Gig", emoji="✏️")
 
 # === Email autosend toggles — init keys (shared with Enter Gig) ===
 for _k, _default in [
