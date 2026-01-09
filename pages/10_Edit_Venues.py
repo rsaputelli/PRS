@@ -21,17 +21,16 @@ def _get_secret(name: str, required=False) -> Optional[str]:
         st.stop()
     return val
 
+# ==========================================
+# Supabase Client (MUST be first)
+# ==========================================
+
 SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# Attach authenticated session (same pattern)
-if (
-    "sb_access_token" in st.session_state
-    and st.session_state["sb_access_token"]
-    and "sb_refresh_token" in st.session_state
-    and st.session_state["sb_refresh_token"]
-):
+# Attach authenticated session for RLS
+if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
         sb.auth.set_session(
             access_token=st.session_state["sb_access_token"],
@@ -41,27 +40,20 @@ if (
         st.error("Your session has expired. Please log in again.")
         st.stop()
 
-# DEBUG ---------------------------------------------------------
-# st.write("DEBUG USER EMAIL:", USER.get("email"))
-# st.write("DEBUG PRS_ADMINS LOADED:", st.secrets.get("PRS_ADMINS"))
-# st.write("DEBUG ALL SECRET ROOT KEYS:", list(st.secrets.keys()))
-# for key in st.secrets.keys():
-#     st.write("ROOT KEY:", key, "| VALUE:", st.secrets.get(key))
-# ---------------------------------------------------------------
-
 # ==========================================
-# ADMIN 
+# Admin gate (HARD STOP, BEFORE HEADER/UI)
 # ==========================================
 user, session, user_id = require_admin()
 if not user:
     st.stop()
 
-
 # ==========================================
-# Page header
+# Page header (AFTER gate)
 # ==========================================
 from lib.ui_header import render_header
 render_header("Edit Venues")
+st.markdown("---")
+
 
 # ==========================================
 # Local df helper
