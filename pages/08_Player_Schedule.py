@@ -179,11 +179,41 @@ else:
 # LOAD GIGS
 # ===============================
 
-def load_gigs_for_user(player_email: str) -> pd.DataFrame:
+def load_gigs_for_musician(musician_id: str) -> pd.DataFrame:
+    """
+    Returns gigs assigned to a specific musician via gig_musicians
+    """
     try:
-        res = sb.rpc("get_player_gigs", {"player_email": player_email}).execute()
-        return pd.DataFrame(res.data or [])
-    except Exception:
+        res = (
+            sb.table("gig_musicians")
+            .select(
+                """
+                gig_id,
+                gigs (
+                    id,
+                    title,
+                    event_date,
+                    start_time,
+                    end_time,
+                    venue_id,
+                    contract_status
+                )
+                """
+            )
+            .eq("musician_id", musician_id)
+            .execute()
+        )
+
+        rows = []
+        for r in res.data or []:
+            gig = r.get("gigs")
+            if gig:
+                rows.append(gig)
+
+        return pd.DataFrame(rows)
+
+    except Exception as e:
+        st.warning(f"Failed to load musician gigs: {e}")
         return pd.DataFrame()
 
 
@@ -192,13 +222,14 @@ def load_all_gigs() -> pd.DataFrame:
 
 
 if view_mode == "my":
-    gigs_df = load_gigs_for_user(player_email)
+    gigs_df = load_gigs_for_musician(musician["id"])
 else:
     gigs_df = load_all_gigs()
 
 if gigs_df.empty:
     st.info("No gigs found for this view.", icon="ℹ️")
     st.stop()
+
 
 # ===============================
 # VENUE LOOKUP (works for all roles)
