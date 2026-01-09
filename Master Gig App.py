@@ -34,12 +34,12 @@ with st.expander("Debug (Admin Only)", expanded=False):
         st.error(f"Debug rendering error: {e}")
 
 
-gig_id = st.query_params.get("gig_id", ["demo-001"])[0]
-try:
-    data = load_gig_view(gig_id)
-except Exception as e:
-    st.error(f"Could not load gig: {e}")
-    st.stop()
+# gig_id = st.query_params.get("gig_id", ["demo-001"])[0]
+# try:
+    # data = load_gig_view(gig_id)
+# except Exception as e:
+    # st.error(f"Could not load gig: {e}")
+    # st.stop()
 
 # Show summary + admin overrides
 colL, colR = st.columns([2,1])
