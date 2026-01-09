@@ -10,6 +10,15 @@ if not user:
     st.stop()
 
 # -------------------------------------------------
+# GLOBAL ADMIN LAYOUT (SAFE ZONE)
+# -------------------------------------------------
+from auth_logout import logout_and_redirect
+
+with st.sidebar:
+    if st.button("🚪 Logout"):
+        logout_and_redirect()
+
+# -------------------------------------------------
 # ADMIN-ONLY CONTENT STARTS HERE
 # -------------------------------------------------
 
