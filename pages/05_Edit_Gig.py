@@ -54,6 +54,13 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
     except Exception as e:
         st.warning(f"Could not attach Supabase session. ({e})")
 
+# -----------------------------
+# Auth/admin gate BEFORE header
+# -----------------------------
+from auth_helper import require_admin
+
+require_admin()
+
 # ---- Process pending calendar upsert (rerun-proof) ----
 try:
     from lib.calendar_utils import upsert_band_calendar_event as _upsert_band_calendar_event_for_queue
@@ -75,13 +82,6 @@ try:
             st.info(f"Queued calendar event {action} for gig {_pending['gig_id']}.")
 except Exception as e:
     st.error(f"Calendar upsert processor error: {e}")
-
-# -----------------------------
-# Auth/admin gate BEFORE header
-# -----------------------------
-from auth_helper import require_admin
-
-require_admin()
 
 # -----------------------------
 # Header AFTER gate
