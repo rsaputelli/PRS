@@ -13,7 +13,7 @@ from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
-from lib.auth_helper import require_admin
+from auth_helper import require_admin
 
 # -----------------------------
 # Debug toggles (set True when needed)
