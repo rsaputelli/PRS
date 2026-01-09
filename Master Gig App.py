@@ -1,11 +1,5 @@
 import streamlit as st
 from auth_helper import require_admin
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 # -------------------------------------------------
 # ADMIN GATE — NOTHING RENDERS BEFORE THIS
@@ -14,15 +8,6 @@ user, session, user_id = require_admin()
 
 if not user:
     st.stop()
-
-# -------------------------------------------------
-# GLOBAL ADMIN LAYOUT (SAFE ZONE)
-# -------------------------------------------------
-from lib.auth_logout import logout_and_redirect
-
-with st.sidebar:
-    if st.button("🚪 Logout"):
-        logout_and_redirect()
 
 # -------------------------------------------------
 # ADMIN-ONLY CONTENT STARTS HERE
