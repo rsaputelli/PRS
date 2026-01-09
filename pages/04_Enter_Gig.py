@@ -316,7 +316,9 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
         st.warning(f"Could not attach session; proceeding with limited access. ({e})")
 
 user, session, user_id = require_admin()        
-        
+if not user:
+    st.stop()
+    
 # ---- Process pending calendar upsert (rerun-proof) ----
 try:
     from lib.calendar_utils import upsert_band_calendar_event
