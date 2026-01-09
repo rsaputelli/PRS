@@ -13,6 +13,7 @@ from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
+from lib.auth_helper import require_admin
 
 # -----------------------------
 # Debug toggles (set True when needed)
@@ -78,19 +79,10 @@ except Exception as e:
 # -----------------------------
 # Auth/admin gate BEFORE header
 # -----------------------------
-from lib.auth import is_logged_in, current_user, IS_ADMIN
+from lib.auth_helper import require_admin
 
-# Require login first
-if not is_logged_in():
-    st.error("Please sign in from the Login page.")
-    st.stop()
+require_admin()
 
-USER = current_user()
-
-# Require admin next
-if not IS_ADMIN():
-    st.error("You do not have permission to edit gigs.")
-    st.stop()
 
 # -----------------------------
 # Header AFTER gate
