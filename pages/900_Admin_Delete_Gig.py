@@ -1,43 +1,48 @@
 # pages/900_Admin_Delete_Gig.py
-
 from __future__ import annotations
-import streamlit as st
-from supabase import create_client
-from lib.auth import is_logged_in, current_user, IS_ADMIN
 
+import os
+import streamlit as st
+from supabase import create_client, Client
+
+from auth_helper import require_admin
+
+# -----------------------------
+# Page config
+# -----------------------------
 st.set_page_config(page_title="Admin – Delete Gig", layout="wide")
 
-# ---------------------------------------------------------
-# Supabase Client (service key for privileged deletes)
-# ---------------------------------------------------------
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_SERVICE_KEY"]
-sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+# -----------------------------
+# Secrets / Supabase (SERVICE KEY — intentional)
+# -----------------------------
+def _get_secret(name: str, required: bool = False):
+    val = st.secrets.get(name) or os.environ.get(name)
+    if required and not val:
+        st.error(f"Missing required secret: {name}")
+        st.stop()
+    return val
 
-# ---------------------------------------------------------
-# AUTH — Unified PRS Login + Admin Gate
-# ---------------------------------------------------------
+SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
+SUPABASE_SERVICE_KEY = _get_secret("SUPABASE_SERVICE_KEY", required=True)
 
-# Login required
-if not is_logged_in():
-    st.error("Please sign in.")
+# ⚠️ Service key is intentional here (admin-only destructive ops)
+sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+# -----------------------------
+# AUTH + ADMIN GATE (canonical)
+# -----------------------------
+user, session, user_id = require_admin()
+if not user:
     st.stop()
 
-USER = current_user()
-
-# Admin required
-if not IS_ADMIN():
-    st.error("You do not have permission to access this page.")
-    st.stop()
-
-# ---------------------------------------------------------
+# -----------------------------
 # UI
-# ---------------------------------------------------------
-
+# -----------------------------
 st.title("🗑️ Admin – Delete Gig Safely (No Orphans)")
 st.warning("This action is permanent. Use with caution.")
 
 gig_id = st.text_input("Gig ID", placeholder="Paste the gig UUID")
+
 
 # ---------------------------------------------------------
 # CHILD TABLES (EXACT PRS SCHEMA) — DO NOT ADD 'gigs' HERE
