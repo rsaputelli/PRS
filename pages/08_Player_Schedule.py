@@ -78,13 +78,17 @@ elif musician:
 # ===============================
 # HEADER
 # ===============================
-render_header("My Schedule", emoji="🎸")
+render_header("My Schedule")
 
 if display_name:
-    st.caption(display_name)
+    st.markdown(
+        f"<div style='font-size:20px; font-weight:600; color:#2c2c2c; margin-top:-6px;'>"
+        f"{display_name}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
-
 
 # ===============================
 # ROLE-SCOPED VIEW MODE LOGIC
