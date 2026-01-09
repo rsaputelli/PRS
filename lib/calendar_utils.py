@@ -355,6 +355,12 @@ def upsert_band_calendar_event(
     calendar_name: str = "Philly Rock and Soul",
     **kwargs,
 ):
+    
+    # ---- TEMP DEBUG: secrets visibility ---
+    import streamlit as st
+    st.warning(f"DEBUG gcal_ids = {dict(st.secrets.get('gcal_ids', {}))}")
+    st.warning(f"DEBUG TEST_KEY = {st.secrets.get('TEST_KEY')}")
+    
     """
     Create or update a Calendar event for the given gig.
 
