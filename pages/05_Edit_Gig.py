@@ -1937,8 +1937,8 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             st.session_state["_force_lineup_reset"] = gid_str
             st.session_state["_edit_just_saved_gid"] = gid_str
 
-            # 🔁 refresh UI using DB-fresh lineup
-            st.rerun()
+            # 🔁 request a rerun, but DO NOT interrupt the rest of the save pipeline
+            st.session_state["_edit_rerun_after_save"] = True
 
         except Exception as e:
             st.warning(f"Lineup reseed fallback: {e}")
@@ -2112,3 +2112,8 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     st.rerun()
                 except Exception:
                     _safe_rerun("autosend after edit save")
+
+        # ---- Final rerun (deferred; must be last step of Save) ----
+        if st.session_state.pop("_edit_rerun_after_save", False):
+            st.rerun()
+
