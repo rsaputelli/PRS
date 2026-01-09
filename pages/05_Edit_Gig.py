@@ -2014,10 +2014,6 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 calendar_name="Philly Rock and Soul",  # keep this exact name
             )
 
-            # DEBUG — confirm execution + inspect result
-            st.info("Calendar upsert executed (inline)")
-            st.json(res)
-
             if isinstance(res, dict) and res.get("error"):
                 st.error(
                     f"Calendar upsert failed: {res.get('error')} "
