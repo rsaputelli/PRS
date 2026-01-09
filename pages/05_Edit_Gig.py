@@ -79,10 +79,9 @@ except Exception as e:
 # -----------------------------
 # Auth/admin gate BEFORE header
 # -----------------------------
-from lib.auth_helper import require_admin
+from auth_helper import require_admin
 
 require_admin()
-
 
 # -----------------------------
 # Header AFTER gate
