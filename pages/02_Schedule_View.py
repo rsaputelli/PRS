@@ -1,4 +1,4 @@
-# pages/02_Schedule_View.py — fixed header & imports
+# pages/02_Schedule_View.py
 import os
 from datetime import datetime, date, time, timedelta
 from typing import Optional, Dict, List, Union
@@ -7,32 +7,19 @@ import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
 from pathlib import Path
+
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
+from auth_helper import require_admin
 
-# ===============================
-# AUTH + ADMIN GATE
-# ===============================
-from lib.auth import is_logged_in, current_user, IS_ADMIN
+# -----------------------------
+# Page config
+# -----------------------------
+st.set_page_config(page_title="Schedule View", page_icon="📅", layout="wide")
 
-# Require login
-if not is_logged_in():
-    st.error("Please sign in from the Login page.")
-    st.stop()
-
-USER = current_user()
-
-# Require admin
-if not IS_ADMIN():
-    st.error("You do not have permission to view the full schedule.")
-    st.stop()
-
-
-# Header with logo + title
-render_header(title="Schedule View", emoji="📅")
-
-
-# --- Supabase helper ---
+# -----------------------------
+# Supabase helpers (canonical)
+# -----------------------------
 def _get_secret(name, default=None, required=False):
     if hasattr(st, "secrets") and name in st.secrets:
         val = st.secrets[name]
@@ -42,15 +29,12 @@ def _get_secret(name, default=None, required=False):
         st.stop()
     return val
 
+
 SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# --- Auth ---
-if "user" not in st.session_state or not st.session_state["user"]:
-    st.error("Please sign in from the Login page.")
-    st.stop()
-
+# Attach Supabase session BEFORE auth gate (critical for RLS)
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
         sb.auth.set_session(
@@ -58,7 +42,19 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
             refresh_token=st.session_state["sb_refresh_token"],
         )
     except Exception as e:
-        st.warning(f"Could not attach session; showing public data only. ({e})")
+        st.warning(f"Could not attach session; proceeding with limited access. ({e})")
+
+# -----------------------------
+# Admin gate (canonical)
+# -----------------------------
+user, session, user_id = require_admin()
+if not user:
+    st.stop()
+
+# -----------------------------
+# Header
+# -----------------------------
+render_header(title="Schedule View", emoji="📅")
 
 # --- Filters ---
 colf1, colf2, colf3 = st.columns([1, 1, 2])
