@@ -1165,7 +1165,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             _insert_rows("gig_musicians", gm_rows)
 
     # gig_deposits
-    if table_exists("gig_deposits"):
+    if _table_exists("gig_deposits"):
         rows: List[Dict] = []
         n = int(st.session_state.get("num_deposits", 0))
         for i in range(n):
