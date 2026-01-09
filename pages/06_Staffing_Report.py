@@ -10,24 +10,7 @@ import streamlit as st
 from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
-from lib.auth import IS_ADMIN
-
-# -----------------------------
-# Page config + Header
-# -----------------------------
-st.set_page_config(page_title="Staffing Report", page_icon="📋", layout="wide")
-render_header(title="Staffing Report", emoji="📋")
-
-# -----------------------------
-# Auth gate
-# -----------------------------
-if "user" not in st.session_state or not st.session_state["user"]:
-    st.error("Please sign in from the Login page.")
-    st.stop()
-    
-if not IS_ADMIN():
-    st.error("This page is restricted to administrators.")
-    st.stop()    
+from auth_helper import require_admin
 
 # -----------------------------
 # Supabase helpers
@@ -54,6 +37,20 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
         )
     except Exception as e:
         st.warning(f"Could not attach session; showing public data only. ({e})")
+
+# -----------------------------
+# Admin gate (canonical)
+# -----------------------------
+user, session, user_id = require_admin()
+if not user:
+    st.stop()
+
+
+# -----------------------------
+# Page config + Header
+# -----------------------------
+st.set_page_config(page_title="Staffing Report", page_icon="📋", layout="wide")
+render_header(title="Staffing Report", emoji="📋")
 
 # -----------------------------
 # Load data
