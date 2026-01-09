@@ -7,37 +7,43 @@ from datetime import date
 # VERSION_TAG = "Gig Closeout • v2025-11-09.3 (bulk + dropdown)"
 # st.markdown(f":red_circle: **{VERSION_TAG}**")
 
-# ---------- bootstrap secrets to env (safe per-key) ----------
-def _sec(name: str):
+# ===============================
+# Secrets / Supabase init (canonical)
+# ===============================
+from supabase import create_client, Client
+
+def _get_secret(name: str, default=None, required: bool = False):
+    if hasattr(st, "secrets") and name in st.secrets:
+        val = st.secrets[name]
+    else:
+        val = os.environ.get(name, default)
+    if required and (val is None or str(val).strip() == ""):
+        st.error(f"Missing required secret: {name}")
+        st.stop()
+    return val
+
+SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
+SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
+sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+# Attach session for RLS
+if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
-        return st.secrets[name]
-    except Exception:
-        return None
-
-for k in ("SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_KEY"):
-    v = _sec(k)
-    if v and not os.environ.get(k):
-        os.environ[k] = str(v)
-
-st.set_page_config(page_title="Gig Closeout", layout="wide")
+        sb.auth.set_session(
+            access_token=st.session_state["sb_access_token"],
+            refresh_token=st.session_state["sb_refresh_token"],
+        )
+    except Exception as e:
+        st.warning(f"Could not attach session; proceeding with limited access. ({e})")
 
 # ===============================
-# AUTH + ADMIN GATE (Unified PRS Model)
+# Admin gate (canonical)
 # ===============================
-from lib.auth import is_logged_in, current_user, IS_ADMIN
+from auth_helper import require_admin
 
-# Require login
-if not is_logged_in():
-    st.error("Please sign in from the Login page.")
+user, session, user_id = require_admin()
+if not user:
     st.stop()
-
-USER = current_user()
-
-# Require admin
-if not IS_ADMIN():
-    st.error("You do not have permission to access Gig Closeout.")
-    st.stop()
-
 
 # ---------- config guard ----------
 missing = []
@@ -62,7 +68,7 @@ from lib.closeout_utils import (  # type: ignore
     mark_closeout_status,
     money_fmt,
 )
-
+st.set_page_config(page_title="Gig Closeout", layout="wide")
 st.title("Gig Closeout")
 
 # ---------- constants ----------
