@@ -2008,6 +2008,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             st.warning(f"Could not queue calendar upsert: {e}")
 
         try:
+            st.error("DEBUG: ABOUT TO CALL CALENDAR UPSERT")
             res = upsert_band_calendar_event(
                 gig_id=gid_str,
                 sb=sb,
