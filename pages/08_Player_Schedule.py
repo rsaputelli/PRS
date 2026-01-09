@@ -16,47 +16,6 @@ auth_email = (user.email or "").lower().strip()
 from auth_helper import sb
 
 # ===============================
-# Supabase Init
-# ===============================
-# def _get_secret(name, required: bool = False):
-    # val = st.secrets.get(name)
-    # if required and not val:
-        # st.error(f"Missing secret: {name}")
-        # st.stop()
-    # return val
-
-
-# SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
-# SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
-
-# sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-# Attach session if available
-# if (
-    # st.session_state.get("sb_access_token")
-    # and st.session_state.get("sb_refresh_token")
-# ):
-    # try:
-        # sb.auth.set_session(
-            # access_token=st.session_state["sb_access_token"],
-            # refresh_token=st.session_state["sb_refresh_token"],
-        # )
-    # except Exception:
-        # pass
-
-
-# ===============================
-# AUTH — Unified PRS Login Model
-# ===============================
-# if not is_logged_in():
-    # st.error("Please log in to view your schedule.")
-    # st.stop()
-
-# USER = current_user()
-# email = (USER.get("email") or "").lower().strip()
-
-
-# ===============================
 # Helper: generic select to DataFrame
 # (mirrors 02_Schedule_View)
 # ===============================
@@ -107,55 +66,25 @@ if not is_admin:
         st.stop()
 
     musician = m_res.data[0]
+    
+# Resolve display name for header
+display_name = None
+
+if is_admin:
+    display_name = user.email
+elif musician:
+    display_name = musician.get("display_name") or user.email
 
 # ===============================
 # HEADER
 # ===============================
-render_header("My Schedule", emoji="🎸")
+render_header(
+    title="My Schedule",
+    subtitle=display_name,
+    emoji="🎸"
+)
+
 st.markdown("---")
-
-
-# ===============================
-# ROLE-SCOPED VIEW MODE LOGIC
-# ===============================
-
-# is_admin = IS_ADMIN()
-# player_email = email
-
-# Guests = logged-in but not mapped to musician record
-# role = (
-    # "admin" if is_admin
-    # else (profile.get("role") if profile and profile.get("role") else "guest")
-# )
-
-# Default = musicians see only their gigs
-# view_mode = "my"
-
-
-# if role == "admin":
-    # Admins may choose
-    # view_mode = st.radio(
-        # "Schedule View:",
-        # ["my", "all"],
-        # index=1,
-        # format_func=lambda x: "My Gigs" if x == "my" else "All Gigs",
-        # horizontal=True,
-    # )
-
-# elif role in ("musician", "sound_tech"):
-    # Musicians / Sound Techs → My gigs only
-    # st.info("You are viewing your assigned gigs only.", icon="🎸")
-    # view_mode = "my"
-
-# else:
-    # Guest / unmapped users → All gigs only
-    # st.warning(
-        # "You are viewing the public band schedule. "
-        # "If you are a band member and should see your personal gig schedule, "
-        # "please contact the site administrator.",
-        # icon="👤",
-    # )
-    # view_mode = "all"
 
 # ===============================
 # ROLE-SCOPED VIEW MODE LOGIC
