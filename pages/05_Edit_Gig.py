@@ -98,33 +98,28 @@ for _k, _default in [
         st.session_state[_k] = _default
 
 
-def _IS_ADMIN() -> bool:
-    """Wrapper to mirror global admin flag for this page."""
-    return bool(IS_ADMIN())
-
-
 # === Email autosend toggles UI (admin-only) ===
-if _IS_ADMIN():
-    st.markdown("### Auto-send on Save")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.checkbox(
-            "Sound tech",
-            key="autoc_send_st_on_create",
-            help="Email the sound tech on save",
-        )
-    with c2:
-        st.checkbox(
-            "Agent",
-            key="autoc_send_agent_on_create",
-            help="Email the agent on save",
-        )
-    with c3:
-        st.checkbox(
-            "Players",
-            key="autoc_send_players_on_create",
-            help="Email all assigned players on save",
-        )
+
+st.markdown("### Auto-send on Save")
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.checkbox(
+        "Sound tech",
+        key="autoc_send_st_on_create",
+        help="Email the sound tech on save",
+    )
+with c2:
+    st.checkbox(
+        "Agent",
+        key="autoc_send_agent_on_create",
+        help="Email the agent on save",
+    )
+with c3:
+    st.checkbox(
+        "Players",
+        key="autoc_send_players_on_create",
+        help="Email all assigned players on save",
+    )
 
 # ---- Persisted auto-send log (renders every run; always visible) ----
 st.session_state.setdefault("autosend_log", [])      # list[dict]
@@ -201,7 +196,7 @@ def _autosend_once(stage: str, gig_id: str) -> bool:
 def _autosend_run_for(gig_id_str: str):
     # Snapshot (for log)
     snap = {
-        "is_admin": bool(_IS_ADMIN()),
+        "is_admin": True,
         "toggles": {
             "agent": bool(st.session_state.get("autoc_send_agent_on_create", False)),
             "soundtech": bool(
@@ -236,8 +231,7 @@ def _autosend_run_for(gig_id_str: str):
 
     # === 1) Sound tech ===
     _enabled_st = (
-        _IS_ADMIN()
-        and (
+        (
             st.session_state.get("autoc_send_st_on_create", False)
             or st.session_state.get(f"edit_autoc_send_now_{gig_id_str}", False)
         )
@@ -246,12 +240,12 @@ def _autosend_run_for(gig_id_str: str):
     if not _enabled_st:
         _log(
             "Sound-tech confirmation",
-            "SKIPPED: is_admin="
-            f"{_IS_ADMIN()}, "
+            "SKIPPED: "
             f"toggle={st.session_state.get('autoc_send_st_on_create', False)}, "
             f"edit_flag={st.session_state.get(f'edit_autoc_send_now_{gig_id_str}', False)}, "
             f"sound_by_venue={st.session_state.get('sound_by_venue_in', False)}",
         )
+
         _mark_done("st")
     elif not prog["st"] and _autosend_once("soundtech", gig_id_str):
         _log("Sound-tech confirmation", "Calling sender...")
@@ -273,17 +267,14 @@ def _autosend_run_for(gig_id_str: str):
                 return
 
     # === 2) Agent ===
-    _enabled_agent = _IS_ADMIN() and st.session_state.get(
-        "autoc_send_agent_on_create", False
-    )
+    _enabled_agent = st.session_state.get("autoc_send_agent_on_create", False)
     if not _enabled_agent:
         _log(
             "Agent confirmation",
-            "SKIPPED: is_admin="
-            f"{_IS_ADMIN()}, "
-            f"toggle={st.session_state.get('autoc_send_agent_on_create', False)}",
+            f"SKIPPED: toggle={st.session_state.get('autoc_send_agent_on_create', False)}",
         )
         _mark_done("agent")
+
     elif not prog["agent"] and _autosend_once("agent", gig_id_str):
         _log("Agent confirmation", "Calling sender...")
         try:
@@ -304,17 +295,16 @@ def _autosend_run_for(gig_id_str: str):
                 return
 
     # === 3) Players (patched: only newly added players get emails) ===
-    _enabled_players = _IS_ADMIN() and st.session_state.get(
+    _enabled_players = st.session_state.get(
         "autoc_send_players_on_create", False
     )
     if not _enabled_players:
         _log(
             "Player confirmations",
-            "SKIPPED: is_admin="
-            f"{_IS_ADMIN()}, "
-            f"toggle={st.session_state.get('autoc_send_players_on_create', False)}",
+            f"SKIPPED: toggle={st.session_state.get('autoc_send_players_on_create', False)}",
         )
         _mark_done("players")
+
     elif not prog["players"] and _autosend_once("players", gig_id_str):
         _log("Player confirmations", "Calling sender (patched for added players)...")
         try:
