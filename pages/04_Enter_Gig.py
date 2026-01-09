@@ -15,8 +15,6 @@ from lib.ui_format import format_currency  # kept for parity / future use
 # from lib.auth import IS_ADMIN
 from auth_helper import require_admin
 
-user, session, user_id = require_admin()
-
 # ============================
 # Page config + Auth gate
 # ============================
@@ -316,6 +314,8 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
         )
     except Exception as e:
         st.warning(f"Could not attach session; proceeding with limited access. ({e})")
+
+user, session, user_id = require_admin()        
         
 # ---- Process pending calendar upsert (rerun-proof) ----
 try:
