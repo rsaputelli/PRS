@@ -1,209 +1,41 @@
-# Master Gig App.py
-import os, io, smtplib, ssl, datetime as dt
 import streamlit as st
-from email.message import EmailMessage
-from docx import Document
-from supabase import create_client, Client
-from auth_helper import restore_session
+from auth_helper import require_admin
 
+# -------------------------------------------------
+# ADMIN GATE — NOTHING RENDERS BEFORE THIS
+# -------------------------------------------------
+user, session, user_id = require_admin()
 
-# ─────────────── Config (safe secrets + env) ───────────────
-def _get_secret(name: str, default: str | None = None, required: bool = False) -> str | None:
-    """Prefer st.secrets → env var → default. Stop app if required and missing."""
-    val = None
-    if hasattr(st, "secrets") and name in st.secrets:
-        val = st.secrets.get(name)
-    if val is None:
-        val = os.getenv(name, default)
-    if required and (val is None or str(val).strip() == ""):
-        st.error(
-            f"Missing required setting: `{name}`.\n\n"
-            "Add it under **Settings → Secrets** in Streamlit Cloud or set it as an environment variable locally.\n"
-            "Required: SUPABASE_URL, SUPABASE_ANON_KEY. Optional: SUPABASE_SERVICE_KEY, SMTP_*."
-        )
-        st.stop()
-    return val
+if not user:
+    st.stop()
 
-TEMPLATE_PATH = "PRS_Contract_Template.docx"
+# -------------------------------------------------
+# ADMIN-ONLY CONTENT STARTS HERE
+# -------------------------------------------------
 
-# Email (defaults OK)
-SENDER_NAME  = "Philly Rock and Soul"
-SENDER_EMAIL = _get_secret("PRS_MAIL_FROM", default="prsbandinfo@gmail.com")
-SMTP_HOST    = _get_secret("SMTP_HOST", default="smtp.gmail.com")
-SMTP_PORT    = int(_get_secret("SMTP_PORT", default="587"))
-SMTP_USER    = _get_secret("SMTP_USER", default=SENDER_EMAIL)
-SMTP_PASS    = _get_secret("SMTP_PASS")  # optional
-
-# Supabase (REQUIRED)
-SUPABASE_URL         = _get_secret("SUPABASE_URL", required=True)
-SUPABASE_ANON_KEY    = _get_secret("SUPABASE_ANON_KEY", required=True)
-SUPABASE_SERVICE_KEY = _get_secret("SUPABASE_SERVICE_KEY")  # optional
-
-sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-sb_svc: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else sb
-
-# 🔑 Restore Supabase session on every load
-user, session = restore_session()
-
-
-# 🔎 SESSION DIAGNOSTIC (temporary)
-# st.write("🔎 SESSION DIAGNOSTIC")
-st.write("supabase_user:", st.session_state.get("supabase_user"))
-# st.write("sb_access_token:", st.session_state.get("sb_access_token"))
-# st.write("sb_refresh_token:", st.session_state.get("sb_refresh_token"))
-
-
-# ─────────────── Helpers ───────────────
-def merge_docx(template_path: str, variables: dict) -> bytes:
-    doc = Document(template_path)
-    repl = {f"${{{k}}}": str(v) for k, v in variables.items()}
-    # paragraphs
-    for p in doc.paragraphs:
-        for k, v in repl.items():
-            if k in p.text:
-                for r in p.runs:
-                    r.text = r.text.replace(k, v)
-    # tables
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for k, v in repl.items():
-                    if k in cell.text:
-                        for p in cell.paragraphs:
-                            for r in p.runs:
-                                r.text = r.text.replace(k, v)
-    buf = io.BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    return buf.read()
-
-def send_email_smtp(to_addrs, subject, body_html, attachment_name, attachment_bytes, cc_addrs=None):
-    msg = EmailMessage()
-    msg["From"] = f"{SENDER_NAME} <{SENDER_EMAIL}>"
-    msg["To"] = ", ".join(to_addrs if isinstance(to_addrs, list) else [to_addrs])
-    if cc_addrs: msg["Cc"] = ", ".join(cc_addrs)
-    msg["Subject"] = subject
-    msg.set_content("HTML mail required.")
-    msg.add_alternative(body_html, subtype="html")
-    msg.add_attachment(attachment_bytes, maintype="application",
-                       subtype="vnd.openxmlformats-officedocument.wordprocessingml.document",
-                       filename=attachment_name)
-    ctx = ssl.create_default_context()
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-        s.starttls(context=ctx); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
-
-st.write("DEBUG: role_is_admin version = id-column")
-
-def role_is_admin(user_id: str) -> bool:
-    # profiles(role: 'admin' | 'standard')
-    res = (
-        sb.table("profiles")
-        .select("role")
-        .eq("id", user_id)   # ✅ correct column
-        .execute()
-    )
-
-    if not res.data:
-        return False
-
-    return res.data[0]["role"] == "admin"
-
-
-def load_gig_view(gig_id: str) -> dict:
-    """Join gigs + venues + payments to build merge fields."""
-    g = sb.table("gigs").select("*").eq("id", gig_id).single().execute().data
-    if not g: raise RuntimeError("Gig not found or RLS blocked.")
-    v = sb.table("venues").select("name,address,venue_type").eq("id", g["venue_id"]).single().execute().data
-    pays = sb.table("gig_payments").select("*").eq("gig_id", gig_id).order("due_on").execute().data or []
-    # Optional private details:
-    gp = sb.table("gigs_private").select("contracted_amount").eq("gig_id", gig_id).maybe_single().execute().data
-
-    # Merge fields (adapt names to your columns)
-    # Expecting: event_date (date), time blocks, band_size, num_vocalists, overtime_rate, package fields, etc.
-    # You can store these in gigs or a related packages table.
-    return {
-        "gig_id": gig_id,
-        "event_type": g.get("event_type",""),
-        "event_date": dt.date.fromisoformat(g["date_start"][:10]).strftime("%A, %B %-d, %Y") if g.get("date_start") else "",
-        "venue_name": v["name"] if v else "",
-        "venue_address": v["address"] if v else "",
-        "venue_type": (v.get("venue_type") if v and v.get("venue_type") else (g.get("is_indoor") and "Indoor" or "Outdoor")),
-        "performance_duration_hours": g.get("duration_hours",""),
-        "cocktail_hours": g.get("cocktail_hours",""),
-        "full_band_hours": g.get("full_band_hours",""),
-        "cocktail_start": g.get("cocktail_start",""),
-        "cocktail_end": g.get("cocktail_end",""),
-        "reception_start": g.get("reception_start",""),
-        "reception_end": g.get("reception_end",""),
-
-        "contract_total": gp.get("contracted_amount") if gp else g.get("fee_total",""),
-        "credit_card_fee_pct": g.get("credit_card_fee_pct","4.5"),
-
-        "package_name": g.get("package_name",""),
-        "package_price": g.get("package_price",""),
-        "band_size": g.get("band_size",""),
-        "num_vocalists": g.get("num_vocalists",""),
-        "overtime_rate": g.get("overtime_rate","$500"),
-        "stage_space": g.get("stage_space","10 × 20 ft"),
-        "access_lead_hours": g.get("access_lead_hours","3"),
-
-        # Map up to 3 deposits + final (if your UI collects arbitrary N, keep first 3 + final for template)
-        "deposit1_amt": pays[0]["amount"] if len(pays) > 0 and pays[0].get("type") in ("Deposit","deposit") else "",
-        "deposit1_due": (dt.date.fromisoformat(pays[0]["due_on"]).strftime("%B %-d, %Y") if len(pays)>0 and pays[0].get("due_on") else "At signing"),
-        "deposit2_amt": pays[1]["amount"] if len(pays) > 1 and pays[1].get("type") in ("Deposit","deposit") else "",
-        "deposit2_due": (dt.date.fromisoformat(pays[1]["due_on"]).strftime("%B %-d, %Y") if len(pays)>1 and pays[1].get("due_on") else ""),
-        "deposit3_amt": pays[2]["amount"] if len(pays) > 2 and pays[2].get("type") in ("Deposit","deposit") else "",
-        "deposit3_due": (dt.date.fromisoformat(pays[2]["due_on"]).strftime("%B %-d, %Y") if len(pays)>2 and pays[2].get("due_on") else ""),
-        "final_payment_amt": next((p["amount"] for p in pays if p.get("type","").lower()=="final"), ""),
-        "final_payment_due": next((dt.date.fromisoformat(p["due_on"]).strftime("%B %-d, %Y")
-                                   for p in pays if p.get("type","").lower()=="final" and p.get("due_on")), ""),
-
-        # hosts (store on gigs or private_event_details)
-        "host_names": g.get("host_names",""),
-        "host1_name": g.get("host1_name",""),
-        "host2_name": g.get("host2_name",""),
-        "host_email": g.get("host_email",""),
-
-        "contract_status": g.get("contract_status","Draft"),
-        "created_by_user": g.get("created_by",""),
-        "created_at": g.get("created_at",""),
-        "contract_signed_date_band": "",
-        "host_signed_date": "",
-    }
-
-def upload_contract_to_storage(gig_id: str, file_name: str, data: bytes) -> str:
-    # Ensure bucket 'contracts' exists; path per gig
-    path = f"{gig_id}/{file_name}"
-    sb_svc.storage.from_("contracts").upload(path, data, {"content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "upsert": "true"})
-    # If bucket is public:
-    public = sb_svc.storage.from_("contracts").get_public_url(path)
-    return public["publicUrl"] if isinstance(public, dict) else public
-
-def mark_contract_sent(gig_id: str, url: str):
-    sb_svc.table("gigs").update({"contract_status": "Sent", "contract_url": url}).eq("id", gig_id).execute()
-
-def upsert_package(name: str, default_price: str | float):
-    # packages(name unique, is_active, default_price)
-    sb_svc.table("packages").upsert({
-        "name": name.strip(),
-        "is_active": True,
-        "default_price": default_price
-    }, on_conflict="name").execute()
-
-# ─────────────── UI ───────────────
-st.set_page_config(page_title="Contract Review & Send", page_icon="🎶", layout="wide")
 st.title("Master Gig App (Admin)")
+st.error("Admins only.")
 
-# Auth/role check (replace with your auth session)
-user_id = st.session_state.get("user_id")
 
-if not user_id:
-    st.error("Please sign in.")
-    st.stop()
+Master Gig App (Admin)
+Admins only.
 
-if not role_is_admin(user_id):
-    st.error("Admins only.")
-    st.stop()
+# -------------------------------------------------
+# Debug (ADMIN ONLY)
+# -------------------------------------------------
+with st.expander("Debug (Admin Only)", expanded=False):
+    try:
+        # If your auth helper exposes the Supabase user
+        supabase_user = session.get("user") if session else None
+        if supabase_user:
+            st.json(supabase_user)
+        else:
+            st.write("No supabase_user available")
+
+        st.write("DEBUG: role_is_admin version = id-column")
+        st.write("User ID:", user_id)
+    except Exception as e:
+        st.error(f"Debug rendering error: {e}")
 
 
 gig_id = st.query_params.get("gig_id", ["demo-001"])[0]
