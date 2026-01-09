@@ -78,13 +78,13 @@ elif musician:
 # ===============================
 # HEADER
 # ===============================
-render_header(
-    title="My Schedule",
-    subtitle=display_name,
-    emoji="🎸"
-)
+render_header("My Schedule", emoji="🎸")
+
+if display_name:
+    st.caption(display_name)
 
 st.markdown("---")
+
 
 # ===============================
 # ROLE-SCOPED VIEW MODE LOGIC
