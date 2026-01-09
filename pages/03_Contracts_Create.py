@@ -44,18 +44,10 @@ if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_
 # ============================
 # AUTH + ADMIN GATE (Unified PRS model)
 # ============================
-from lib.auth import is_logged_in, current_user, IS_ADMIN
+from auth_helper import require_admin
 
-# Require login
-if not is_logged_in():
-    st.error("Please sign in from the Login page.")
-    st.stop()
-
-USER = current_user()
-
-# Require admin
-if not IS_ADMIN():
-    st.error("You do not have permission to access the Contracts page.")
+user, session, user_id = require_admin()
+if not user:
     st.stop()
 
 # ============================
