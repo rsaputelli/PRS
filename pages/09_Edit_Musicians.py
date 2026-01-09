@@ -7,20 +7,18 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 import os
 
-# ==========================================
-# Auth (Unified PRS Auth System)
-# ==========================================
-from lib.auth import is_logged_in, current_user, IS_ADMIN
-
-# ==========================================
-# Supabase Client (matches Edit Gig / Schedule View)
-# ==========================================
 from supabase import create_client, Client
+from auth_helper import require_admin
 
-def _get_secret(name: str, required=False) -> Optional[str]:
-    """Match the secret-fetch logic used across PRS."""
-    val = st.secrets.get(name) or os.environ.get(name)
-    if required and not val:
+# ==========================================
+# Supabase Client (canonical PRS pattern)
+# ==========================================
+def _get_secret(name: str, default=None, required: bool = False) -> Optional[str]:
+    if hasattr(st, "secrets") and name in st.secrets:
+        val = st.secrets[name]
+    else:
+        val = os.environ.get(name, default)
+    if required and (val is None or str(val).strip() == ""):
         st.error(f"Missing required secret: {name}")
         st.stop()
     return val
@@ -29,33 +27,21 @@ SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# Attach authenticated session
-if (
-    "sb_access_token" in st.session_state
-    and st.session_state["sb_access_token"]
-    and "sb_refresh_token" in st.session_state
-    and st.session_state["sb_refresh_token"]
-):
+# Attach Supabase session for RLS BEFORE any queries
+if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
         sb.auth.set_session(
             access_token=st.session_state["sb_access_token"],
             refresh_token=st.session_state["sb_refresh_token"],
         )
-    except Exception:
-        st.error("Your session has expired. Please log in again.")
-        st.stop()
+    except Exception as e:
+        st.warning(f"Could not attach Supabase session. ({e})")
 
 # ==========================================
-# LOGIN + ADMIN GATE
+# ADMIN GATE (single source of truth)
 # ==========================================
-if not is_logged_in():
-    st.error("Please sign in from the Login page.")
-    st.stop()
-
-USER = current_user()
-
-if not IS_ADMIN():
-    st.error("You do not have permission to edit musician records.")
+user, session, user_id = require_admin()
+if not user:
     st.stop()
 
 # ==========================================
