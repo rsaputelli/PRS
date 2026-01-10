@@ -9,19 +9,26 @@ SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-
 def restore_session():
+    # 🚫 HARD LOGOUT SENTINEL
+    if st.session_state.get("force_logged_out"):
+        st.session_state.pop("supabase_user", None)
+        st.session_state.pop("user_id", None)
+        st.session_state.pop("sb_access_token", None)
+        st.session_state.pop("sb_refresh_token", None)
+        return None, None
+
+    # ---- existing restore logic ----
     access = st.session_state.get("sb_access_token")
     refresh = st.session_state.get("sb_refresh_token")
 
     if access and refresh:
-        # Re-attach session for this request/page
         sb.auth.set_session(access, refresh)
 
     session = sb.auth.get_session()
     user = session.user if session else None
 
-    # 🔹 Hydrate app-level identity (what your pages actually check)
+    # 🔹 Hydrate app-level identity (authoritative)
     if user:
         st.session_state["supabase_user"] = user
         st.session_state["user_id"] = user.id
@@ -30,6 +37,7 @@ def restore_session():
         st.session_state.pop("user_id", None)
 
     return user, session
+
 
 def require_login():
     user, session = restore_session()

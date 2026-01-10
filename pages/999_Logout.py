@@ -5,6 +5,7 @@ from supabase import create_client
 
 st.set_page_config(page_title="Logout", page_icon="🚪")
 
+# --- HARD LOGOUT ---
 try:
     sb = create_client(
         st.secrets["SUPABASE_URL"],
@@ -14,9 +15,16 @@ try:
 except Exception:
     pass  # logout must never block
 
-st.session_state.clear()
+# 🔒 Set sentinel FIRST
+st.session_state["force_logged_out"] = True
 
-st.info("Signing you out…")
+# 🧹 Clear everything else safely
+for k in list(st.session_state.keys()):
+    if k != "force_logged_out":
+        st.session_state.pop(k, None)
+
+
+st.info("You have been logged out.")
 
 st.markdown(
     '<meta http-equiv="refresh" content="0; url=/Login">',
