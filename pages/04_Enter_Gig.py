@@ -12,8 +12,10 @@ from tools.send_player_confirms import _insert_email_audit
 from lib.calendar_utils import upsert_band_calendar_event
 from lib.ui_header import render_header
 from lib.ui_format import format_currency  # kept for parity / future use
-# from lib.auth import IS_ADMIN
 from auth_helper import require_admin
+from tools.send_venue_confirm import send_venue_confirm
+import uuid
+from confirmations import send_venue_confirmation_email
 
 # ============================
 # Page config + Auth gate
@@ -590,7 +592,25 @@ with vs1:
     venue_add_box = st.empty()  # anchor directly under the select
 
     is_private = st.checkbox("Private Event?", value=False, key="is_private_in")
-    # is_1099_eligible = st.checkbox("1099 Eligible", value=False, key="newgig_is1099")
+
+# ─────────────────────────────
+# Venue Confirmation (PUBLIC gigs only, admin-selected)
+# ─────────────────────────────
+
+show_venue_confirm = (
+    not st.session_state.get("is_private_in", False)
+    and not st.session_state.get("agent_sel")
+)
+
+if show_venue_confirm:
+    st.checkbox(
+        "Require venue confirmation",
+        key="require_venue_confirm_on_create",
+        help="Send venue confirmation email and require a response before marking venue confirmed.",
+    )
+else:
+    st.session_state.pop("require_venue_confirm_on_create", None)
+
 
 with vs2:
     SOUND_ADD = "__ADD_SOUND__"
@@ -1094,6 +1114,31 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         st.stop()
 
     gig_id = str(new_gig.get("id", ""))
+    
+    # ------------------------------------------------------------
+    # Venue confirmation (PUBLIC gigs, admin-selected, no agent)
+    # ------------------------------------------------------------
+    if (
+        not st.session_state.get("is_private_in", False)
+        and not st.session_state.get("agent_sel")
+        and st.session_state.get("require_venue_confirm_on_create", False)
+    ):
+        try:
+            vc_payload = {
+                "gig_id": gig_id,
+                "role": "venue",
+                "status": "pending",
+                "requested_at": datetime.utcnow().isoformat(),
+                "requested_by": st.session_state.get("user_id"),
+            }
+
+            vc_payload = _filter_to_schema("gig_confirmations", vc_payload)
+            if vc_payload:
+                sb.table("gig_confirmations").insert(vc_payload).execute()
+
+        except Exception as e:
+            st.error(f"Could not create venue confirmation record: {e}")
+    
 
     # ------------------------------------------------------------
     # Save private gig details into gigs_private
@@ -1186,8 +1231,6 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     except Exception as e:
         st.warning(f"Could not queue calendar upsert: {e}")
 
-
-    
     # gig_id_str must be a string UUID for the saved gig
     if any([
         st.session_state.get("autoc_send_st_on_create", False),
@@ -1204,8 +1247,6 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             except Exception:
                 _safe_rerun()
 
-    
-        
     # Success summary
     def _fmt12(t: time) -> str:
         dt0 = datetime(2000, 1, 1, t.hour, t.minute)
@@ -1213,6 +1254,33 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
+    
+st.markdown("---")
+st.subheader("Venue Confirmation")
+
+# Look for existing pending venue confirmation
+vc = (
+    sb.table("gig_confirmations")
+    .select("id,status")
+    .eq("gig_id", gig_id)
+    .eq("role", "venue")
+    .maybe_single()
+    .execute()
+    .data
+)
+
+if not vc:
+    st.info("Venue confirmation not required for this gig.")
+elif vc["status"] != "pending":
+    st.info(f"Venue confirmation status: {vc['status']}")
+else:
+    if st.button("📍 Send Venue Confirmation"):
+        try:
+            send_venue_confirm(gig_id)
+            st.success("Venue confirmation sent.")
+        except Exception as e:
+            st.error(f"Failed to send venue confirmation: {e}")
+   
 
     # Schedule a rerun-proof upsert (kept)
     st.session_state["pending_cal_upsert"] = {
