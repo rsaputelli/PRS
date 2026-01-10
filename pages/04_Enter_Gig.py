@@ -15,7 +15,6 @@ from lib.ui_format import format_currency  # kept for parity / future use
 from auth_helper import require_admin
 from tools.send_venue_confirm import send_venue_confirm
 import uuid
-from confirmations import send_venue_confirmation_email
 
 # ============================
 # Page config + Auth gate
