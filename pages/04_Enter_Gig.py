@@ -1259,16 +1259,19 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 st.markdown("---")
 st.subheader("Venue Confirmation")
 
-# Look for existing pending venue confirmation
-vc = (
-    sb.table("gig_confirmations")
-    .select("id,status")
-    .eq("gig_id", gig_id)
-    .eq("role", "venue")
-    .maybe_single()
-    .execute()
-    .data
-)
+current_gig_id = st.session_state.get("current_gig_id")
+
+vc = None
+if current_gig_id:
+    vc = (
+        sb.table("gig_confirmations")
+        .select("id,status")
+        .eq("gig_id", current_gig_id)
+        .eq("role", "venue")
+        .maybe_single()
+        .execute()
+        .data
+    )
 
 if not vc:
     st.info("Venue confirmation not required for this gig.")
