@@ -1113,7 +1113,10 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         st.stop()
 
     gig_id = str(new_gig.get("id", ""))
-    
+
+    # 🔑 Persist for post-save UI (venue confirmation, resend, etc.)
+    st.session_state["current_gig_id"] = gig_id
+        
     # ------------------------------------------------------------
     # Venue confirmation (PUBLIC gigs, admin-selected, no agent)
     # ------------------------------------------------------------
@@ -1137,7 +1140,6 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
         except Exception as e:
             st.error(f"Could not create venue confirmation record: {e}")
-    
 
     # ------------------------------------------------------------
     # Save private gig details into gigs_private
