@@ -351,9 +351,19 @@ def _select_df(table: str, select: str = "*", where_eq: Optional[Dict] = None, l
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
-def _table_columns(table: str) -> Set[str]:
+def _table_columns_cached(table: str) -> Set[str]:
     df = _select_df(table, "*", limit=1)
     return set(df.columns) if not df.empty else set()
+
+
+def _table_columns(table: str) -> Set[str]:
+    # NEVER cache gig_confirmations — schema evolved during dev
+    if table == "gig_confirmations":
+        df = _select_df(table, "*", limit=1)
+        return set(df.columns) if not df.empty else set()
+
+    return _table_columns_cached(table)
+
 
 def _table_exists(table: str) -> bool:
     try:
