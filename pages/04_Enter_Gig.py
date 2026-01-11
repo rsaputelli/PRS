@@ -1290,15 +1290,19 @@ if current_gig_id:
 
     vc = None
     if current_gig_id:
-        vc = (
-            sb.table("gig_confirmations")
-            .select("id,status")
-            .eq("gig_id", current_gig_id)
-            .eq("role", "venue")
-            .maybe_single()
-            .execute()
-            .data
-        )
+        try:
+            vc = (
+                sb.table("gig_confirmations")
+                .select("id,status")
+                .eq("gig_id", current_gig_id)
+                .eq("role", "venue")
+                .maybe_single()
+                .execute()
+                .data
+            )
+        except Exception:
+            # 204 = no row returned → this is OK
+            vc = None
 
     if not vc:
         st.info("Venue confirmation not required for this gig.")
@@ -1313,10 +1317,9 @@ if current_gig_id:
                     {"status": "sent"}
                 ).eq("id", vc["id"]).execute()
                 st.rerun()
-
             except Exception as e:
                 st.error(f"Failed to send venue confirmation: {e}")
-       
+         
 
         # Schedule a rerun-proof upsert (kept)
         st.session_state["pending_cal_upsert"] = {
