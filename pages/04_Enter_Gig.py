@@ -1258,37 +1258,36 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     
 current_gig_id = st.session_state.get("current_gig_id")
 
-    if current_gig_id:
-        st.markdown("---")
-        st.subheader("Venue Confirmation")
+if current_gig_id:
+    st.markdown("---")
+    st.subheader("Venue Confirmation")
+ 
+    with st.expander("👀 Preview venue confirmation email", expanded=False):
+        try:
+            from tools.send_venue_confirm import build_venue_confirmation_email
 
-    if current_gig_id:
-        with st.expander("👀 Preview venue confirmation email", expanded=False):
-            try:
-                from tools.send_venue_confirm import build_venue_confirmation_email
+            preview = build_venue_confirmation_email(current_gig_id)
 
-                preview = build_venue_confirmation_email(current_gig_id)
+            st.markdown("**To:**")
+            st.code(preview.get("to", "(missing email)"))
 
-                st.markdown("**To:**")
-                st.code(preview.get("to", "(missing email)"))
+            if preview.get("cc"):
+                st.markdown("**CC:**")
+                st.code(", ".join(preview["cc"]))
 
-                if preview.get("cc"):
-                    st.markdown("**CC:**")
-                    st.code(", ".join(preview["cc"]))
+            st.markdown("**Subject:**")
+            st.code(preview.get("subject", ""))
 
-                st.markdown("**Subject:**")
-                st.code(preview.get("subject", ""))
+            st.markdown("**Email body:**")
+            st.components.v1.html(
+                preview.get("html", ""),
+                height=420,
+                scrolling=True,
+            )
 
-                st.markdown("**Email body:**")
-                st.components.v1.html(
-                    preview.get("html", ""),
-                    height=420,
-                    scrolling=True,
-                )
-
-            except Exception as e:
-                st.error("Unable to generate venue confirmation preview.")
-                st.exception(e)
+        except Exception as e:
+            st.error("Unable to generate venue confirmation preview.")
+            st.exception(e)
 
     vc = None
     if current_gig_id:
