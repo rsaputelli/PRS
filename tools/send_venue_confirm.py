@@ -94,7 +94,7 @@ def _fetch_gig_and_venue(sb: Client, gig_id: str) -> Dict[str, Any]:
 
     v_res = (
         sb.table("venues")
-        .select("id, name, email, address_line1, city, state")
+        .select("id, name, contact_email, address_line1, city, state")
         .eq("id", g["venue_id"])
         .limit(1)
         .execute()
@@ -105,8 +105,8 @@ def _fetch_gig_and_venue(sb: Client, gig_id: str) -> Dict[str, Any]:
         raise ValueError("Venue not found or RLS blocked.")
 
     venue = v_rows[0]
-    if not venue.get("email"):
-        raise ValueError("Venue has no email on file.")
+    if not venue.get("contact_email"):
+        raise ValueError("Venue has no contact email on file.")
 
     return {"gig": g, "venue": venue}
 
@@ -167,7 +167,7 @@ def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
     subject = f"[Venue Confirmation] {title} — {gig['event_date']}"
 
     return {
-        "to": venue.get("email"),
+        "to": venue.get("contact_email"),
         "cc": [CC_RAY],
         "subject": subject,
         "html": html,
@@ -214,7 +214,7 @@ def send_venue_confirm(gig_id: str) -> None:
     try:
         gmail_send(
             subject,
-            venue["email"],
+            venue["contact_email"],
             html,
             cc=[CC_RAY],
         )

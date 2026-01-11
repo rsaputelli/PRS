@@ -1129,8 +1129,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             vc_payload = {
                 "gig_id": gig_id,
                 "role": "venue",
-                "status": "pending",
-                "requested_at": datetime.utcnow().isoformat(),
+                "status": "pending",                
                 "requested_by": st.session_state.get("user_id"),
             }
 
