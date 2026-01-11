@@ -127,6 +127,51 @@ def _insert_email_audit(*, token, gig_id, recipient_email, kind, status):
         }
     ).execute()
 
+def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
+    """
+    Build (but do not send) the venue confirmation email.
+    Safe for UI preview.
+    """
+    sb = _sb()
+    payload = _fetch_gig_and_venue(sb, gig_id)
+    gig, venue = payload["gig"], payload["venue"]
+
+    token = "PREVIEW-TOKEN"
+    title = gig.get("title") or "Live Performance"
+
+    fee_str = f"${float(gig['fee']):,.2f}" if gig.get("fee") else "—"
+
+    rows = [{
+        "Event": title,
+        "Date": gig["event_date"],
+        "Fee": fee_str,
+    }]
+    html_table = build_html_table(rows)
+
+    mailto = (
+        f"mailto:{FROM_EMAIL}"
+        f"?subject=Venue%20confirmation%20received%20[{token}]"
+        f"&body=Confirmed.%20Token:%20{token}"
+    )
+
+    html = f"""
+    <p>Hello {venue.get("name")},</p>
+    <p>Please confirm venue availability for the following performance:</p>
+    {html_table}
+    <p>
+      <a href="{mailto}"><b>Click here to confirm</b></a>
+    </p>
+    <p>— {FROM_NAME}</p>
+    """
+
+    subject = f"[Venue Confirmation] {title} — {gig['event_date']}"
+
+    return {
+        "to": venue.get("email"),
+        "cc": [CC_RAY],
+        "subject": subject,
+        "html": html,
+    }
 
 # -----------------------------
 # Main sender

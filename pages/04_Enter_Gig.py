@@ -1256,77 +1256,111 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
     
-st.markdown("---")
-st.subheader("Venue Confirmation")
-
 current_gig_id = st.session_state.get("current_gig_id")
 
-vc = None
-if current_gig_id:
-    vc = (
-        sb.table("gig_confirmations")
-        .select("id,status")
-        .eq("gig_id", current_gig_id)
-        .eq("role", "venue")
-        .maybe_single()
-        .execute()
-        .data
-    )
+    if current_gig_id:
+        st.markdown("---")
+        st.subheader("Venue Confirmation")
 
-if not vc:
-    st.info("Venue confirmation not required for this gig.")
-elif vc["status"] != "pending":
-    st.info(f"Venue confirmation status: {vc['status']}")
-else:
-    if st.button("📍 Send Venue Confirmation"):
-        try:
-            send_venue_confirm(gig_id)
-            st.success("Venue confirmation sent.")
-        except Exception as e:
-            st.error(f"Failed to send venue confirmation: {e}")
-   
+    if current_gig_id:
+        with st.expander("👀 Preview venue confirmation email", expanded=False):
+            try:
+                from tools.send_venue_confirm import build_venue_confirmation_email
 
-    # Schedule a rerun-proof upsert (kept)
-    st.session_state["pending_cal_upsert"] = {
-        "gig_id": gig_id,
-        "calendar_name": "Philly Rock and Soul",  # must match elsewhere
-    }
+                preview = build_venue_confirmation_email(current_gig_id)
 
-    # Also perform the upsert immediately so posting doesn't rely on a rerun
-    try:
-        res = upsert_band_calendar_event(
-            gig_id=gig_id,
-            sb=sb,
-            calendar_name="Philly Rock and Soul",  # keep this exact name
+                st.markdown("**To:**")
+                st.code(preview.get("to", "(missing email)"))
+
+                if preview.get("cc"):
+                    st.markdown("**CC:**")
+                    st.code(", ".join(preview["cc"]))
+
+                st.markdown("**Subject:**")
+                st.code(preview.get("subject", ""))
+
+                st.markdown("**Email body:**")
+                st.components.v1.html(
+                    preview.get("html", ""),
+                    height=420,
+                    scrolling=True,
+                )
+
+            except Exception as e:
+                st.error("Unable to generate venue confirmation preview.")
+                st.exception(e)
+
+    vc = None
+    if current_gig_id:
+        vc = (
+            sb.table("gig_confirmations")
+            .select("id,status")
+            .eq("gig_id", current_gig_id)
+            .eq("role", "venue")
+            .maybe_single()
+            .execute()
+            .data
         )
-        # === NEW: inspect result dict so we don't show success on silent errors ===
-        if isinstance(res, dict) and res.get("error"):
-            st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
-            # Optional: show more detail during debug
-            st.write({"calendarId": res.get("calendarId")})
-        else:
-            action = (res or {}).get("action", "updated")
-            ev_id  = (res or {}).get("eventId")
-            st.success(f"PRS Calendar {action}.")
-            if ev_id:
-                st.caption(f"Event ID: {ev_id}")
-    except Exception as e:
-        st.error(f"Calendar upsert exception: {e}")
 
-    st.write({
-        "id": gig_id,
-        "title": new_gig.get("title"),
-        "event_date": new_gig.get("event_date"),
-        "start_time (12-hr)": _fmt12(start_time_in),
-        "end_time (12-hr)": _fmt12(end_time_in),
-        "status": new_gig.get("contract_status"),
-        "fee": new_gig.get("fee"),
-    })
+    if not vc:
+        st.info("Venue confirmation not required for this gig.")
+    elif vc["status"] != "pending":
+        st.info(f"Venue confirmation status: {vc['status']}")
+    else:
+        if st.button("📍 Send Venue Confirmation"):
+            try:
+                send_venue_confirm(current_gig_id)
+                st.success("Venue confirmation sent.")
+                sb.table("gig_confirmations").update(
+                    {"status": "sent"}
+                ).eq("id", vc["id"]).execute()
+                st.rerun()
 
-    # Optional: store the actual time objects in session for reuse elsewhere
-    st.session_state["start_time_in_obj"] = start_time_in
-    st.session_state["end_time_in_obj"]   = end_time_in
+            except Exception as e:
+                st.error(f"Failed to send venue confirmation: {e}")
+       
 
-    st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
+        # Schedule a rerun-proof upsert (kept)
+        st.session_state["pending_cal_upsert"] = {
+            "gig_id": current_gig_id,
+            "calendar_name": "Philly Rock and Soul",  # must match elsewhere
+        }
 
-  
+        # Also perform the upsert immediately so posting doesn't rely on a rerun
+        try:
+            res = upsert_band_calendar_event(
+                gig_id=current_gig_id,
+                sb=sb,
+                calendar_name="Philly Rock and Soul",  # keep this exact name
+            )
+            # === NEW: inspect result dict so we don't show success on silent errors ===
+            if isinstance(res, dict) and res.get("error"):
+                st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
+                # Optional: show more detail during debug
+                st.write({"calendarId": res.get("calendarId")})
+            else:
+                action = (res or {}).get("action", "updated")
+                ev_id  = (res or {}).get("eventId")
+                st.success(f"PRS Calendar {action}.")
+                if ev_id:
+                    st.caption(f"Event ID: {ev_id}")
+        except Exception as e:
+            st.error(f"Calendar upsert exception: {e}")
+
+        st.write({
+            "id": current_gig_id,
+            "title": new_gig.get("title"),
+            "event_date": new_gig.get("event_date"),
+            "start_time (12-hr)": _fmt12(start_time_in),
+            "end_time (12-hr)": _fmt12(end_time_in),
+            "status": new_gig.get("contract_status"),
+            "fee": new_gig.get("fee"),
+        })
+
+        # Optional: store the actual time objects in session for reuse elsewhere
+        st.session_state["start_time_in_obj"] = start_time_in
+        st.session_state["end_time_in_obj"]   = end_time_in
+
+        st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
+
+      
