@@ -201,7 +201,9 @@ def send_venue_confirm(gig_id: str) -> None:
 
     html = f"""
     <p>Hello {venue.get("name")},</p>
-    <p>Please confirm venue availability for the following performance:</p>
+    <p>Thank you for the recent booking for Philly Rock and Soul. We're excited to play for you.</p>
+    <p>Please confirm the details of our performance as listed below.</p>
+    <p>If anything is out of order, please contact us ASAP by responding to this email or calling us at 484-639-9511.</p>    
     {html_table}
     <p>
       <a href="{mailto}"><b>Click here to confirm</b></a>
@@ -222,7 +224,7 @@ def send_venue_confirm(gig_id: str) -> None:
         _insert_email_audit(
             token=token,
             gig_id=gig["id"],
-            recipient_email=venue["email"],
+            recipient_email=venue["contact_email"],
             kind="venue_confirm",
             status="sent",
         )
@@ -231,7 +233,7 @@ def send_venue_confirm(gig_id: str) -> None:
         _insert_email_audit(
             token=token,
             gig_id=gig["id"],
-            recipient_email=venue["email"],
+            recipient_email=venue["contact_email"],
             kind="venue_confirm",
             status=f"error: {e}",
         )

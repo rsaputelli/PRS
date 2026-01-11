@@ -1136,16 +1136,36 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         and st.session_state.get("require_venue_confirm_on_create", False)
     ):
         try:
+            # Fetch venue contact info
+            venue = None
+            if gig_payload.get("venue_id"):
+                venue = (
+                    sb.table("venues")
+                    .select("name,contact_name,contact_email")
+                    .eq("id", gig_payload["venue_id"])
+                    .maybe_single()
+                    .execute()
+                    .data
+                )
+
             vc_payload = {
                 "gig_id": gig_id,
                 "role": "venue",
-                "recipient_name": venue_name,      # if available
-                "recipient_email": venue_email,    # REQUIRED
-}
+                "recipient_name": (
+                    venue.get("contact_name")
+                    or venue.get("name")
+                    if venue else None
+                ),
+                "recipient_email": venue.get("contact_email") if venue else None,
+            }
 
             vc_payload = _filter_to_schema("gig_confirmations", vc_payload)
-            if vc_payload:
-                sb.table("gig_confirmations").insert(vc_payload).execute()
+
+            # Only insert if we actually have an email
+            if vc_payload.get("recipient_email"):
+                _robust_insert("gig_confirmations", vc_payload)
+            else:
+                st.warning("Venue has no contact email on file; confirmation not sent.")
 
         except Exception as e:
             st.error(f"Could not create venue confirmation record: {e}")
