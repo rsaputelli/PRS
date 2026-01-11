@@ -1129,9 +1129,9 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             vc_payload = {
                 "gig_id": gig_id,
                 "role": "venue",
-                "status": "pending",                
-                "requested_by": st.session_state.get("user_id"),
-            }
+                "recipient_name": venue_name,      # if available
+                "recipient_email": venue_email,    # REQUIRED
+}
 
             vc_payload = _filter_to_schema("gig_confirmations", vc_payload)
             if vc_payload:
@@ -1217,7 +1217,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
             }))
         if rows:
             _insert_rows("gig_deposits", rows)
-            
+    
     # ---- After successful INSERT/UPDATE ----
     # Queue calendar upsert; the top-of-page processor will execute it reliably
     try:
@@ -1293,7 +1293,7 @@ if current_gig_id:
         try:
             vc = (
                 sb.table("gig_confirmations")
-                .select("id,status")
+                .select("id,sent_at,confirmed_at")
                 .eq("gig_id", current_gig_id)
                 .eq("role", "venue")
                 .maybe_single()
@@ -1306,20 +1306,29 @@ if current_gig_id:
 
     if not vc:
         st.info("Venue confirmation not required for this gig.")
-    elif vc["status"] != "pending":
-        st.info(f"Venue confirmation status: {vc['status']}")
+
+    elif vc.get("confirmed_at"):
+        st.success("Venue has confirmed this booking.")
+
+    elif vc.get("sent_at"):
+        st.info("Venue confirmation email sent.")
+
     else:
+        # Pending (row exists but not sent)
         if st.button("📍 Send Venue Confirmation"):
             try:
                 send_venue_confirm(current_gig_id)
+
+                sb.table("gig_confirmations").update({
+                    "sent_at": datetime.utcnow().isoformat(),
+                    "confirmation_method": "email",
+                }).eq("id", vc["id"]).execute()
+
                 st.success("Venue confirmation sent.")
-                sb.table("gig_confirmations").update(
-                    {"status": "sent"}
-                ).eq("id", vc["id"]).execute()
                 st.rerun()
+
             except Exception as e:
-                st.error(f"Failed to send venue confirmation: {e}")
-         
+                st.error(f"Failed to send venue confirmation: {e}")        
 
         # Schedule a rerun-proof upsert (kept)
         st.session_state["pending_cal_upsert"] = {
