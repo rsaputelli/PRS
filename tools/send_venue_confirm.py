@@ -127,42 +127,49 @@ def _insert_email_audit(*, token, gig_id, recipient_email, kind, status):
         }
     ).execute()
 
-def send_venue_confirm(gig_id: str) -> None:
-    sb = _sb()
-    payload = _fetch_gig_and_venue(sb, gig_id)
-
-    token = uuid.uuid4().hex
-    content = _build_venue_confirmation_content(payload, token=token)
-
+def _build_venue_confirmation_content(
+    payload: Dict[str, Any],
+    *,
+    token: str,
+) -> Dict[str, str]:
     gig = payload["gig"]
     venue = payload["venue"]
 
-    try:
-        gmail_send(
-            content["subject"],
-            venue["contact_email"],
-            content["html"],
-            cc=[CC_RAY],
-        )
+    title = gig.get("title") or "Live Performance"
 
-        _insert_email_audit(
-            token=token,
-            gig_id=gig["id"],
-            recipient_email=venue["contact_email"],
-            kind="venue_confirm",
-            status="sent",
-        )
+    fee_str = f"${float(gig['fee']):,.2f}" if gig.get("fee") else "—"
 
-    except Exception as e:
-        _insert_email_audit(
-            token=token,
-            gig_id=gig["id"],
-            recipient_email=venue["contact_email"],
-            kind="venue_confirm",
-            status=f"error: {e}",
-        )
-        raise
+    rows = [{
+        "Event": title,
+        "Date": gig["event_date"],
+        "Fee": fee_str,
+    }]
+    html_table = build_html_table(rows)
 
+    mailto = (
+        f"mailto:{FROM_EMAIL}"
+        f"?subject=Venue%20confirmation%20received%20[{token}]"
+        f"&body=Confirmed.%20Token:%20{token}"
+    )
+
+    html = f"""
+    <p>Hello {venue.get("name")},</p>
+    <p>Thank you for the recent booking for Philly Rock and Soul. We're excited to play for you.</p>
+    <p>Please confirm the details of our performance as listed below.</p>
+    <p>If anything is not right, please contact us ASAP by responding to this email or calling us at 484-639-9511.</p>
+    {html_table}
+    <p>
+      <a href="{mailto}"><b>Click here to confirm</b></a>
+    </p>
+    <p>— {FROM_NAME}</p>
+    """
+
+    subject = f"[Venue Confirmation] {title} — {gig['event_date']}"
+
+    return {
+        "subject": subject,
+        "html": html,
+    }
 
 def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
     """
@@ -176,7 +183,6 @@ def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
     token = "PREVIEW-TOKEN"
 
     content = _build_venue_confirmation_content(payload, token=token)
-
     venue = payload["venue"]
 
     return {
@@ -184,7 +190,6 @@ def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
         "cc": [CC_RAY],
         **content,
     }
-
 
 # -----------------------------
 # Main sender
