@@ -1094,6 +1094,7 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         "agent_id": agent_id_val,
         "venue_id": venue_id_val,
         "sound_tech_id": sound_tech_id_val,
+        "sound_provided": bool(st.session_state.get("sound_by_venue_in", False)),
         "is_private": bool(st.session_state.get("is_private_in", False)),
         "notes": st.session_state.get("notes_in") or None,
         "sound_by_venue_name": st.session_state.get("sv_name_in") or None,
