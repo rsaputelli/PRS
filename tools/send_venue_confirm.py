@@ -169,7 +169,9 @@ def _build_venue_confirmation_content(
         "Time": time_str,
         "Fee": fee_str,
     }]
-
+    if gig.get("sound_provided"):
+        rows[0]["Sound"] = "Provided by venue"
+        
     html_table = build_html_table(rows)
 
     confirm_url = (
