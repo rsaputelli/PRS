@@ -1361,10 +1361,13 @@ if current_gig_id:
         # Pending (row exists but not sent)
         if st.button("📍 Send Venue Confirmation"):
             try:
-                send_venue_confirm(current_gig_id)
+                # 🔑 CAPTURE THE TOKEN HERE
+                token = send_venue_confirm(current_gig_id)
 
+                # 🔑 PERSIST IT ON THE EXISTING ROW
                 sb.table("gig_confirmations").update({
                     "sent_at": datetime.utcnow().isoformat(),
+                    "token": token,
                     "confirmation_method": "link",
                 }).eq("id", vc["id"]).execute()
 
@@ -1372,7 +1375,7 @@ if current_gig_id:
                 st.rerun()
 
             except Exception as e:
-                st.error(f"Failed to send venue confirmation: {e}")        
+                st.error(f"Failed to send venue confirmation: {e}")       
 
         # Schedule a rerun-proof upsert (kept)
         st.session_state["pending_cal_upsert"] = {
@@ -1396,10 +1399,12 @@ if current_gig_id:
                 action = (res or {}).get("action", "updated")
                 ev_id  = (res or {}).get("eventId")
                 st.success(f"PRS Calendar {action}.")
-                if ev_id:
-                    st.caption(f"Event ID: {ev_id}")
+                # if ev_id:
+                    # st.caption(f"Event ID: {ev_id}")
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
+
+# NOTE: _fmt_time_str and gig fetch retained intentionally; may be used elsewhere on page
 
         def _fmt_time_str(t):
             if not t:
@@ -1421,22 +1426,22 @@ if current_gig_id:
                 .data
             )
 
-            if gig:
-                st.write({
-                    "id": gig.get("id"),
-                    "title": gig.get("title"),
-                    "event_date": gig.get("event_date"),
-                    "start_time (12-hr)": _fmt_time_str(gig.get("start_time")),
-                    "end_time (12-hr)": _fmt_time_str(gig.get("end_time")),
-                    "status": gig.get("contract_status"),
-                    "fee": gig.get("fee"),
-                })
+            # if gig:
+                # st.write({
+                    # "id": gig.get("id"),
+                    # "title": gig.get("title"),
+                    # "event_date": gig.get("event_date"),
+                    # "start_time (12-hr)": _fmt_time_str(gig.get("start_time")),
+                    # "end_time (12-hr)": _fmt_time_str(gig.get("end_time")),
+                    # "status": gig.get("contract_status"),
+                    # "fee": gig.get("fee"),
+                # })
 
 
         # Optional: store the actual time objects in session for reuse elsewhere
         st.session_state["start_time_in_obj"] = start_time_in
         st.session_state["end_time_in_obj"]   = end_time_in
 
-        st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
+        # st.info("Open the Schedule View to verify the new gig appears with Venue / Location / Sound.")
 
       

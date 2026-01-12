@@ -279,7 +279,7 @@ def _make_venue_ics_bytes(payload: Dict[str, Any]) -> bytes:
 # -----------------------------
 # Main sender
 # -----------------------------
-def send_venue_confirm(gig_id: str) -> None:
+def send_venue_confirm(gig_id: str) -> str:
     sb = _sb_admin()   # ← THIS IS THE FIX
     payload = _fetch_gig_and_venue(sb, gig_id)
     token = uuid.uuid4().hex
@@ -314,7 +314,8 @@ def send_venue_confirm(gig_id: str) -> None:
             kind="venue_confirm",
             status="sent",
         )
-
+        return token
+            
     except Exception as e:
         _insert_email_audit(
             token=token,
