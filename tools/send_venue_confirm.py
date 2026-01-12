@@ -35,7 +35,7 @@ SUPABASE_KEY = (
 )
 
 FROM_NAME = _get_secret("BAND_FROM_NAME", "PRS Scheduling")
-FROM_EMAIL = _get_secret("BAND_FROM_EMAIL", "no-reply@prs.local")
+FROM_EMAIL = _get_secret("BAND_FROM_EMAIL", "prsbandinfo@gmail.com")
 CC_RAY = _get_secret("CC_RAY", "ray@lutinemanagement.com")
 
 if not SUPABASE_URL or not SUPABASE_KEY:

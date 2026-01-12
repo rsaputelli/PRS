@@ -1365,7 +1365,7 @@ if current_gig_id:
 
                 sb.table("gig_confirmations").update({
                     "sent_at": datetime.utcnow().isoformat(),
-                    "confirmation_method": "email",
+                    "confirmation_method": "link",
                 }).eq("id", vc["id"]).execute()
 
                 st.success("Venue confirmation sent.")
