@@ -257,12 +257,11 @@ def _make_venue_ics_bytes(payload: Dict[str, Any]) -> bytes:
     return make_ics_bytes(
         title=title,
         description=description,
-        date=gig.get("event_date"),
+        event_date=gig.get("event_date"),
         start_time=gig.get("start_time"),
         end_time=gig.get("end_time"),
         location=location,
     )
-
 
 # -----------------------------
 # Main sender
