@@ -221,47 +221,66 @@ def _make_venue_ics_bytes(payload: Dict[str, Any]) -> bytes:
     venue = payload["venue"]
 
     title = gig.get("title") or "Live Performance"
+    event_dt = gig.get("event_date")
+    start_time = gig.get("start_time")
+    end_time = gig.get("end_time")
 
-    def _fmt_time(t) -> str:
-        if not t:
-            return "—"
-        try:
-            s = str(t)
-            fmt = "%H:%M:%S" if len(s.split(":")) == 3 else "%H:%M"
-            return dt.datetime.strptime(s, fmt).strftime("%I:%M %p").lstrip("0")
-        except Exception:
-            return str(t)
+    # --- Build aware datetimes (copy of player-confirm logic) ---
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(TZ)
 
-    date_str  = gig.get("event_date") or "—"
-    start_str = _fmt_time(gig.get("start_time"))
-    end_str   = _fmt_time(gig.get("end_time"))
-    time_str  = f"{start_str} – {end_str}" if start_str != "—" else "—"
+    def _mk_dt(event_date, time_value):
+        if not event_date:
+            return None
+        # date
+        if isinstance(event_date, dt.date) and not isinstance(event_date, dt.datetime):
+            y, m, d = event_date.year, event_date.month, event_date.day
+        else:
+            y, m, d = [int(x) for x in str(event_date).split("-")]
+        # time
+        hh, mm = 0, 0
+        if time_value:
+            parts = str(time_value).split(":")
+            if len(parts) >= 2:
+                hh = int(parts[0]); mm = int(parts[1])
+        return dt.datetime(y, m, d, hh, mm, tzinfo=tz)
 
-    fee_str = f"${float(gig['fee']):,.2f}" if gig.get("fee") else "—"
+    starts_at = _mk_dt(event_dt, start_time)
+    ends_at = _mk_dt(event_dt, end_time)
 
-    lines = [
+    if starts_at and not ends_at:
+        ends_at = starts_at + dt.timedelta(hours=3)
+
+    if starts_at and ends_at and ends_at <= starts_at:
+        ends_at = ends_at + dt.timedelta(days=1)
+
+    if not (starts_at and ends_at):
+        raise ValueError("Unable to build start/end datetimes for venue ICS")
+
+    # --- Venue-specific ICS text ---
+    desc_lines = [
         "Performance by Philly Rock and Soul",
-        f"Date: {date_str}",
-        f"Time: {time_str}",
-        f"Fee: {fee_str}",
+        f"Date: {event_dt}",
     ]
-
-    # Match your DB boolean field (you indicated gigs table uses sound_provided)
+    if start_time or end_time:
+        desc_lines.append(f"Time: {start_time} – {end_time}")
+    if gig.get("fee"):
+        desc_lines.append(f"Fee: ${float(gig['fee']):,.2f}")
     if gig.get("sound_provided"):
-        lines.append("Sound: Provided by venue")
+        desc_lines.append("Sound: Provided by venue")
 
-    description = "\n".join(lines)
+    description = "\n".join(desc_lines)
 
-    # Optionally enrich location (kept minimal)
     location = venue.get("name") or ""
+
     return make_ics_bytes(
-        title=title,
-        description=description,
-        event_date=gig.get("event_date"),
-        start_time=gig.get("start_time"),
-        end_time=gig.get("end_time"),
+        starts_at=starts_at,
+        ends_at=ends_at,
+        summary=title,
         location=location,
+        description=description,
     )
+
 
 # -----------------------------
 # Main sender
