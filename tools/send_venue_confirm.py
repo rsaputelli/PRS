@@ -137,13 +137,30 @@ def _build_venue_confirmation_content(
 
     title = gig.get("title") or "Live Performance"
 
+    # ---- Formatting helpers ----
+    def _fmt_time(t):
+        if not t:
+            return "—"
+        try:
+            dt0 = dt.datetime.strptime(t, "%H:%M:%S")
+            return dt0.strftime("%I:%M %p").lstrip("0")
+        except Exception:
+            return str(t)
+
+    date_str = gig.get("event_date") or "—"
+    start_str = _fmt_time(gig.get("start_time"))
+    end_str = _fmt_time(gig.get("end_time"))
+    time_str = f"{start_str} – {end_str}" if start_str != "—" else "—"
+
     fee_str = f"${float(gig['fee']):,.2f}" if gig.get("fee") else "—"
 
     rows = [{
         "Event": title,
-        "Date": gig["event_date"],
+        "Date": date_str,
+        "Time": time_str,
         "Fee": fee_str,
     }]
+
     html_table = build_html_table(rows)
 
     mailto = (
@@ -156,7 +173,7 @@ def _build_venue_confirmation_content(
     <p>Hello {venue.get("name")},</p>
     <p>Thank you for the recent booking for Philly Rock and Soul. We're excited to play for you.</p>
     <p>Please confirm the details of our performance as listed below.</p>
-    <p>If anything is not right, please contact us ASAP by responding to this email or calling us at 484-639-9511.</p>
+    <p>If anything needs correction, please contact us ASAP by responding to this email or calling us at 484-639-9511.</p>
     {html_table}
     <p>
       <a href="{mailto}"><b>Click here to confirm</b></a>
@@ -164,7 +181,7 @@ def _build_venue_confirmation_content(
     <p>— {FROM_NAME}</p>
     """
 
-    subject = f"[Venue Confirmation] {title} — {gig['event_date']}"
+    subject = f"[Venue Confirmation] {title} — {date_str}"
 
     return {
         "subject": subject,
@@ -176,7 +193,7 @@ def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
     Build (but do not send) the venue confirmation email.
     Safe for UI preview.
     """
-    sb = _sb()
+    sb = _sb_admin()
     payload = _fetch_gig_and_venue(sb, gig_id)
 
     # Preview-only token
@@ -195,9 +212,8 @@ def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
 # Main sender
 # -----------------------------
 def send_venue_confirm(gig_id: str) -> None:
-    sb = _sb()
+    sb = _sb_admin()   # ← THIS IS THE FIX
     payload = _fetch_gig_and_venue(sb, gig_id)
-
     token = uuid.uuid4().hex
     content = _build_venue_confirmation_content(payload, token=token)
 
