@@ -1387,15 +1387,27 @@ if current_gig_id:
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
 
-        st.write({
-            "id": current_gig_id,
-            "title": new_gig.get("title"),
-            "event_date": new_gig.get("event_date"),
-            "start_time (12-hr)": _fmt12(start_time_in),
-            "end_time (12-hr)": _fmt12(end_time_in),
-            "status": new_gig.get("contract_status"),
-            "fee": new_gig.get("fee"),
-        })
+        if current_gig_id:
+            gig = (
+                sb.table("gigs")
+                .select("id, title, event_date, start_time, end_time, contract_status, fee")
+                .eq("id", current_gig_id)
+                .maybe_single()
+                .execute()
+                .data
+            )
+
+            if gig:
+                st.write({
+                    "id": gig.get("id"),
+                    "title": gig.get("title"),
+                    "event_date": gig.get("event_date"),
+                    "start_time (12-hr)": _fmt12(gig.get("start_time")),
+                    "end_time (12-hr)": _fmt12(gig.get("end_time")),
+                    "status": gig.get("contract_status"),
+                    "fee": gig.get("fee"),
+                })
+
 
         # Optional: store the actual time objects in session for reuse elsewhere
         st.session_state["start_time_in_obj"] = start_time_in

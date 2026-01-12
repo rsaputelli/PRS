@@ -59,8 +59,7 @@ def _sb() -> Client:
 
 
 def _sb_admin() -> Client:
-    return create_client(SUPABASE_URL, _get_secret("SUPABASE_SERVICE_ROLE"))
-
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------------
 # Data fetch
