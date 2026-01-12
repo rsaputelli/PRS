@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import uuid
 import datetime as dt
+import re
 from typing import Dict, Any, Optional
 
 import pytz
@@ -12,6 +13,13 @@ from supabase import create_client, Client
 from lib.email_utils import gmail_send, build_html_table
 from lib.calendar_utils import make_ics_bytes
 
+
+# -----------------------------
+# Small pure helpers
+# -----------------------------
+def _safe_filename(s: str) -> str:
+    s = (s or "").strip() or "Live Performance"
+    return re.sub(r'[\\/:*?"<>|]+', "-", s)
 
 # -----------------------------
 # Secrets / config
@@ -71,7 +79,7 @@ def _fetch_gig_and_venue(sb: Client, gig_id: str) -> Dict[str, Any]:
         sb.table("gigs")
         .select(
             "id, title, event_date, start_time, end_time, fee, "
-            "is_private, agent_id, venue_id, notes"
+            "is_private, agent_id, venue_id, notes, sound_provided"
         )
         .eq("id", gig_id)
         .limit(1)
@@ -206,6 +214,56 @@ def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
         **content,
     }
 
+# 2) Add this helper anywhere above send_venue_confirm()
+
+def _make_venue_ics_bytes(payload: Dict[str, Any]) -> bytes:
+    gig = payload["gig"]
+    venue = payload["venue"]
+
+    title = gig.get("title") or "Live Performance"
+
+    def _fmt_time(t) -> str:
+        if not t:
+            return "—"
+        try:
+            s = str(t)
+            fmt = "%H:%M:%S" if len(s.split(":")) == 3 else "%H:%M"
+            return dt.datetime.strptime(s, fmt).strftime("%I:%M %p").lstrip("0")
+        except Exception:
+            return str(t)
+
+    date_str  = gig.get("event_date") or "—"
+    start_str = _fmt_time(gig.get("start_time"))
+    end_str   = _fmt_time(gig.get("end_time"))
+    time_str  = f"{start_str} – {end_str}" if start_str != "—" else "—"
+
+    fee_str = f"${float(gig['fee']):,.2f}" if gig.get("fee") else "—"
+
+    lines = [
+        "Performance by Philly Rock and Soul",
+        f"Date: {date_str}",
+        f"Time: {time_str}",
+        f"Fee: {fee_str}",
+    ]
+
+    # Match your DB boolean field (you indicated gigs table uses sound_provided)
+    if gig.get("sound_provided"):
+        lines.append("Sound: Provided by venue")
+
+    description = "\n".join(lines)
+
+    # Optionally enrich location (kept minimal)
+    location = venue.get("name") or ""
+    return make_ics_bytes(
+        title=title,
+        description=description,
+        date=gig.get("event_date"),
+        start_time=gig.get("start_time"),
+        end_time=gig.get("end_time"),
+        location=location,
+    )
+
+
 # -----------------------------
 # Main sender
 # -----------------------------
@@ -219,11 +277,22 @@ def send_venue_confirm(gig_id: str) -> None:
     venue = payload["venue"]
 
     try:
+        ics_bytes = _make_venue_ics_bytes(payload)
+
+        safe_title = _safe_filename(payload["gig"].get("title"))
+
         gmail_send(
             content["subject"],
             venue["contact_email"],
             content["html"],
             cc=[CC_RAY],
+            attachments=[
+                {
+                    "filename": f"{safe_title}.ics",
+                    "content": ics_bytes,
+                    "mime_type": "text/calendar",
+                }
+            ],
         )
 
         _insert_email_audit(
