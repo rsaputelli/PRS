@@ -221,32 +221,25 @@ def _make_venue_ics_bytes(payload: Dict[str, Any]) -> bytes:
     venue = payload["venue"]
 
     title = gig.get("title") or "Live Performance"
-    event_dt = gig.get("event_date")
-    start_time = gig.get("start_time")
-    end_time = gig.get("end_time")
 
-    # --- Build aware datetimes (copy of player-confirm logic) ---
+    # --- build timezone-aware datetimes (same pattern as elsewhere) ---
     from zoneinfo import ZoneInfo
     tz = ZoneInfo(TZ)
 
     def _mk_dt(event_date, time_value):
         if not event_date:
             return None
-        # date
-        if isinstance(event_date, dt.date) and not isinstance(event_date, dt.datetime):
-            y, m, d = event_date.year, event_date.month, event_date.day
-        else:
-            y, m, d = [int(x) for x in str(event_date).split("-")]
-        # time
+        y, m, d = [int(x) for x in str(event_date).split("-")]
         hh, mm = 0, 0
         if time_value:
             parts = str(time_value).split(":")
             if len(parts) >= 2:
-                hh = int(parts[0]); mm = int(parts[1])
+                hh = int(parts[0])
+                mm = int(parts[1])
         return dt.datetime(y, m, d, hh, mm, tzinfo=tz)
 
-    starts_at = _mk_dt(event_dt, start_time)
-    ends_at = _mk_dt(event_dt, end_time)
+    starts_at = _mk_dt(gig.get("event_date"), gig.get("start_time"))
+    ends_at   = _mk_dt(gig.get("event_date"), gig.get("end_time"))
 
     if starts_at and not ends_at:
         ends_at = starts_at + dt.timedelta(hours=3)
@@ -257,30 +250,31 @@ def _make_venue_ics_bytes(payload: Dict[str, Any]) -> bytes:
     if not (starts_at and ends_at):
         raise ValueError("Unable to build start/end datetimes for venue ICS")
 
-    # --- Venue-specific ICS text ---
+    # --- description (venue-facing context only) ---
     desc_lines = [
         "Performance by Philly Rock and Soul",
-        f"Date: {event_dt}",
+        f"Date: {gig.get('event_date')}",
     ]
-    if start_time or end_time:
-        desc_lines.append(f"Time: {start_time} – {end_time}")
+
+    if gig.get("start_time") or gig.get("end_time"):
+        desc_lines.append(f"Time: {gig.get('start_time')} – {gig.get('end_time')}")
+
     if gig.get("fee"):
         desc_lines.append(f"Fee: ${float(gig['fee']):,.2f}")
+
     if gig.get("sound_provided"):
         desc_lines.append("Sound: Provided by venue")
 
     description = "\n".join(desc_lines)
 
-    location = venue.get("name") or ""
-
     return make_ics_bytes(
+        uid=f"venue-{gig['id']}@prs",
+        title=title,
         starts_at=starts_at,
         ends_at=ends_at,
-        summary=title,
-        location=location,
+        location=venue.get("name") or "",
         description=description,
     )
-
 
 # -----------------------------
 # Main sender
