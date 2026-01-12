@@ -189,12 +189,9 @@ def _build_venue_confirmation_content(
     }
 
 def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
-    """
-    Build (but do not send) the venue confirmation email.
-    Safe for UI preview.
-    """
-    sb = _sb_admin()
+    sb = _sb()   # ← USE SESSION / ANON CLIENT FOR PREVIEW
     payload = _fetch_gig_and_venue(sb, gig_id)
+
 
     # Preview-only token
     token = "PREVIEW-TOKEN"
