@@ -1401,6 +1401,16 @@ if current_gig_id:
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
 
+        def _fmt_time_str(t):
+            if not t:
+                return "—"
+            try:
+                s = str(t)
+                fmt = "%H:%M:%S" if len(s.split(":")) == 3 else "%H:%M"
+                return datetime.strptime(s, fmt).strftime("%I:%M %p").lstrip("0")
+            except Exception:
+                return str(t)
+
         if current_gig_id:
             gig = (
                 sb.table("gigs")
@@ -1416,8 +1426,8 @@ if current_gig_id:
                     "id": gig.get("id"),
                     "title": gig.get("title"),
                     "event_date": gig.get("event_date"),
-                    "start_time (12-hr)": _fmt12(gig.get("start_time")),
-                    "end_time (12-hr)": _fmt12(gig.get("end_time")),
+                    "start_time (12-hr)": _fmt_time_str(gig.get("start_time")),
+                    "end_time (12-hr)": _fmt_time_str(gig.get("end_time")),
                     "status": gig.get("contract_status"),
                     "fee": gig.get("fee"),
                 })

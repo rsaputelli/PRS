@@ -57,9 +57,11 @@ def _sb() -> Client:
         pass
     return sb
 
-
 def _sb_admin() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    key = _get_secret("SUPABASE_SERVICE_ROLE")
+    if not key:
+        raise RuntimeError("SUPABASE_SERVICE_ROLE is required for admin actions")
+    return create_client(SUPABASE_URL, key)
 
 # -----------------------------
 # Data fetch
