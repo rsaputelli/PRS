@@ -172,10 +172,9 @@ def _build_venue_confirmation_content(
 
     html_table = build_html_table(rows)
 
-    mailto = (
-        f"mailto:{FROM_EMAIL}"
-        f"?subject=Venue%20confirmation%20received%20[{token}]"
-        f"&body=Confirmed.%20Token:%20{token}"
+    confirm_url = (
+        "https://booking-management.streamlit.app/"
+        f"Venue_Confirm?token={token}"
     )
 
     html = f"""
@@ -185,10 +184,22 @@ def _build_venue_confirmation_content(
     <p>If anything needs correction, please contact us ASAP by responding to this email or calling us at 484-639-9511.</p>
     {html_table}
     <p>
-      <a href="{mailto}"><b>Click here to confirm</b></a>
+      <a href="{confirm_url}"
+         style="
+           display:inline-block;
+           padding:12px 18px;
+           background:#2e7d32;
+           color:white;
+           text-decoration:none;
+           border-radius:6px;
+           font-weight:600;
+         ">
+         ✅ Confirm Booking
+      </a>
     </p>
     <p>— {FROM_NAME}</p>
     """
+
 
     subject = f"[Venue Confirmation] {title} — {date_str}"
 
