@@ -127,6 +127,43 @@ def _insert_email_audit(*, token, gig_id, recipient_email, kind, status):
         }
     ).execute()
 
+def send_venue_confirm(gig_id: str) -> None:
+    sb = _sb()
+    payload = _fetch_gig_and_venue(sb, gig_id)
+
+    token = uuid.uuid4().hex
+    content = _build_venue_confirmation_content(payload, token=token)
+
+    gig = payload["gig"]
+    venue = payload["venue"]
+
+    try:
+        gmail_send(
+            content["subject"],
+            venue["contact_email"],
+            content["html"],
+            cc=[CC_RAY],
+        )
+
+        _insert_email_audit(
+            token=token,
+            gig_id=gig["id"],
+            recipient_email=venue["contact_email"],
+            kind="venue_confirm",
+            status="sent",
+        )
+
+    except Exception as e:
+        _insert_email_audit(
+            token=token,
+            gig_id=gig["id"],
+            recipient_email=venue["contact_email"],
+            kind="venue_confirm",
+            status=f"error: {e}",
+        )
+        raise
+
+
 def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
     """
     Build (but do not send) the venue confirmation email.
@@ -134,44 +171,20 @@ def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
     """
     sb = _sb()
     payload = _fetch_gig_and_venue(sb, gig_id)
-    gig, venue = payload["gig"], payload["venue"]
 
+    # Preview-only token
     token = "PREVIEW-TOKEN"
-    title = gig.get("title") or "Live Performance"
 
-    fee_str = f"${float(gig['fee']):,.2f}" if gig.get("fee") else "—"
+    content = _build_venue_confirmation_content(payload, token=token)
 
-    rows = [{
-        "Event": title,
-        "Date": gig["event_date"],
-        "Fee": fee_str,
-    }]
-    html_table = build_html_table(rows)
-
-    mailto = (
-        f"mailto:{FROM_EMAIL}"
-        f"?subject=Venue%20confirmation%20received%20[{token}]"
-        f"&body=Confirmed.%20Token:%20{token}"
-    )
-
-    html = f"""
-    <p>Hello {venue.get("name")},</p>
-    <p>Please confirm venue availability for the following performance:</p>
-    {html_table}
-    <p>
-      <a href="{mailto}"><b>Click here to confirm</b></a>
-    </p>
-    <p>— {FROM_NAME}</p>
-    """
-
-    subject = f"[Venue Confirmation] {title} — {gig['event_date']}"
+    venue = payload["venue"]
 
     return {
         "to": venue.get("contact_email"),
         "cc": [CC_RAY],
-        "subject": subject,
-        "html": html,
+        **content,
     }
+
 
 # -----------------------------
 # Main sender
@@ -179,45 +192,18 @@ def build_venue_confirmation_email(gig_id: str) -> Dict[str, Any]:
 def send_venue_confirm(gig_id: str) -> None:
     sb = _sb()
     payload = _fetch_gig_and_venue(sb, gig_id)
-    gig, venue = payload["gig"], payload["venue"]
 
     token = uuid.uuid4().hex
-    title = gig.get("title") or "Live Performance"
+    content = _build_venue_confirmation_content(payload, token=token)
 
-    fee_str = f"${float(gig['fee']):,.2f}" if gig.get("fee") else "—"
-
-    rows = [{
-        "Event": title,
-        "Date": gig["event_date"],
-        "Fee": fee_str,
-    }]
-    html_table = build_html_table(rows)
-
-    mailto = (
-        f"mailto:{FROM_EMAIL}"
-        f"?subject=Venue%20confirmation%20received%20[{token}]"
-        f"&body=Confirmed.%20Token:%20{token}"
-    )
-
-    html = f"""
-    <p>Hello {venue.get("name")},</p>
-    <p>Thank you for the recent booking for Philly Rock and Soul. We're excited to play for you.</p>
-    <p>Please confirm the details of our performance as listed below.</p>
-    <p>If anything is out of order, please contact us ASAP by responding to this email or calling us at 484-639-9511.</p>    
-    {html_table}
-    <p>
-      <a href="{mailto}"><b>Click here to confirm</b></a>
-    </p>
-    <p>— {FROM_NAME}</p>
-    """
-
-    subject = f"[Venue Confirmation] {title} — {gig['event_date']}"
+    gig = payload["gig"]
+    venue = payload["venue"]
 
     try:
         gmail_send(
-            subject,
+            content["subject"],
             venue["contact_email"],
-            html,
+            content["html"],
             cc=[CC_RAY],
         )
 
