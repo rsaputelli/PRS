@@ -1278,9 +1278,23 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
                 _safe_rerun()
 
     # Success summary
-    def _fmt12(t: time) -> str:
-        dt0 = datetime(2000, 1, 1, t.hour, t.minute)
-        return dt0.strftime("%I:%M %p").lstrip("0")
+    def _fmt12(t):
+        if not t:
+            return "—"
+
+        # Case 1: datetime.time (UI values)
+        if hasattr(t, "hour"):
+            return datetime(2000, 1, 1, t.hour, t.minute).strftime("%I:%M %p").lstrip("0")
+
+        # Case 2: DB string "HH:MM:SS"
+        if isinstance(t, str):
+            try:
+                h, m, *_ = t.split(":")
+                return datetime(2000, 1, 1, int(h), int(m)).strftime("%I:%M %p").lstrip("0")
+            except Exception:
+                return t  # fail soft
+
+        return str(t)
 
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
