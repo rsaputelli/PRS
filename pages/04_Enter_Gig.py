@@ -1332,10 +1332,6 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
     st.success("Gig saved successfully ✅")
     
     st.markdown("---")
-
-    if st.button("➕ Enter Another Gig"):
-        _reset_enter_gig_state()
-        st.rerun()
     
 current_gig_id = st.session_state.get("current_gig_id")
 
@@ -1415,6 +1411,22 @@ if current_gig_id:
             except Exception as e:
                 st.error(f"Failed to send venue confirmation: {e}")       
 
+        try:
+            res = upsert_band_calendar_event(
+                gig_id=current_gig_id,
+                sb=sb,
+                calendar_name="Philly Rock and Soul",
+            )
+            if isinstance(res, dict) and res.get("error"):
+                st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
+                st.write({"calendarId": res.get("calendarId")})
+            else:
+                action = (res or {}).get("action", "updated")
+                ev_id  = (res or {}).get("eventId")
+                st.success(f"PRS Calendar {action}.")
+        except Exception as e:
+            st.error(f"Calendar upsert exception: {e}")
+
         # Schedule a rerun-proof upsert (kept)
         st.session_state["pending_cal_upsert"] = {
             "gig_id": current_gig_id,
@@ -1441,6 +1453,11 @@ if current_gig_id:
                     # st.caption(f"Event ID: {ev_id}")
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
+
+    st.markdown("---")
+    if st.button("➕ Enter Another Gig"):
+        _reset_enter_gig_state()
+        st.rerun()
 
 # NOTE: _fmt_time_str and gig fetch retained intentionally; may be used elsewhere on page
 
