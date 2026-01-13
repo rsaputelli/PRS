@@ -48,6 +48,7 @@ gig_id = st.text_input("Gig ID", placeholder="Paste the gig UUID")
 # CHILD TABLES (EXACT PRS SCHEMA) — DO NOT ADD 'gigs' HERE
 # ---------------------------------------------------------
 CHILD_TABLES = [
+    ("gig_confirmations", "gig_id"),
     ("gig_deposits", "gig_id"),
     ("gig_payments", "gig_id"),
     ("gig_musicians", "gig_id"),
