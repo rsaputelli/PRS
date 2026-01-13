@@ -563,8 +563,49 @@ def upsert_band_calendar_event(
         print("GCAL_UPSERT_ERR", {"stage": stage, "error": str(e), "calendarId": calendar_id})
         return {"error": f"event upsert unexpected: {e}", "stage": stage, "calendarId": calendar_id}
 
+def delete_band_calendar_event(
+    gig_id: str,
+    calendar_name: str = "Philly Rock and Soul",
+):
+    """
+    Delete the Google Calendar event associated with a gig_id.
+    Safe no-op if event does not exist.
+    """
+    from googleapiclient.errors import HttpError
 
-    print(f"[CAL] Using calendar_name='{calendar_name}' (resolved ID: {calendar_id}) for gig_id={gig_id}")
+    service = _get_gcal_service()
+    calendar_id = _resolve_calendar_id(calendar_name)
+
+    try:
+        search = service.events().list(
+            calendarId=calendar_id,
+            privateExtendedProperty=f"gig_id={gig_id}",
+            maxResults=1,
+            singleEvents=True,
+            showDeleted=False,
+        ).execute()
+        items = (search or {}).get("items", []) or []
+        if not items:
+            return {"action": "not_found", "calendarId": calendar_id}
+
+        event_id = items[0]["id"]
+        service.events().delete(
+            calendarId=calendar_id,
+            eventId=event_id,
+        ).execute()
+
+        return {
+            "action": "deleted",
+            "eventId": event_id,
+            "calendarId": calendar_id,
+        }
+
+    except HttpError as he:
+        return {
+            "error": f"calendar delete error: {he}",
+            "stage": "delete",
+            "calendarId": calendar_id,
+        }
 
     # ------------------ fetch gig ------------------
     try:

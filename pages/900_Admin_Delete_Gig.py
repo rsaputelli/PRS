@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import streamlit as st
 from supabase import create_client, Client
-
+from lib.calendar_utils import delete_band_calendar_event
 from auth_helper import require_admin
 
 # -----------------------------
@@ -98,6 +98,19 @@ if st.button("🗑️ Delete Gig (Irreversible!)"):
         with st.spinner("Deleting…"):
             log = []
 
+            # 0. Delete calendar event (safe no-op)
+            try:
+                from lib.calendar_utils import delete_band_calendar_event
+
+                cal_res = delete_band_calendar_event(gig_id)
+                if isinstance(cal_res, dict):
+                    if cal_res.get("error"):
+                        log.append(f"calendar: ⚠️ {cal_res.get('error')}")
+                    else:
+                        log.append(f"calendar: {cal_res.get('action')}")
+            except Exception as e:
+                log.append(f"calendar: ⚠️ exception ({e})")
+
             # 1. Delete children
             for table, col in CHILD_TABLES:
                 resp = sb.table(table).delete().eq(col, gig_id).execute()
@@ -110,3 +123,4 @@ if st.button("🗑️ Delete Gig (Irreversible!)"):
         st.success("Deletion complete.")
         for line in log:
             st.write("• " + line)
+
