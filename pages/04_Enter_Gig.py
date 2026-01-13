@@ -141,6 +141,7 @@ def _log(channel: str, msg: str, trace: str | None = None):
         "trace": trace,
     })
 # ---- Safe rerun helper ----
+# NOTE: intentionally does NOT clear autosend_* or auth state
 def _safe_rerun():
     """Prefer st.rerun(); never call experimental_rerun."""
     import streamlit as st
@@ -150,6 +151,36 @@ def _safe_rerun():
         # If rerun genuinely fails (rare), just continue this run.
         # The queue runner at top will still process on the next user action.
         pass
+        
+def _reset_enter_gig_state():
+    """
+    Reset Enter Gig workflow state so a new gig starts clean.
+    Safe to call only after a successful save.
+    """
+    KEYS = [
+        "current_gig_id",
+        "pending_cal_upsert",
+        "require_venue_confirm_on_create",
+
+        # Common form inputs
+        "title_in",
+        "event_date_in",
+        "fee_in",
+        "band_in",
+        "status_in",
+
+        # Time inputs
+        "start_time_in_hr", "start_time_in_min", "start_time_in_ampm",
+        "end_time_in_hr", "end_time_in_min", "end_time_in_ampm",
+
+        # Venue / agent / sound
+        "venue_sel", "agent_sel", "sound_sel",
+        "sound_by_venue_in",
+        "sound_fee_in",
+    ]
+
+    for k in KEYS:
+        st.session_state.pop(k, None)
 
 with st.expander("Auto-send log (persists across reruns)", expanded=True):
     log = st.session_state["autosend_log"]
@@ -1299,6 +1330,12 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
 
     st.cache_data.clear()
     st.success("Gig saved successfully ✅")
+    
+    st.markdown("---")
+
+    if st.button("➕ Enter Another Gig"):
+        _reset_enter_gig_state()
+        st.rerun()
     
 current_gig_id = st.session_state.get("current_gig_id")
 
