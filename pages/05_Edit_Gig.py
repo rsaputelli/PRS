@@ -14,6 +14,8 @@ from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
 from auth_helper import require_admin
+from tools.send_venue_confirm import send_venue_confirm
+from tools.build_venue_confirmation_email import build_venue_confirmation_email
 
 # -----------------------------
 # Debug toggles (set True when needed)
@@ -803,6 +805,69 @@ if just_saved_gid == gid:
     _clear_per_gig_state(gid)
 
 st.session_state["_edit_prev_gid"] = gid
+
+# =================================================
+# Venue Confirmation (steady-state, Edit Gig)
+# =================================================
+
+# Load venue confirmation row (if any)
+conf = (
+    sb.table("gig_confirmations")
+    .select("*")
+    .eq("gig_id", gid)
+    .eq("role", "venue")
+    .maybe_single()
+    .execute()
+)
+
+with st.expander("Venue Confirmation", expanded=False):
+
+    if not conf.data:
+        st.info("Venue confirmation is not required for this gig.")
+
+    elif conf.data.get("confirmed_at"):
+        st.success(
+            f"Venue confirmed on {conf.data['confirmed_at']}"
+        )
+
+    else:
+        # ---- Preview email ----
+        try:
+            preview_html = build_venue_confirmation_email(
+                gig_id=gid,
+                preview=True,
+            )
+            st.markdown(preview_html, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Could not build venue confirmation preview: {e}")
+            preview_html = None
+
+        # ---- Status / Send ----
+        if conf.data.get("sent_at"):
+            st.info(
+                f"Confirmation sent on {conf.data['sent_at']}"
+            )
+        else:
+            if st.button(
+                "Send Venue Confirmation",
+                key=k("send_venue_confirm"),
+            ):
+                try:
+                    result = send_venue_confirm(gid)
+
+                    sb.table("gig_confirmations").update(
+                        {
+                            "token": result.get("token"),
+                            "sent_at": result.get("sent_at"),
+                            "method": "email",
+                        }
+                    ).eq("id", conf.data["id"]).execute()
+
+                    st.success("Venue confirmation sent.")
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Venue confirmation send failed: {e}")
 
 # -----------------------------
 # Edit form
@@ -1804,6 +1869,70 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     ok = _robust_update("gigs", {"id": row.get("id")}, payload)
     if not ok:
         st.stop()
+
+# -------------------------------------------------
+# Determine whether the (new) venue requires confirmation
+# (Venue confirmations were added after Edit Gig existed)
+# -------------------------------------------------
+
+venue_requires_confirmation = False
+
+venue_id = payload.get("venue_id")
+if venue_id:
+    venue_rec = (
+        sb.table("venues")
+        .select("requires_confirmation")
+        .eq("id", venue_id)
+        .maybe_single()
+        .execute()
+    )
+
+    if venue_rec.data:
+        venue_requires_confirmation = bool(
+            venue_rec.data.get("requires_confirmation")
+        )
+
+
+# -------------------------------------------------
+# Ensure / reset VENUE confirmation row (EDIT GIG)
+# -------------------------------------------------
+
+if venue_requires_confirmation:
+    existing_conf = (
+        sb.table("gig_confirmations")
+        .select("*")
+        .eq("gig_id", gid_str)
+        .eq("role", "venue")
+        .maybe_single()
+        .execute()
+    )
+
+    prev_venue_id = row.get("venue_id")
+    new_venue_id = payload.get("venue_id")
+
+    if not existing_conf.data:
+        # No confirmation row yet → create blank one
+        sb.table("gig_confirmations").insert(
+            {
+                "gig_id": gid_str,
+                "role": "venue",
+                "token": None,
+                "sent_at": None,
+                "confirmed_at": None,
+            }
+        ).execute()
+
+    elif prev_venue_id != new_venue_id:
+        # Venue changed → reset confirmation state
+        sb.table("gig_confirmations").update(
+            {
+                "token": None,
+                "sent_at": None,
+                "confirmed_at": None,
+            }
+        ).eq("id", existing_conf.data["id"]).execute()
+
+
 
     # If this is a private event, upsert private details into gigs_private
     if bool(is_private) and _table_exists("gigs_private"):
