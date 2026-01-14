@@ -9,6 +9,9 @@ from supabase import create_client, Client
 # from lib.auth import is_logged_in, current_user, IS_ADMIN
 from lib.ui_header import render_header
 from auth_helper import require_login
+from lib.calendar_utils import make_ics_bytes
+import datetime as dt
+from zoneinfo import ZoneInfo
 
 user, session, user_id = require_login()
 auth_email = (user.email or "").lower().strip()
@@ -31,7 +34,37 @@ def _select_df(table: str, select: str = "*", where_eq: dict | None = None) -> p
         st.warning(f"{table} query failed: {e}")
         return pd.DataFrame()
 
+# ===============================
+# ICS helper (Player Schedule)
+# ===============================
+from lib.calendar_utils import make_ics_bytes
+import datetime as dt
+from zoneinfo import ZoneInfo
 
+LOCAL_TZ = ZoneInfo("America/New_York")
+
+def build_player_ics(row: dict) -> bytes:
+    event_date = row["event_date"]
+    start_time = row["_start_time_raw"]
+    end_time = row["_end_time_raw"]
+
+    starts_at = dt.datetime.combine(event_date, start_time, tzinfo=LOCAL_TZ)
+    ends_at = dt.datetime.combine(event_date, end_time, tzinfo=LOCAL_TZ)
+
+    desc = (
+        f"Gig: {row.get('title','')}\n"
+        f"Venue: {row.get('venue_name','')}\n"
+        f"Status: {row.get('contract_status','')}"
+    )
+
+    return make_ics_bytes(
+        uid=f"prs-player-{row['id']}",
+        title=row.get("title", "Gig"),
+        starts_at=starts_at,
+        ends_at=ends_at,
+        location=row.get("venue_name", ""),
+        description=desc,
+    )
 # ===============================
 # ROLE DETECTION
 # ===============================
@@ -184,7 +217,14 @@ gigs = gigs_df.copy()
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"]).dt.date
 
-# Times -> AM/PM
+# ---- STEP C: preserve raw times for ICS ----
+if "start_time" in gigs.columns:
+    gigs["_start_time_raw"] = pd.to_datetime(gigs["start_time"]).dt.time
+
+if "end_time" in gigs.columns:
+    gigs["_end_time_raw"] = pd.to_datetime(gigs["end_time"]).dt.time
+
+# ---- Display formatting (UI only) ----
 def _fmt_time(val):
     if not val:
         return ""
@@ -198,8 +238,10 @@ def _fmt_time(val):
 
 if "start_time" in gigs.columns:
     gigs["start_time"] = gigs["start_time"].apply(_fmt_time)
+
 if "end_time" in gigs.columns:
     gigs["end_time"] = gigs["end_time"].apply(_fmt_time)
+
 
 # Venue name from venue_id
 if "venue_id" in gigs.columns:
@@ -288,7 +330,40 @@ clean_df = clean_df.sort_values(
 )
 
 # ===============================
-# RENDER TABLE
+# RENDER TABLE + ICS
 # ===============================
 st.subheader("Gigs")
-st.dataframe(clean_df, use_container_width=True, hide_index=True)
+
+# Column headers
+hcols = st.columns([2, 3, 3, 2, 2, 2])
+hcols[0].markdown("**Date**")
+hcols[1].markdown("**Title**")
+hcols[2].markdown("**Venue**")
+hcols[3].markdown("**Start**")
+hcols[4].markdown("**End**")
+hcols[5].markdown("**Calendar**")
+
+st.markdown("---")
+
+for _, row in filtered.iterrows():
+    cols = st.columns([2, 3, 3, 2, 2, 2])
+
+    cols[0].write(row.get("event_date"))
+    cols[1].write(row.get("title", ""))
+    cols[2].write(row.get("venue_name", ""))
+    cols[3].write(row.get("start_time", ""))
+    cols[4].write(row.get("end_time", ""))
+
+    # Build ICS on demand
+    try:
+        ics_bytes = build_player_ics(row)
+        cols[5].download_button(
+            label="📅 Download",
+            data=ics_bytes,
+            file_name=f"{row.get('title','gig')}.ics",
+            mime="text/calendar",
+            key=f"ics-player-{row.get('id')}",
+        )
+    except Exception as e:
+        cols[5].error("ICS error")
+
