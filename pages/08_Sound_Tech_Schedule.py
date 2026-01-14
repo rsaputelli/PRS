@@ -177,6 +177,31 @@ if gigs.empty:
     st.stop()
 
 # ===============================
+# Status filter
+# ===============================
+st.subheader("Filters")
+
+status_filter = st.multiselect(
+    "Contract status",
+    ["Pending", "Hold", "Confirmed"],
+    default=["Pending", "Hold", "Confirmed"],
+)
+
+if status_filter and "contract_status" in gigs.columns:
+    gigs = gigs[gigs["contract_status"].isin(status_filter)]
+
+st.caption(
+    "**Contract Status definitions:**\n\n"
+    "**Confirmed** = fully executed and locked in.\n"
+    "**Hold** = solid inquiry; date is being held pending confirmation.\n"
+    "**Pending** = verbally confirmed, awaiting final contract (common for private events)."
+)
+
+if gigs.empty:
+    st.info("No gigs match the selected filters.")
+    st.stop()
+
+# ===============================
 # RENDER TABLE + ICS
 # ===============================
 st.subheader("Assigned Gigs")
@@ -188,19 +213,20 @@ gigs = gigs.sort_values(
 )
 
 # Column headers
-hcols = st.columns([2.5, 3, 3, 2, 2, 2, 3])
+hcols = st.columns([2.5, 3, 3, 2, 2, 2, 3, 3])
 hcols[0].markdown("**Date**")
 hcols[1].markdown("**Title**")
 hcols[2].markdown("**Venue**")
 hcols[3].markdown("**Start**")
 hcols[4].markdown("**End**")
 hcols[5].markdown("**Fee**")
+hcols[6].markdown("**Status**")
 hcols[6].markdown("**Calendar**")
 
 st.markdown("---")
 
 for _, row in gigs.iterrows():
-    cols = st.columns([2.5, 3, 3, 2, 2, 2, 3])
+    cols = st.columns([2.5, 3, 3, 2, 2, 2, 3, 3])
 
     d = row.get("event_date")
     cols[0].write(d.strftime("%m-%d-%Y") if hasattr(d, "strftime") else "")
@@ -211,9 +237,10 @@ for _, row in gigs.iterrows():
 
     fee = row.get("sound_fee")
     cols[5].write(f"${fee:,.2f}" if fee is not None else "")
+    cols[6].write(row.get("contract_status", ""))
 
     ics_bytes = build_sound_tech_ics(row)
-    cols[6].download_button(
+    cols[7].download_button(
         label="📅 ICS",
         data=ics_bytes,
         file_name=f"{row.get('title','gig')}-sound.ics",
