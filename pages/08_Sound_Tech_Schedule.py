@@ -221,7 +221,7 @@ hcols[3].markdown("**Start**")
 hcols[4].markdown("**End**")
 hcols[5].markdown("**Fee**")
 hcols[6].markdown("**Status**")
-hcols[6].markdown("**Calendar**")
+hcols[7].markdown("**Calendar**")
 
 st.markdown("---")
 
