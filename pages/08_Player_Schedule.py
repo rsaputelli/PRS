@@ -313,6 +313,12 @@ if filtered.empty:
     st.info("No gigs match the selected filters.")
     st.stop()
 
+st.caption(
+    "**Contract Status definitions:**\n\n"
+    "**Confirmed** = fully executed and locked in.\n"
+    "**Hold** = solid inquiry; date is being held pending confirmation.\n"
+    "**Pending** = verbally confirmed, awaiting final contract (common for private events)."
+)
 
 # ===============================
 # BUILD FINAL DISPLAY TABLE
@@ -349,7 +355,7 @@ filtered = filtered.sort_values(
 )
 
 # Column headers (ADDED Status)
-hcols = st.columns([2.5, 3, 3, 2, 2, 2, 3])
+hcols = st.columns([2.5, 3, 3, 2, 2, 3, 3])
 hcols[0].markdown("**Date**")
 hcols[1].markdown("**Title**")
 hcols[2].markdown("**Venue**")
@@ -361,7 +367,7 @@ hcols[6].markdown("**Calendar**")
 st.markdown("---")
 
 for _, row in filtered.iterrows():
-    cols = st.columns([2.5, 3, 3, 2, 2, 2, 3])
+    cols = st.columns([2.5, 3, 3, 2, 2, 3, 3])
 
     d = row.get("event_date")
     cols[0].write(d.strftime("%m-%d-%Y") if hasattr(d, "strftime") else "")
