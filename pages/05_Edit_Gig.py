@@ -1881,18 +1881,24 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 
     venue_id = payload.get("venue_id")
     if venue_id:
-        venue_rec = (
-            sb.table("venues")
-            .select("requires_confirmation")
-            .eq("id", venue_id)
-            .maybe_single()
-            .execute()
-        )
-
-        if venue_rec.data:
-            venue_requires_confirmation = bool(
-                venue_rec.data.get("requires_confirmation")
+        try:
+            rec = (
+                sb.table("venues")
+                .select("requires_confirmation")
+                .eq("id", venue_id)
+                .execute()
+                .data
             )
+
+            if rec and isinstance(rec, list):
+                venue_requires_confirmation = bool(
+                    rec[0].get("requires_confirmation", False)
+                )
+
+    except Exception as e:
+        # Never block save for venue metadata
+        st.warning(f"Venue confirmation lookup skipped: {e}")
+        venue_requires_confirmation = False
 
 
     # -------------------------------------------------
