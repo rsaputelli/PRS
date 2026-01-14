@@ -1396,6 +1396,14 @@ if current_gig_id:
         if st.button("📍 Send Venue Confirmation"):
             try:
                 send_venue_confirm(current_gig_id)
+
+                # 🔁 calendar upsert NOW (before rerun)
+                upsert_band_calendar_event(
+                    gig_id=current_gig_id,
+                    sb=sb,
+                    calendar_name="Philly Rock and Soul",
+                )
+
                 st.success("Venue confirmation sent.")
                 st.rerun()
             except Exception as e:
@@ -1424,27 +1432,27 @@ if current_gig_id:
             "calendar_name": "Philly Rock and Soul",
         }
 
-
-        # Also perform the upsert immediately so posting doesn't rely on a rerun
-        try:
-            res = upsert_band_calendar_event(
-                gig_id=current_gig_id,
-                sb=sb,
-                calendar_name="Philly Rock and Soul",  # keep this exact name
-            )
-            # === NEW: inspect result dict so we don't show success on silent errors ===
-            if isinstance(res, dict) and res.get("error"):
-                st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
-                # Optional: show more detail during debug
-                st.write({"calendarId": res.get("calendarId")})
-            else:
-                action = (res or {}).get("action", "updated")
-                ev_id  = (res or {}).get("eventId")
-                st.success(f"PRS Calendar {action}.")
-                # if ev_id:
-                    # st.caption(f"Event ID: {ev_id}")
-        except Exception as e:
-            st.error(f"Calendar upsert exception: {e}")
+        if False:
+            # Also perform the upsert immediately so posting doesn't rely on a rerun
+            try:
+                res = upsert_band_calendar_event(
+                    gig_id=current_gig_id,
+                    sb=sb,
+                    calendar_name="Philly Rock and Soul",  # keep this exact name
+                )
+                # === NEW: inspect result dict so we don't show success on silent errors ===
+                if isinstance(res, dict) and res.get("error"):
+                    st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
+                    # Optional: show more detail during debug
+                    st.write({"calendarId": res.get("calendarId")})
+                else:
+                    action = (res or {}).get("action", "updated")
+                    ev_id  = (res or {}).get("eventId")
+                    st.success(f"PRS Calendar {action}.")
+                    # if ev_id:
+                        # st.caption(f"Event ID: {ev_id}")
+            except Exception as e:
+                st.error(f"Calendar upsert exception: {e}")
 
     st.markdown("---")
     if st.button("➕ Enter Another Gig"):

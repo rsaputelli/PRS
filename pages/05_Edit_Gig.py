@@ -846,9 +846,8 @@ with st.expander("Venue Confirmation", expanded=False):
 
         # ---- Status / Send ----
         if conf.data.get("sent_at"):
-            st.info(
-                f"Confirmation sent on {conf.data['sent_at']}"
-            )
+            st.info(f"Confirmation sent on {conf.data['sent_at']}")
+
         else:
             if st.button(
                 "Send Venue Confirmation",
@@ -856,8 +855,17 @@ with st.expander("Venue Confirmation", expanded=False):
             ):
                 try:
                     send_venue_confirm(gid)
+
+                    # 🔁 calendar upsert ONLY after confirmed send
+                    upsert_band_calendar_event(
+                        gig_id=gid,
+                        sb=sb,
+                        calendar_name="Philly Rock and Soul",
+                    )
+
                     st.success("Venue confirmation sent.")
                     st.rerun()
+
                 except Exception as e:
                     st.error(f"Venue confirmation send failed: {e}")
 
