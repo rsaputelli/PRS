@@ -835,14 +835,14 @@ with st.expander("Venue Confirmation", expanded=False):
     else:
         # ---- Preview email ----
         try:
-            preview_html = build_venue_confirmation_email(
-                gig_id=gid,
-                preview=True,
-            )
-            st.markdown(preview_html, unsafe_allow_html=True)
+            preview = build_venue_confirmation_email(gig_id=gid)
+            html = preview.get("html") or ""
+            if not html:
+                st.warning("Venue preview built, but no HTML content was returned.")
+            else:
+                st.markdown(html, unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Could not build venue confirmation preview: {e}")
-            preview_html = None
 
         # ---- Status / Send ----
         if conf.data.get("sent_at"):
