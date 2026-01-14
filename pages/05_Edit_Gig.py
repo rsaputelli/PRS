@@ -824,7 +824,7 @@ conf = (
 
 with st.expander("Venue Confirmation", expanded=False):
 
-    if not conf.data:
+    if not conf or not conf.data:
         st.info("Venue confirmation is not required for this gig.")
 
     elif conf.data.get("confirmed_at"):
