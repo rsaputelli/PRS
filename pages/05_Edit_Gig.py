@@ -1895,11 +1895,10 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     rec[0].get("requires_confirmation", False)
                 )
 
-    except Exception as e:
-        # Never block save for venue metadata
-        st.warning(f"Venue confirmation lookup skipped: {e}")
-        venue_requires_confirmation = False
-
+        except Exception as e:
+            # Never block save for venue metadata
+            st.warning(f"Venue confirmation lookup skipped: {e}")
+            venue_requires_confirmation = False
 
     # -------------------------------------------------
     # Ensure / reset VENUE confirmation row (EDIT GIG)
