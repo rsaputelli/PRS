@@ -41,8 +41,46 @@ if not user:
 st.title("🗑️ Admin – Delete Gig Safely (No Orphans)")
 st.warning("This action is permanent. Use with caution.")
 
-gig_id = st.text_input("Gig ID", placeholder="Paste the gig UUID")
+# -----------------------------
+# Helper: pick gig to populate ID
+# -----------------------------
+with st.expander("📋 Pick a gig (helper only)", expanded=False):
+    try:
+        gigs = (
+            sb.table("gigs")
+            .select("id,title,event_date")
+            .order("event_date", desc=True)
+            .limit(100)
+            .execute()
+            .data
+            or []
+        )
 
+        if gigs:
+            label_map = {
+                f"{g.get('event_date')} | {g.get('title')} | {g.get('id')}": g["id"]
+                for g in gigs
+            }
+
+            choice = st.selectbox(
+                "Recent gigs (showing ID)",
+                options=list(label_map.keys()),
+            )
+
+            if st.button("➡️ Use this Gig ID"):
+                st.session_state["_admin_delete_gig_id"] = label_map[choice]
+
+        else:
+            st.info("No gigs found.")
+
+    except Exception as e:
+        st.warning(f"Could not load gig list: {e}")
+
+gig_id = st.text_input(
+    "Gig ID",
+    placeholder="Paste the gig UUID",
+    value=st.session_state.get("_admin_delete_gig_id", ""),
+)
 
 # ---------------------------------------------------------
 # CHILD TABLES (EXACT PRS SCHEMA) — DO NOT ADD 'gigs' HERE
