@@ -219,7 +219,7 @@ venue_lookup = load_venue_lookup()
 # ===============================
 gigs = gigs_df.copy()
 
-gigs["instrument"] = musician.get("instrument")
+gigs["instrument"] = musician.get("instrument") if musician else ""
 
 # Dates
 if "event_date" in gigs.columns:
