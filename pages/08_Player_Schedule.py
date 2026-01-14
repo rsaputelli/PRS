@@ -340,8 +340,14 @@ clean_df = clean_df.sort_values(
 # ===============================
 st.subheader("Gigs")
 
+# Sort for display
+filtered = filtered.sort_values(
+    ["event_date", "_start_time_raw"],
+    ascending=[True, True],
+)
+
 # Column headers
-hcols = st.columns([2, 3, 3, 2, 2, 3])
+hcols = st.columns([2.5, 3, 3, 2, 2, 3])
 hcols[0].markdown("**Date**")
 hcols[1].markdown("**Title**")
 hcols[2].markdown("**Venue**")
@@ -352,24 +358,20 @@ hcols[5].markdown("**Calendar**")
 st.markdown("---")
 
 for _, row in filtered.iterrows():
-    cols = st.columns([2, 3, 3, 2, 2, 3])
+    cols = st.columns([2.5, 3, 3, 2, 2, 3])
 
-    cols[0].write(row.get("event_date"))
+    d = row.get("event_date")
+    cols[0].write(d.strftime("%m-%d-%Y") if hasattr(d, "strftime") else "")
     cols[1].write(row.get("title", ""))
     cols[2].write(row.get("venue_name", ""))
     cols[3].write(row.get("start_time", ""))
     cols[4].write(row.get("end_time", ""))
 
-    # Build ICS on demand
-    try:
-        ics_bytes = build_player_ics(row)
-        cols[5].download_button(
-            label="📅 Download",
-            data=ics_bytes,
-            file_name=f"{row.get('title','gig')}.ics",
-            mime="text/calendar",
-            key=f"ics-player-{row.get('id')}",
-        )
-    except Exception as e:
-        cols[5].error("ICS error")
-
+    ics_bytes = build_player_ics(row)
+    cols[5].download_button(
+        label="📅 ICS",
+        data=ics_bytes,
+        file_name=f"{row.get('title','gig')}.ics",
+        mime="text/calendar",
+        key=f"ics-player-{row.get('id')}",
+    )
