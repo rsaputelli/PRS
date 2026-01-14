@@ -25,28 +25,36 @@ if not token:
     st.error("Invalid or missing confirmation link.")
     st.stop()
 
+# 🔒 CRITICAL: enforce role = venue
 vc = (
     sb.table("gig_confirmations")
-    .select("id, gig_id, confirmed_at")
+    .select("id, gig_id, confirmed_at, role")
     .eq("token", token)
+    .eq("role", "venue")
     .maybe_single()
     .execute()
     .data
 )
 
 if not vc:
-    st.error("This confirmation link is not valid.")
+    st.error("This confirmation link is not valid or has expired.")
     st.stop()
 
 if vc.get("confirmed_at"):
-    st.success("✅ This booking has been confirmed.")
+    st.success("✅ This booking has already been confirmed.")
     st.write("Thank you — no further action is needed.")
     st.stop()
 
-sb.table("gig_confirmations").update({
-    "confirmed_at": dt.datetime.utcnow().isoformat(),
-    "confirmation_method": "link",
-}).eq("id", vc["id"]).execute()
+st.info("Please confirm the booking details below.")
 
-st.success("🎉 Thank you! Your booking is now confirmed.")
-st.write("You may close this window.")
+if st.button("✅ Confirm This Booking"):
+    sb.table("gig_confirmations").update(
+        {
+            "confirmed_at": dt.datetime.utcnow().isoformat(),
+            "confirmation_method": "link",
+        }
+    ).eq("id", vc["id"]).execute()
+
+    st.success("🎉 Thank you! Your booking is now confirmed.")
+    st.write("You may close this window.")
+    st.stop()
