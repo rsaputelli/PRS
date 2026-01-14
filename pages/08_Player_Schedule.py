@@ -53,7 +53,7 @@ def build_player_ics(row: dict) -> bytes:
 
     desc = (
         f"PRS Gig Assignment\n\n"
-        f"Role: Musician\n"
+        f"Instrument: {row.get('instrument','')}\n"
         f"Gig: {row.get('title','')}\n"
         f"Venue: {row.get('venue_name','')}\n"
         f"Start: {row.get('start_time','')}\n"
@@ -91,7 +91,7 @@ musician = None
 if not is_admin:
     m_res = (
         sb.table("musicians")
-        .select("id, display_name")
+        .select("id, display_name, instrument")
         .eq("user_id", user_id)
         .limit(1)
         .execute()
@@ -218,6 +218,8 @@ venue_lookup = load_venue_lookup()
 # NORMALIZE / ENRICH DATA
 # ===============================
 gigs = gigs_df.copy()
+
+gigs["instrument"] = musician.get("instrument")
 
 # Dates
 if "event_date" in gigs.columns:
