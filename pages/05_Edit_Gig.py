@@ -14,8 +14,10 @@ from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
 from auth_helper import require_admin
-from tools.send_venue_confirm import send_venue_confirm
-from tools.build_venue_confirmation_email import build_venue_confirmation_email
+from tools.send_venue_confirm import (
+    send_venue_confirm,
+    build_venue_confirmation_email,
+)
 
 # -----------------------------
 # Debug toggles (set True when needed)
