@@ -2,6 +2,7 @@
 
 import streamlit as st
 from supabase import create_client, Client
+from supabase_auth.errors import AuthApiError
 
 # --- Supabase client (ANON ONLY: session/user hydration) ---
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -18,15 +19,25 @@ def restore_session():
         st.session_state.pop("sb_refresh_token", None)
         return None, None
 
-    # ---- existing restore logic ----
     access = st.session_state.get("sb_access_token")
     refresh = st.session_state.get("sb_refresh_token")
 
     if access and refresh:
-        sb.auth.set_session(access, refresh)
+        try:
+            sb.auth.set_session(access, refresh)
+            session = sb.auth.get_session()
+            user = session.user if session else None
 
-    session = sb.auth.get_session()
-    user = session.user if session else None
+        except AuthApiError:
+            # 🔥 Refresh token invalid / already used
+            st.session_state.pop("supabase_user", None)
+            st.session_state.pop("user_id", None)
+            st.session_state.pop("sb_access_token", None)
+            st.session_state.pop("sb_refresh_token", None)
+            return None, None
+    else:
+        session = None
+        user = None
 
     # 🔹 Hydrate app-level identity (authoritative)
     if user:
@@ -37,7 +48,6 @@ def restore_session():
         st.session_state.pop("user_id", None)
 
     return user, session
-
 
 def require_login():
     user, session = restore_session()
