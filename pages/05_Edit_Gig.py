@@ -1872,71 +1872,69 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
     if not ok:
         st.stop()
 
-# -------------------------------------------------
-# Determine whether the (new) venue requires confirmation
-# (Venue confirmations were added after Edit Gig existed)
-# -------------------------------------------------
+    # -------------------------------------------------
+    # Determine whether the (new) venue requires confirmation
+    # (Venue confirmations were added after Edit Gig existed)
+    # -------------------------------------------------
 
-venue_requires_confirmation = False
+    venue_requires_confirmation = False
 
-venue_id = payload.get("venue_id")
-if venue_id:
-    venue_rec = (
-        sb.table("venues")
-        .select("requires_confirmation")
-        .eq("id", venue_id)
-        .maybe_single()
-        .execute()
-    )
-
-    if venue_rec.data:
-        venue_requires_confirmation = bool(
-            venue_rec.data.get("requires_confirmation")
+    venue_id = payload.get("venue_id")
+    if venue_id:
+        venue_rec = (
+            sb.table("venues")
+            .select("requires_confirmation")
+            .eq("id", venue_id)
+            .maybe_single()
+            .execute()
         )
 
-
-# -------------------------------------------------
-# Ensure / reset VENUE confirmation row (EDIT GIG)
-# -------------------------------------------------
-
-if venue_requires_confirmation:
-    existing_conf = (
-        sb.table("gig_confirmations")
-        .select("*")
-        .eq("gig_id", gid_str)
-        .eq("role", "venue")
-        .maybe_single()
-        .execute()
-    )
-
-    prev_venue_id = row.get("venue_id")
-    new_venue_id = payload.get("venue_id")
-
-    if not existing_conf.data:
-        # No confirmation row yet → create blank one
-        sb.table("gig_confirmations").insert(
-            {
-                "gig_id": gid_str,
-                "role": "venue",
-                "token": None,
-                "sent_at": None,
-                "confirmed_at": None,
-            }
-        ).execute()
-
-    elif prev_venue_id != new_venue_id:
-        # Venue changed → reset confirmation state
-        sb.table("gig_confirmations").update(
-            {
-                "token": None,
-                "sent_at": None,
-                "confirmed_at": None,
-            }
-        ).eq("id", existing_conf.data["id"]).execute()
+        if venue_rec.data:
+            venue_requires_confirmation = bool(
+                venue_rec.data.get("requires_confirmation")
+            )
 
 
+    # -------------------------------------------------
+    # Ensure / reset VENUE confirmation row (EDIT GIG)
+    # -------------------------------------------------
 
-    # If this is a private event, upsert private details into gigs_private
+    if venue_requires_confirmation:
+        existing_conf = (
+            sb.table("gig_confirmations")
+            .select("*")
+            .eq("gig_id", gid_str)
+            .eq("role", "venue")
+            .maybe_single()
+            .execute()
+        )
+
+        prev_venue_id = row.get("venue_id")
+        new_venue_id = payload.get("venue_id")
+
+        if not existing_conf.data:
+            # No confirmation row yet → create blank one
+            sb.table("gig_confirmations").insert(
+                {
+                    "gig_id": gid_str,
+                    "role": "venue",
+                    "token": None,
+                    "sent_at": None,
+                    "confirmed_at": None,
+                }
+            ).execute()
+
+        elif prev_venue_id != new_venue_id:
+            # Venue changed → reset confirmation state
+            sb.table("gig_confirmations").update(
+                {
+                    "token": None,
+                    "sent_at": None,
+                    "confirmed_at": None,
+                }
+            ).eq("id", existing_conf.data["id"]).execute()
+
+        # If this is a private event, upsert private details into gigs_private
     if bool(is_private) and _table_exists("gigs_private"):
         try:
             gp_payload = {
