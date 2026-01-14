@@ -52,9 +52,14 @@ def build_player_ics(row: dict) -> bytes:
     ends_at = dt.datetime.combine(event_date, end_time, tzinfo=LOCAL_TZ)
 
     desc = (
+        f"PRS Gig Assignment\n\n"
+        f"Role: Musician\n"
         f"Gig: {row.get('title','')}\n"
         f"Venue: {row.get('venue_name','')}\n"
-        f"Status: {row.get('contract_status','')}"
+        f"Start: {row.get('start_time','')}\n"
+        f"End: {row.get('end_time','')}\n"
+        f"Status: {row.get('contract_status','')}\n\n"
+        f"Imported from PRS"
     )
 
     return make_ics_bytes(
@@ -65,6 +70,7 @@ def build_player_ics(row: dict) -> bytes:
         location=row.get("venue_name", ""),
         description=desc,
     )
+
 # ===============================
 # ROLE DETECTION
 # ===============================
@@ -335,7 +341,7 @@ clean_df = clean_df.sort_values(
 st.subheader("Gigs")
 
 # Column headers
-hcols = st.columns([2, 3, 3, 2, 2, 2])
+hcols = st.columns([2, 3, 3, 2, 2, 3])
 hcols[0].markdown("**Date**")
 hcols[1].markdown("**Title**")
 hcols[2].markdown("**Venue**")
@@ -346,7 +352,7 @@ hcols[5].markdown("**Calendar**")
 st.markdown("---")
 
 for _, row in filtered.iterrows():
-    cols = st.columns([2, 3, 3, 2, 2, 2])
+    cols = st.columns([2, 3, 3, 2, 2, 3])
 
     cols[0].write(row.get("event_date"))
     cols[1].write(row.get("title", ""))
