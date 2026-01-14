@@ -855,19 +855,9 @@ with st.expander("Venue Confirmation", expanded=False):
                 key=k("send_venue_confirm"),
             ):
                 try:
-                    result = send_venue_confirm(gid)
-
-                    sb.table("gig_confirmations").update(
-                        {
-                            "token": result.get("token"),
-                            "sent_at": result.get("sent_at"),
-                            "method": "email",
-                        }
-                    ).eq("id", conf.data["id"]).execute()
-
+                    send_venue_confirm(gid)
                     st.success("Venue confirmation sent.")
                     st.rerun()
-
                 except Exception as e:
                     st.error(f"Venue confirmation send failed: {e}")
 
@@ -1896,8 +1886,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     {
                         "sent_at": None,
                         "confirmed_at": None,
-                        "token": None,
-                        "method": None,
+                        "token": None,                        
                     }
                 ).eq("id", rows[0]["id"]).execute()
 

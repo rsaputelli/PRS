@@ -1395,21 +1395,11 @@ if current_gig_id:
         # Pending (row exists but not sent)
         if st.button("📍 Send Venue Confirmation"):
             try:
-                # 🔑 CAPTURE THE TOKEN HERE
-                token = send_venue_confirm(current_gig_id)
-
-                # 🔑 PERSIST IT ON THE EXISTING ROW
-                sb.table("gig_confirmations").update({
-                    "sent_at": datetime.utcnow().isoformat(),
-                    "token": token,
-                    "confirmation_method": "link",
-                }).eq("id", vc["id"]).execute()
-
+                send_venue_confirm(current_gig_id)
                 st.success("Venue confirmation sent.")
                 st.rerun()
-
             except Exception as e:
-                st.error(f"Failed to send venue confirmation: {e}")       
+                st.error(f"Failed to send venue confirmation: {e}")
 
         try:
             res = upsert_band_calendar_event(
@@ -1418,20 +1408,22 @@ if current_gig_id:
                 calendar_name="Philly Rock and Soul",
             )
             if isinstance(res, dict) and res.get("error"):
-                st.error(f"Calendar upsert failed: {res.get('error')} (stage: {res.get('stage')})")
+                st.error(
+                    f"Calendar upsert failed: {res.get('error')} "
+                    f"(stage: {res.get('stage')})"
+                )
                 st.write({"calendarId": res.get("calendarId")})
             else:
                 action = (res or {}).get("action", "updated")
-                ev_id  = (res or {}).get("eventId")
                 st.success(f"PRS Calendar {action}.")
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
 
-        # Schedule a rerun-proof upsert (kept)
         st.session_state["pending_cal_upsert"] = {
             "gig_id": current_gig_id,
-            "calendar_name": "Philly Rock and Soul",  # must match elsewhere
+            "calendar_name": "Philly Rock and Soul",
         }
+
 
         # Also perform the upsert immediately so posting doesn't rely on a rerun
         try:

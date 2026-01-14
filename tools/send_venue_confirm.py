@@ -327,6 +327,30 @@ def send_venue_confirm(gig_id: str) -> str:
             kind="venue_confirm",
             status="sent",
         )
+        # ✅ AUTHORITATIVE SEND STATE (SAME INDENT LEVEL)
+        res = (
+            sb.table("gig_confirmations")
+            .select("id")
+            .eq("gig_id", gig["id"])
+            .eq("role", "venue")
+            .limit(1)
+            .execute()
+        )
+
+        rows = res.data or []
+        if not rows:
+            raise RuntimeError("Venue confirmation row missing for this gig.")
+
+        conf_id = rows[0]["id"]
+
+        sb.table("gig_confirmations").update(
+            {
+                "sent_at": dt.datetime.utcnow().isoformat(),
+                "token": token,
+                "confirmation_method": "link",
+            }
+        ).eq("id", conf_id).execute()
+
         return token
             
     except Exception as e:
