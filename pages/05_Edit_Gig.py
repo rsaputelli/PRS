@@ -1873,71 +1873,42 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         st.stop()
 
     # -------------------------------------------------
-    # Determine whether the (new) venue requires confirmation
-    # (Venue confirmations were added after Edit Gig existed)
+    # Reset venue confirmation if venue changed
+    # (Edit Gig never creates confirmations)
     # -------------------------------------------------
+    old_venue_id = str(row.get("venue_id") or "")
+    new_venue_id = str(payload.get("venue_id") or "")
 
-    venue_requires_confirmation = False
-
-    venue_id = payload.get("venue_id")
-    if venue_id:
+    if old_venue_id != new_venue_id:
         try:
-            rec = (
-                sb.table("venues")
-                .select("requires_confirmation")
-                .eq("id", venue_id)
+            res = (
+                sb.table("gig_confirmations")
+                .select("id")
+                .eq("gig_id", gid)
+                .eq("role", "venue")
+                .limit(1)
                 .execute()
-                .data
             )
 
-            if rec and isinstance(rec, list):
-                venue_requires_confirmation = bool(
-                    rec[0].get("requires_confirmation", False)
-                )
+            rows = res.data or []
+            if rows:
+                sb.table("gig_confirmations").update(
+                    {
+                        "sent_at": None,
+                        "confirmed_at": None,
+                        "token": None,
+                        "method": None,
+                    }
+                ).eq("id", rows[0]["id"]).execute()
+
+                if DEBUG_SAVE_TRACE:
+                    st.write(
+                        f"Venue confirmation reset due to venue change "
+                        f"({old_venue_id} → {new_venue_id})"
+                    )
 
         except Exception as e:
-            # Never block save for venue metadata
-            st.warning(f"Venue confirmation lookup skipped: {e}")
-            venue_requires_confirmation = False
-
-    # -------------------------------------------------
-    # Ensure / reset VENUE confirmation row (EDIT GIG)
-    # -------------------------------------------------
-
-    if venue_requires_confirmation:
-        existing_conf = (
-            sb.table("gig_confirmations")
-            .select("*")
-            .eq("gig_id", gid_str)
-            .eq("role", "venue")
-            .maybe_single()
-            .execute()
-        )
-
-        prev_venue_id = row.get("venue_id")
-        new_venue_id = payload.get("venue_id")
-
-        if not existing_conf.data:
-            # No confirmation row yet → create blank one
-            sb.table("gig_confirmations").insert(
-                {
-                    "gig_id": gid_str,
-                    "role": "venue",
-                    "token": None,
-                    "sent_at": None,
-                    "confirmed_at": None,
-                }
-            ).execute()
-
-        elif prev_venue_id != new_venue_id:
-            # Venue changed → reset confirmation state
-            sb.table("gig_confirmations").update(
-                {
-                    "token": None,
-                    "sent_at": None,
-                    "confirmed_at": None,
-                }
-            ).eq("id", existing_conf.data["id"]).execute()
+            st.warning(f"Venue confirmation reset failed: {e}")
 
         # If this is a private event, upsert private details into gigs_private
     if bool(is_private) and _table_exists("gigs_private"):
