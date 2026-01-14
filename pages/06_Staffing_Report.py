@@ -11,6 +11,7 @@ from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from auth_helper import require_admin
+from datetime import timedelta as _td
 
 # -----------------------------
 # Supabase helpers
@@ -79,12 +80,20 @@ if gigs.empty:
     st.info("No gigs found.")
     st.stop()
 
+# 🔹 Venue lookup (ID → name)
+venues_df = _select_df("venues", "id,name")
+venue_lookup = (
+    dict(zip(venues_df["id"], venues_df["name"]))
+    if not venues_df.empty
+    else {}
+)
+
+
 # Normalize types
 if "event_date" in gigs.columns:
     gigs["event_date"] = pd.to_datetime(gigs["event_date"], errors="coerce").dt.date
 
 # Compose _start_dt/_end_dt to help with sorting and time text
-from datetime import timedelta as _td
 
 def _to_time_obj(x) -> Optional[time]:
     if x is None or (isinstance(x, float) and pd.isna(x)):
@@ -197,7 +206,7 @@ for _, r in gigs.iterrows():
             "Date": pd.to_datetime(r.get("event_date")).strftime("%a %b %-d, %Y") if pd.notna(r.get("event_date")) else "",
             "Time": _fmt_time12(r.get("_start_dt")) + (" – " + _fmt_time12(r.get("_end_dt")) if not pd.isna(r.get("_end_dt")) else ""),
             "Title": r.get("title"),
-            "Venue ID": r.get("venue_id"),
+            "Venue": venue_lookup.get(r.get("venue_id"), ""),
             "Fee": format_currency(r.get("fee")),
             "Missing Roles": ", ".join(miss_roles) if miss_roles else "",
             "Sound Covered?": "Yes" if sound_ok else "No",
@@ -214,7 +223,7 @@ if not rows:
 else:
     out = pd.DataFrame(rows)
     # Prefer stable ordering
-    order = [c for c in ["Date", "Time", "Title", "Venue ID", "Fee", "Missing Roles", "Sound Covered?", "Missing Details", "Status", "Gig ID"] if c in out.columns]
+    order = [c for c in ["Date", "Time", "Title", "Venue", "Fee", "Missing Roles", "Sound Covered?", "Missing Details", "Status", "Gig ID"] if c in out.columns]
     out = out[order]
     # Show in a grid
     st.dataframe(out, use_container_width=True, hide_index=True)
