@@ -348,19 +348,20 @@ filtered = filtered.sort_values(
     ascending=[True, True],
 )
 
-# Column headers
-hcols = st.columns([2.5, 3, 3, 2, 2, 3])
+# Column headers (ADDED Status)
+hcols = st.columns([2.5, 3, 3, 2, 2, 2, 3])
 hcols[0].markdown("**Date**")
 hcols[1].markdown("**Title**")
 hcols[2].markdown("**Venue**")
 hcols[3].markdown("**Start**")
 hcols[4].markdown("**End**")
-hcols[5].markdown("**Calendar**")
+hcols[5].markdown("**Status**")
+hcols[6].markdown("**Calendar**")
 
 st.markdown("---")
 
 for _, row in filtered.iterrows():
-    cols = st.columns([2.5, 3, 3, 2, 2, 3])
+    cols = st.columns([2.5, 3, 3, 2, 2, 2, 3])
 
     d = row.get("event_date")
     cols[0].write(d.strftime("%m-%d-%Y") if hasattr(d, "strftime") else "")
@@ -369,8 +370,12 @@ for _, row in filtered.iterrows():
     cols[3].write(row.get("start_time", ""))
     cols[4].write(row.get("end_time", ""))
 
+    # NEW: Status column
+    cols[5].write(row.get("contract_status", ""))
+
+    # Existing ICS button (shifted right)
     ics_bytes = build_player_ics(row)
-    cols[5].download_button(
+    cols[6].download_button(
         label="📅 ICS",
         data=ics_bytes,
         file_name=f"{row.get('title','gig')}.ics",
