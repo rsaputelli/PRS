@@ -19,6 +19,45 @@ auth_email = (user.email or "").lower().strip()
 from auth_helper import sb
 
 # ===============================
+# AUTO-LINK AUTH USER → MUSICIAN
+# (one-time, email-based)
+# ===============================
+
+musician = (
+    sb.table("musicians")
+    .select("*")
+    .eq("user_id", user_id)
+    .maybe_single()
+    .execute()
+    .data
+)
+
+# If not yet linked, try email-based match (one-time)
+if not musician and auth_email:
+    musician = (
+        sb.table("musicians")
+        .select("*")
+        .eq("email", auth_email)
+        .maybe_single()
+        .execute()
+        .data
+    )
+
+    if musician:
+        sb.table("musicians").update(
+            {"user_id": user_id}
+        ).eq("id", musician["id"]).execute()
+
+# Final gate — must be linked at this point
+if not musician:
+    st.warning(
+        "Your account is not linked to a musician record. "
+        "Please contact the administrator."
+    )
+    st.stop()
+
+
+# ===============================
 # Helper: generic select to DataFrame
 # (mirrors 02_Schedule_View)
 # ===============================
