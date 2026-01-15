@@ -20,6 +20,45 @@ auth_email = (user.email or "").lower().strip()
 
 
 # ===============================
+# AUTO-LINK AUTH USER → SOUND TECH
+# (one-time, email-based)
+# ===============================
+
+sound_tech = (
+    sb.table("sound_techs")
+    .select("*")
+    .eq("user_id", user_id)
+    .maybe_single()
+    .execute()
+    .data
+)
+
+# If not yet linked, try email-based match
+if not sound_tech and auth_email:
+    sound_tech = (
+        sb.table("sound_techs")
+        .select("*")
+        .eq("email", auth_email)
+        .maybe_single()
+        .execute()
+        .data
+    )
+
+    if sound_tech:
+        sb.table("sound_techs").update(
+            {"user_id": user_id}
+        ).eq("id", sound_tech["id"]).execute()
+
+# Final gate
+if not sound_tech:
+    st.warning(
+        "Your account is not linked to a sound technician record. "
+        "Please contact the administrator."
+    )
+    st.stop()
+
+
+# ===============================
 # Resolve sound tech
 # ===============================
 res = (
