@@ -38,6 +38,8 @@ PRS_schema_master.md
 README_PRSApp_Deployment_Recovery.md
 repo_structure.txt
 sec.txt
+PRS_Deployment_Recovery_Guide.pdf
+add_musician_roles.sql
 
 # If you want to keep internal docs locally in /tools, ignore those too
 # tools/*.pdf
