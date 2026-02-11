@@ -164,13 +164,15 @@ if action == "Edit Existing" and musician_id:
 
         # Load existing tax record (service client avoids RLS/session surprises)
         existing_rows = (
-            sb_svc.table("musician_tax_info")
+            sb_svc.table("payee_tax_info")
             .select("*")
-            .eq("musician_id", musician_id)
+            .eq("payee_type", "musician")
+            .eq("payee_id", musician_id)
             .execute()
             .data
             or []
         )
+
         existing = existing_rows[0] if existing_rows else {}
 
         existing_last4 = existing.get("tin_last4") or ""
@@ -180,8 +182,16 @@ if action == "Edit Existing" and musician_id:
 
         w9_received = st.checkbox("W-9 received", value=existing_w9)
 
-        new_tin = st.text_input("Enter/Update SSN or EIN (digits or dashes)", value="", type="password")
-        confirm_tin = st.text_input("Confirm SSN/EIN", value="", type="password")
+        new_tin = st.text_input(
+            "Enter/Update SSN or EIN (digits or dashes)",
+            value="",
+            type="password"
+        )
+        confirm_tin = st.text_input(
+            "Confirm SSN/EIN",
+            value="",
+            type="password"
+        )
 
         col1, col2 = st.columns(2)
         with col1:
@@ -193,7 +203,8 @@ if action == "Edit Existing" and musician_id:
             st.rerun()
 
         if save_tax:
-            # Allow updating W9 flag without changing TIN
+
+            # If no new TIN entered AND none exists yet → block
             if not new_tin.strip() and not existing.get("tin_ciphertext"):
                 st.error("No TIN on file yet. Enter SSN/EIN to save.")
                 st.stop()
@@ -210,24 +221,28 @@ if action == "Edit Existing" and musician_id:
                     st.warning("TIN is not 9 digits after normalization. Please double-check.")
 
                 payload = {
-                    "musician_id": musician_id,
+                    "payee_type": "musician",
+                    "payee_id": musician_id,
                     "tin_last4": last4(tin_a),
                     "tin_ciphertext": encrypt_tin(tin_a, fernet),
                     "tin_key_version": 1,
                     "w9_received": w9_received,
                 }
+
             else:
                 # Keep existing ciphertext, update only W9 flag
                 payload = {
-                    "musician_id": musician_id,
+                    "payee_type": "musician",
+                    "payee_id": musician_id,
                     "tin_last4": existing_last4,
                     "tin_ciphertext": existing.get("tin_ciphertext"),
                     "tin_key_version": existing.get("tin_key_version", 1),
                     "w9_received": w9_received,
                 }
 
-            sb_svc.table("musician_tax_info").upsert(payload).execute()
+            sb_svc.table("payee_tax_info").upsert(payload).execute()
             st.success("Tax info saved (encrypted).")
+
 
 # ==========================================
 # FORM
