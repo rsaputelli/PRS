@@ -11,3 +11,4 @@ pypandoc
 pandoc
 weasyprint
 docx2python
+cryptography

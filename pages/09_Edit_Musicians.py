@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Optional, Dict, Any
 import os
+from lib.tax_crypto import get_fernet, encrypt_tin, normalize_tin, last4
 
 from supabase import create_client, Client
 from auth_helper import require_admin
@@ -26,6 +27,9 @@ def _get_secret(name: str, default=None, required: bool = False) -> Optional[str
 SUPABASE_URL = _get_secret("SUPABASE_URL", required=True)
 SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", required=True)
 sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+SUPABASE_SERVICE_KEY = _get_secret("SUPABASE_SERVICE_KEY", required=True)
+sb_svc: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
 
 # Attach Supabase session for RLS BEFORE any queries
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
@@ -150,6 +154,82 @@ if action == "Edit Existing":
     musician_id = row["id"]
 
 # ==========================================
+# 1099 / TAX INFO (Admin only; uses service client)
+# ==========================================
+if action == "Edit Existing" and musician_id:
+    st.markdown("---")
+    with st.expander("1099 / Tax Info (Admin Only)", expanded=False):
+        tax_key = _get_secret("TAX_ENCRYPTION_KEY", required=True)
+        fernet = get_fernet(tax_key)
+
+        # Load existing tax record (service client avoids RLS/session surprises)
+        existing_rows = (
+            sb_svc.table("musician_tax_info")
+            .select("*")
+            .eq("musician_id", musician_id)
+            .execute()
+            .data
+            or []
+        )
+        existing = existing_rows[0] if existing_rows else {}
+
+        existing_last4 = existing.get("tin_last4") or ""
+        existing_w9 = bool(existing.get("w9_received", False))
+
+        st.caption(f"Currently on file: TIN last4 = **{existing_last4 or '—'}**")
+
+        w9_received = st.checkbox("W-9 received", value=existing_w9)
+
+        new_tin = st.text_input("Enter/Update SSN or EIN (digits or dashes)", value="", type="password")
+        confirm_tin = st.text_input("Confirm SSN/EIN", value="", type="password")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            save_tax = st.button("Save Tax Info", use_container_width=True)
+        with col2:
+            clear_inputs = st.button("Clear Inputs", use_container_width=True)
+
+        if clear_inputs:
+            st.rerun()
+
+        if save_tax:
+            # Allow updating W9 flag without changing TIN
+            if not new_tin.strip() and not existing.get("tin_ciphertext"):
+                st.error("No TIN on file yet. Enter SSN/EIN to save.")
+                st.stop()
+
+            if new_tin.strip():
+                tin_a = normalize_tin(new_tin)
+                tin_b = normalize_tin(confirm_tin)
+
+                if tin_a != tin_b:
+                    st.error("TIN entries do not match.")
+                    st.stop()
+
+                if len(tin_a) != 9:
+                    st.warning("TIN is not 9 digits after normalization. Please double-check.")
+
+                payload = {
+                    "musician_id": musician_id,
+                    "tin_last4": last4(tin_a),
+                    "tin_ciphertext": encrypt_tin(tin_a, fernet),
+                    "tin_key_version": 1,
+                    "w9_received": w9_received,
+                }
+            else:
+                # Keep existing ciphertext, update only W9 flag
+                payload = {
+                    "musician_id": musician_id,
+                    "tin_last4": existing_last4,
+                    "tin_ciphertext": existing.get("tin_ciphertext"),
+                    "tin_key_version": existing.get("tin_key_version", 1),
+                    "w9_received": w9_received,
+                }
+
+            sb_svc.table("musician_tax_info").upsert(payload).execute()
+            st.success("Tax info saved (encrypted).")
+
+# ==========================================
 # FORM
 # ==========================================
 st.markdown("### Musician Details")
@@ -191,5 +271,6 @@ if submitted:
         _save_musician(payload, musician_id)
         st.success("Musician saved successfully.")
         st.balloons()
+        st.rerun()
     except Exception as e:
         st.error(f"Error saving musician: {e}")
