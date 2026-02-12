@@ -241,6 +241,18 @@ def _build_nec_totals(gp: pd.DataFrame) -> pd.DataFrame:
     totals["nec_amount"] = totals["nec_amount"].round(2)
     return totals.sort_values(["payee_type", "nec_amount"], ascending=[True, False]).reset_index(drop=True)
 
+def _infer_fed_id_type(row) -> str:
+    tin = row.get("tin_full", "")
+    digits = "".join(ch for ch in str(tin) if ch.isdigit())
+    if len(digits) != 9:
+        return ""
+
+    # If company exists → EIN
+    if row.get("company"):
+        return "1"
+
+    # Otherwise assume SSN
+    return "2"
 
 # ------------------------------
 # Controls
@@ -403,6 +415,7 @@ else:
                 "Recipient's Name": df["name_for_1099"].fillna(""),
                 "Recipient's Federal ID No.": tin_full.fillna(""),
                 "Federal ID type (1=EIN, 2=SSN, 3=ITIN, 4=ATIN)": tin_full.fillna("").apply(_infer_fed_id_type),
+                "Federal ID type (1=EIN, 2=SSN, 3=ITIN, 4=ATIN)": df.apply(_infer_fed_id_type, axis=1),
                 "Recipient's Second Name (optional)": df["company"].fillna(""),
                 "Street Address": df["address"].fillna(""),
                 "Street Address Line 2": df["address2"].fillna(""),
