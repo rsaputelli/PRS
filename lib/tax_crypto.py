@@ -3,9 +3,16 @@ from __future__ import annotations
 import re
 from cryptography.fernet import Fernet
 
-def normalize_tin(raw: str) -> str:
-    """Keep digits only. Accepts SSN/EIN formats with dashes/spaces."""
-    return re.sub(r"\D+", "", (raw or "").strip())
+import re
+
+def normalize_tin(raw) -> str:
+    """Keep digits only. Accepts SSN/EIN formats with dashes/spaces. Robust to floats/NaN."""
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if s.lower() == "nan":
+        return ""
+    return re.sub(r"\D+", "", s)
 
 def last4(tin_digits: str) -> str:
     return tin_digits[-4:] if tin_digits and len(tin_digits) >= 4 else ""
