@@ -49,6 +49,9 @@ if not user:
 
 st.title("Admin: 1099 Export Builder")
 
+EXCLUDE_1099_PAYEE_IDS = {
+    "81f4e9ef-5f7d-44cb-95e9-b9dcf8d53135",
+}
 
 # ------------------------------
 # Helpers
@@ -353,15 +356,29 @@ else:
         st.warning("Enable 'Include FULL TIN in export (sensitive)' above to generate the Track1099 upload CSV.")
     else:
         build_t1099 = st.button("Build Track1099 1099-NEC CSV", use_container_width=True)
+        apply_600 = st.checkbox("Apply $600 1099-NEC threshold", value=True)
+        threshold = 600.00
 
         if build_t1099:
-            df = merged_ss.copy()
 
+            # Always pull from session state (safer than locals)
+            df = st.session_state["merged_1099"].copy()
+
+            # Only payees with compensation > 0
             df = df[df["nec_amount"] > 0].copy()
+
+            # Apply $600 rule
+            if apply_600:
+                df = df[df["nec_amount"] >= threshold].copy()
+
+            # Require TIN on file
             df = df[df["tin_on_file"] == True].copy()  # noqa: E712
 
+            df = df[~df["payee_id"].astype(str).isin(EXCLUDE_1099_PAYEE_IDS)].copy()
+
+
             if df.empty:
-                st.warning("No eligible payees with NEC amount > 0 and TIN on file.")
+                st.warning("No eligible payees after applying filters.")
                 st.stop()
 
             tin_full = df["tin_full"] if "tin_full" in df.columns else pd.Series([""] * len(df), index=df.index)
