@@ -218,11 +218,26 @@ def _build_nec_totals(gp: pd.DataFrame) -> pd.DataFrame:
     # Normalize numeric columns
     gp["net_amount"] = pd.to_numeric(gp["net_amount"], errors="coerce").fillna(0.0)
 
-    totals = (
-        gp.groupby(["kind", "payee_id"], as_index=False)["net_amount"]
-        .sum()
-        .rename(columns={"kind": "payee_type", "net_amount": "nec_amount"})
+    # Normalize kind values to match payee_type keys used elsewhere
+    kind_map = {
+        "musician": "musician",
+        "agent": "agent",
+        "sound": "sound_tech",        # <-- your actual data
+        "sound_tech": "sound_tech",   # allow either form
+    }
+
+    gp["payee_type"] = (
+        gp["kind"].astype(str).str.strip().str.lower()
+        .map(kind_map)
+        .fillna(gp["kind"].astype(str).str.strip().str.lower())
     )
+
+    totals = (
+        gp.groupby(["payee_type", "payee_id"], as_index=False)["net_amount"]
+        .sum()
+        .rename(columns={"net_amount": "nec_amount"})
+    )
+
     totals["nec_amount"] = totals["nec_amount"].round(2)
     return totals.sort_values(["payee_type", "nec_amount"], ascending=[True, False]).reset_index(drop=True)
 
