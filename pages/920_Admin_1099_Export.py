@@ -362,17 +362,17 @@ if build_all:
 st.markdown("---")
 st.markdown("## 2) Track1099 (Avalara) 1099-NEC Upload CSV")
 
-def _infer_fed_id_type(tin: str) -> str:
-    if not tin:
-        return ""
-    s = str(tin).strip()
-    if "-" in s:
-        first = s.split("-")[0]
-        if len(first) == 2:
-            return "1"  # EIN
-        if len(first) == 3:
-            return "2"  # SSN
-    return ""
+# def _infer_fed_id_type(tin: str) -> str:
+    # if not tin:
+        # return ""
+    # s = str(tin).strip()
+    # if "-" in s:
+        # first = s.split("-")[0]
+        # if len(first) == 2:
+            # return "1"  # EIN
+        # if len(first) == 3:
+            # return "2"  # SSN
+    # return ""
 
 merged_ss = st.session_state.get("merged_1099")
 
@@ -389,7 +389,7 @@ else:
         if build_t1099:
 
             # Always pull from session state (safer than locals)
-            df = st.session_state["merged_1099"].copy()
+            df = merged_ss.copy()
 
             # Only payees with compensation > 0
             df = df[df["nec_amount"] > 0].copy()
@@ -409,19 +409,26 @@ else:
                 st.stop()
 
             tin_full = df["tin_full"] if "tin_full" in df.columns else pd.Series([""] * len(df), index=df.index)
+            
+            tin_digits = tin_full.fillna("").astype(str).str.replace(r"\D+", "", regex=True)
+            has_9 = tin_digits.str.len().eq(9)
+            has_company = df["company"].fillna("").astype(str).str.strip().ne("")
+
+            fed_type = pd.Series("", index=df.index)
+            fed_type[has_9 & has_company] = "1"   # EIN
+            fed_type[has_9 & ~has_company] = "2"  # SSN
 
             out = pd.DataFrame({
                 "Reference ID (Optional)": df["payee_id"].astype(str),
                 "Recipient's Name": df["name_for_1099"].fillna(""),
                 "Recipient's Federal ID No.": tin_full.fillna(""),
-                "Federal ID type (1=EIN, 2=SSN, 3=ITIN, 4=ATIN)": tin_full.fillna("").apply(_infer_fed_id_type),
-                "Federal ID type (1=EIN, 2=SSN, 3=ITIN, 4=ATIN)": df.apply(_infer_fed_id_type, axis=1),
+                "Federal ID type (1=EIN, 2=SSN, 3=ITIN, 4=ATIN)": fed_type,
                 "Recipient's Second Name (optional)": df["company"].fillna(""),
                 "Street Address": df["address"].fillna(""),
                 "Street Address Line 2": df["address2"].fillna(""),
                 "City": df["city"].fillna(""),
-                "State (2 letters)": df["state"].fillna(""),
-                "Zip": df["zip"].fillna(""),
+                "State (2 letters)": df["state"].fillna("").astype(str).str.upper().str.strip(),
+                "Zip": df["zip"].fillna("").astype(str).str.strip(),
                 "Recipient's Email": df["email"].fillna(""),
                 "Acc't No. (optional)": "",
                 "Office Code (optional)": "",
