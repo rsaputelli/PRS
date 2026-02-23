@@ -1686,6 +1686,46 @@ if table_exists:
 
 st.markdown("---")
 st.subheader("Finance (Deposits)")
+# --- Client Receipts summary (from gig_receipts) ---
+receipts_table_exists = _table_exists("gig_receipts")
+if receipts_table_exists:
+    r_df = _select_df("gig_receipts", "*", where_eq={"gig_id": gid_str})
+    if isinstance(r_df, pd.DataFrame) and not r_df.empty:
+        try:
+            total_received = float(r_df["amount"].fillna(0).sum())
+        except Exception:
+            total_received = 0.0
+
+        last_received = None
+        if "received_on" in r_df.columns:
+            try:
+                last_received = pd.to_datetime(r_df["received_on"], errors="coerce").max()
+                if pd.notnull(last_received):
+                    last_received = last_received.date()
+                else:
+                    last_received = None
+            except Exception:
+                last_received = None
+
+        expected_fee = gp_row.get("fee") if gp_row else None
+        try:
+            expected_fee = float(expected_fee) if expected_fee is not None else None
+        except Exception:
+            expected_fee = None
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Client receipts received", f"${total_received:,.2f}")
+        with c2:
+            if expected_fee is not None:
+                st.metric("Outstanding (vs fee)", f"${(expected_fee - total_received):,.2f}")
+            else:
+                st.metric("Outstanding (vs fee)", "—")
+        with c3:
+            st.metric("Last receipt date", str(last_received) if last_received else "—")
+    else:
+        st.caption("Client receipts received: $0.00")
+
 if not table_exists:
     st.info(
         "Deposits table not found; you can configure rows here, "
