@@ -3,10 +3,6 @@ import os
 import streamlit as st
 from datetime import date
 
-# === DIAGNOSTIC BANNER — REMOVE AFTER VERIFIED ===
-# VERSION_TAG = "Gig Closeout • v2025-11-09.3 (bulk + dropdown)"
-# st.markdown(f":red_circle: **{VERSION_TAG}**")
-
 # ===============================
 # Secrets / Supabase init (canonical)
 # ===============================
@@ -45,20 +41,6 @@ user, session, user_id = require_admin()
 if not user:
     st.stop()
 
-# ---------- config guard ----------
-missing = []
-if not os.environ.get("SUPABASE_URL"):
-    missing.append("SUPABASE_URL")
-if not (
-    os.environ.get("SUPABASE_SERVICE_KEY")
-    or os.environ.get("SUPABASE_KEY")
-    or os.environ.get("SUPABASE_ANON_KEY")
-):
-    missing.append("SUPABASE_KEY/ANON/SERVICE")
-if missing:
-    st.error("Missing configuration: " + ", ".join(missing))
-    st.stop()
-
 # ---------- imports AFTER env is populated ----------
 from lib.closeout_utils import (  # type: ignore
     fetch_gigs_by_status,
@@ -74,17 +56,21 @@ st.title("Gig Closeout")
 
 # ---------- constants ----------
 PAYMENT_METHODS = ["Check", "Zelle", "Cash", "Venmo", "Other"]  # stored in 'method'
-
-# ---------- gig_receipts helpers ----------
 RECEIPT_TYPES = ["deposit", "final", "other"]
 
+# ---------- gig_receipts helpers ----------
 def fetch_gig_receipts(gig_id: str):
     """Return list of receipt rows for a gig, ordered by received_on asc."""
     try:
-        resp = sb.table("gig_receipts").select("*").eq("gig_id", gig_id).order("received_on").execute()
+        resp = (
+            sb.table("gig_receipts")
+            .select("*")
+            .eq("gig_id", gig_id)
+            .order("received_on")
+            .execute()
+        )
         return resp.data or []
     except Exception as e:
-        # Most common: table missing or RLS not enabled
         st.warning(f"Could not load client receipts (gig_receipts). ({e})")
         return []
 
@@ -100,15 +86,14 @@ def insert_gig_receipt(
 ):
     payload = {
         "gig_id": gig_id,
-        "received_on": received_on.isoformat() if hasattr(received_on, "isoformat") else received_on,
-        "amount": float(amount) if amount is not None else None,
+        "received_on": received_on.isoformat(),
+        "amount": float(amount),
         "method": method,
         "reference": reference,
         "receipt_type": receipt_type,
         "deposit_seq": deposit_seq,
         "notes": notes,
     }
-    # Drop Nones to keep inserts clean
     payload = {k: v for k, v in payload.items() if v is not None and v != ""}
     sb.table("gig_receipts").insert(payload).execute()
 
@@ -135,19 +120,28 @@ def summarize_receipts(receipts: list):
     return total, last_dt
 
 def _compose_reference(method_detail: str, notes: str) -> str:
-    """Join method detail (e.g., check #) and notes into a single 'reference' string."""
     parts = []
-    if method_detail:
-        md = method_detail.strip()
-        if md:
-            parts.append(md)
-    if notes:
-        nt = notes.strip()
-        if nt:
-            parts.append(nt)
+    if method_detail and method_detail.strip():
+        parts.append(method_detail.strip())
+    if notes and notes.strip():
+        parts.append(notes.strip())
     return " | ".join(parts)
 
-# ---------- header controls ----------
+def _status_badge(expected_fee: float | None, received: float):
+    """Return a small status string based on fee vs receipts."""
+    if expected_fee is None:
+        return "Status: —"
+    if received <= 0:
+        return "Status: UNPAID"
+    if received + 0.005 < expected_fee:
+        return "Status: PARTIAL"
+    if abs(received - expected_fee) <= 0.005:
+        return "Status: PAID IN FULL"
+    return "Status: OVERPAID (check)"
+
+# ===============================
+# Header controls
+# ===============================
 mode = st.radio("Mode", ["Open", "Closed"], horizontal=True, label_visibility="collapsed", key="closeout_mode")
 status_target = "open" if mode == "Open" else "closed"
 
@@ -164,193 +158,189 @@ if not gig_opt:
 
 gig, roster, payments = fetch_closeout_bundle(gig_opt["id"])
 
+# Pull receipts + compute totals once per render
+receipts = fetch_gig_receipts(gig["id"])
+receipts_total, receipts_last_date = summarize_receipts(receipts)
+
+expected_fee = gig.get("fee")
+try:
+    expected_fee = float(expected_fee) if expected_fee is not None else None
+except Exception:
+    expected_fee = None
+
+# ============================== Layout ==============================
 colL, colR = st.columns([2, 1], gap="large")
 
-# ============================== LEFT: Venue & Payments Entry ==============================
+# ============================== LEFT ==============================
 with colL:
-    # -------- Client receipts (Deposits + Final) --------
-    receipts = fetch_gig_receipts(gig["id"])
-    receipts_total, receipts_last_date = summarize_receipts(receipts)
+    # -------- Client Receipts (source of truth) --------
+    st.subheader("Client Receipts (Deposits + Final)")
 
-    with st.expander("Client Receipts (Deposits + Final)", expanded=True):
-        c1, c2, c3 = st.columns([1, 1, 2])
-        with c1:
-            st.metric("Total received", money_fmt(receipts_total))
-        with c2:
-            st.metric(
-                "Outstanding (vs fee)",
-                money_fmt((gig.get("fee") or 0) - receipts_total) if gig.get("fee") is not None else "—"
-            )
-        with c3:
-            st.write("")  # spacer
+    m1, m2, m3, m4 = st.columns([1, 1, 1, 1])
+    with m1:
+        st.metric("Total received", money_fmt(receipts_total))
+    with m2:
+        st.metric("Expected fee", money_fmt(expected_fee) if expected_fee is not None else "—")
+    with m3:
+        st.metric("Outstanding", money_fmt((expected_fee - receipts_total)) if expected_fee is not None else "—")
+    with m4:
+        st.metric("Last receipt date", str(receipts_last_date) if receipts_last_date else "—")
 
-        if receipts:
-            # Display existing receipts
-            rows = []
-            for r in receipts:
-                rows.append({
-                    "Date": r.get("received_on"),
-                    "Type": r.get("receipt_type"),
-                    "Amount": r.get("amount"),
-                    "Method": r.get("method"),
-                    "Reference": r.get("reference"),
-                    "Notes": r.get("notes"),
-                    "id": r.get("id"),
-                })
-            st.dataframe(
-                rows,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Amount": st.column_config.NumberColumn(format="$%.2f"),
-                    "id": st.column_config.TextColumn("id", disabled=True),
-                },
-            )
+    st.caption(_status_badge(expected_fee, receipts_total))
 
-            del_id = st.selectbox(
-                "Delete a receipt (select by id)",
-                options=[""] + [r.get("id") for r in receipts if r.get("id")],
-                help="Deletes the selected receipt row.",
-                key="prs_receipt_del_select",
-            )
-            if del_id and st.button("Delete selected receipt", type="secondary"):
-                delete_gig_receipt(del_id)
-                st.success("Receipt deleted.")
+    if receipts:
+        rows = []
+        for r in receipts:
+            rows.append({
+                "Date": r.get("received_on"),
+                "Type": r.get("receipt_type"),
+                "Amount": r.get("amount"),
+                "Method": r.get("method"),
+                "Reference": r.get("reference"),
+                "Notes": r.get("notes"),
+                "id": r.get("id"),
+            })
+        st.dataframe(
+            rows,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Amount": st.column_config.NumberColumn(format="$%.2f"),
+                "id": st.column_config.TextColumn("id", disabled=True),
+            },
+        )
+
+        del_id = st.selectbox(
+            "Delete a receipt (select by id)",
+            options=[""] + [r.get("id") for r in receipts if r.get("id")],
+            help="Deletes the selected receipt row.",
+            key="prs_receipt_del_select",
+        )
+        if del_id and st.button("Delete selected receipt", type="secondary"):
+            delete_gig_receipt(del_id)
+            st.success("Receipt deleted.")
+            st.rerun()
+    else:
+        st.info("No client receipts recorded yet for this gig.")
+
+    st.markdown("### Add receipt")
+    with st.form("prs_add_receipt_form", clear_on_submit=True):
+        rc1, rc2, rc3, rc4 = st.columns([1.1, 1, 1, 1.2])
+        with rc1:
+            r_date = st.date_input("Received on", value=date.today(), key="prs_r_date")
+        with rc2:
+            r_amount = st.number_input("Amount", min_value=0.0, step=25.0, format="%.2f", key="prs_r_amount")
+        with rc3:
+            r_type = st.selectbox("Type", options=RECEIPT_TYPES, index=0, key="prs_r_type")
+        with rc4:
+            r_method = st.selectbox("Method", options=["", *PAYMENT_METHODS], index=0, key="prs_r_method")
+
+        r_detail = st.text_input("Reference / check # / transaction id (optional)", key="prs_r_detail")
+        r_notes = st.text_input("Notes (optional)", key="prs_r_notes")
+
+        if st.form_submit_button("Add receipt"):
+            if not r_amount or float(r_amount) <= 0:
+                st.error("Amount must be greater than $0.")
+            else:
+                ref = _compose_reference(r_detail, "")
+                insert_gig_receipt(
+                    gig_id=gig["id"],
+                    received_on=r_date,
+                    amount=float(r_amount),
+                    method=r_method or None,
+                    reference=ref or None,
+                    receipt_type=r_type,
+                    notes=r_notes or None,
+                )
+                st.success("Receipt added.")
                 st.rerun()
-        else:
-            st.info("No client receipts recorded yet for this gig.")
 
-        st.markdown("### Add receipt")
-        with st.form("prs_add_receipt_form", clear_on_submit=True):
-            rc1, rc2, rc3, rc4 = st.columns([1.1, 1, 1, 1.2])
-            with rc1:
-                r_date = st.date_input("Received on", value=date.today(), key="prs_r_date")
-            with rc2:
-                r_amount = st.number_input("Amount", min_value=0.0, step=25.0, format="%.2f", key="prs_r_amount")
-            with rc3:
-                r_type = st.selectbox("Type", options=RECEIPT_TYPES, index=0, key="prs_r_type")
-            with rc4:
-                r_method = st.selectbox("Method", options=["", *PAYMENT_METHODS], index=0, key="prs_r_method")
+    st.divider()
 
-            r_detail = st.text_input("Reference / check # / transaction id (optional)", key="prs_r_detail")
-            r_notes = st.text_input("Notes (optional)", key="prs_r_notes")
+    # -------- Closeout notes + legacy snapshot (auto-derived, NOT editable) --------
+    st.subheader("Closeout Notes")
+    st.caption(
+        "Client receipts are the source of truth. "
+        "On save, we also update legacy snapshot fields on the gig for compatibility: "
+        "`final_venue_gross = total receipts`, `final_venue_paid_date = last receipt date`."
+    )
 
-            if st.form_submit_button("Add receipt"):
-                if not r_amount or float(r_amount) <= 0:
-                    st.error("Amount must be greater than $0.")
-                else:
-                    ref = _compose_reference(r_detail, "")
-                    insert_gig_receipt(
-                        gig_id=gig["id"],
-                        received_on=r_date,
-                        amount=float(r_amount),
-                        method=r_method or None,
-                        reference=ref or None,
-                        receipt_type=r_type,
-                        notes=r_notes or None,
-                    )
-                    st.success("Receipt added.")
-                    st.rerun()
-
-    # -------- Venue receipt snapshot (compat) --------
-    st.subheader("Venue Receipt (Snapshot)")
-
-    _default_paid = gig.get("final_venue_paid_date")
-    if isinstance(_default_paid, str):
-        try:
-            _default_paid = date.fromisoformat(_default_paid)
-        except Exception:
-            _default_paid = None
-    if _default_paid is None:
-        _default_paid = date.today()
-
-    _default_paid_amt = gig.get("final_venue_gross") or 0.0
-
-    with st.form("venue_receipt_form"):
-        venue_paid = st.number_input(
-            "Total paid by venue",
-            min_value=0.0,
-            step=25.0,
-            value=float(receipts_total) if receipts_total and receipts_total > 0 else float(_default_paid_amt),
-            format="%.2f",
-        )
-        venue_date = st.date_input("Paid date", value=(receipts_last_date or _default_paid))
-
-        use_calc = st.checkbox(
-            "Use calculated Client Receipts total for this snapshot",
-            value=True if receipts_total and receipts_total > 0 else False,
-            help="When checked, the snapshot fields (final_venue_gross / final_venue_paid_date) will be set from Client Receipts above."
-        )
-
+    with st.form("prs_closeout_notes_form"):
         notes = st.text_area("Closeout Notes", value=gig.get("closeout_notes") or "")
-
-        if st.form_submit_button("Save Venue Closeout"):
+        if st.form_submit_button("Save Notes"):
+            # IMPORTANT: do NOT auto-close here. Just update notes + snapshot.
             mark_closeout_status(
                 gig["id"],
-                status="open",
-                final_venue_gross=(receipts_total if use_calc and receipts_total is not None else venue_paid),
-                final_venue_paid_date=(receipts_last_date if use_calc and receipts_last_date is not None else venue_date),
+                status=gig.get("closeout_status") or "open",
+                final_venue_gross=receipts_total,
+                final_venue_paid_date=receipts_last_date,
                 closeout_notes=notes,
             )
             st.success("Saved.")
             st.rerun()
 
+    with st.expander("Legacy snapshot fields (read-only)", expanded=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("final_venue_gross (derived)", money_fmt(receipts_total))
+        with c2:
+            st.metric("final_venue_paid_date (derived)", str(receipts_last_date) if receipts_last_date else "—")
+        st.caption("These are written automatically from Client Receipts to preserve existing reports/exports.")
+
     st.divider()
+
+    # -------- Payments to People (unchanged) --------
     st.subheader("Payments to People")
     st.caption("Enter what was actually paid. These figures drive 1099s.")
 
-# -------- Bulk Payments (NEW) --------
-with st.expander("Bulk Payments"):
-    label_to_r = {r["label"]: r for r in roster}
+    # Bulk payments
+    with st.expander("Bulk Payments"):
+        label_to_r = {r["label"]: r for r in roster}
+        with st.form("bulk_payments_form"):
+            chosen_labels = st.multiselect(
+                "Select roster entries to pay",
+                options=list(label_to_r.keys()),
+            )
+            bulk_gross = st.number_input("Gross", min_value=0.0, step=10.0, format="%.2f")
+            bulk_method = st.selectbox("Method", PAYMENT_METHODS, index=0)
+            bulk_detail = st.text_input("Method detail (check # / txn id)", value="")
+            bulk_notes = st.text_input("Notes (optional)", value="")
 
-    with st.form("bulk_payments_form"):
+            if st.form_submit_button("Apply payments"):
+                if not chosen_labels:
+                    st.error("Select at least one roster entry.")
+                elif bulk_gross <= 0:
+                    st.error("Gross must be > 0.")
+                else:
+                    for lbl in chosen_labels:
+                        r = label_to_r[lbl]
+                        payload = {
+                            "gig_id": gig["id"],
+                            "musician_id": r.get("musician_id"),
+                            "label": r.get("label"),
+                            "role": r.get("role"),
+                            "gross": float(bulk_gross),
+                            "method": bulk_method,
+                            "reference": _compose_reference(bulk_detail, bulk_notes),
+                        }
+                        upsert_payment_row(payload)
+                    st.success(f"Applied {len(chosen_labels)} payments.")
+                    st.rerun()
 
-        chosen_labels = st.multiselect(
-            "Select roster entries to pay",
-            options=list(label_to_r.keys()),
-        )
-
-        bulk_gross = st.number_input("Gross", min_value=0.0, step=10.0, format="%.2f")
-        bulk_method = st.selectbox("Method", PAYMENT_METHODS, index=0)
-        bulk_detail = st.text_input("Method detail (check # / txn id)", value="")
-        bulk_notes = st.text_input("Notes (optional)", value="")
-
-        if st.form_submit_button("Apply payments"):
-            if not chosen_labels:
-                st.error("Select at least one roster entry.")
-            elif bulk_gross <= 0:
-                st.error("Gross must be > 0.")
-            else:
-                for lbl in chosen_labels:
-                    r = label_to_r[lbl]
-                    payload = {
-                        "gig_id": gig["id"],
-                        "musician_id": r.get("musician_id"),
-                        "label": r.get("label"),
-                        "role": r.get("role"),
-                        "gross": float(bulk_gross),
-                        "method": bulk_method,
-                        "reference": _compose_reference(bulk_detail, bulk_notes),
-                    }
-                    upsert_payment_row(payload)
-                st.success(f"Applied {len(chosen_labels)} payments.")
-                st.rerun()
-
-# -------- Individual Payments --------
+# ============================== RIGHT ==============================
 with colR:
     st.subheader("Roster")
     for r in roster:
         st.write(f"- {r.get('label','?')}")
 
     st.divider()
+
     st.subheader("Recorded Payments")
     if not payments:
         st.info("No payments recorded yet.")
     else:
         for p in payments:
-            st.write(
-                f"• {p.get('label','?')} — {money_fmt(p.get('gross') or 0)} ({p.get('method') or ''})"
-            )
+            st.write(f"• {p.get('label','?')} — {money_fmt(p.get('gross') or 0)} ({p.get('method') or ''})")
             if st.button("Delete", key=f"del_pay_{p.get('id')}"):
                 delete_payment_row(p["id"])
                 st.success("Deleted.")
@@ -358,14 +348,16 @@ with colR:
 
 st.divider()
 
+# ============================== Status controls (manual only) ==============================
 colA, colB = st.columns([1, 1])
 with colA:
     if st.button("Mark Closed", type="primary"):
+        # Manual close; BUT snapshot derived from receipts so it stays consistent
         mark_closeout_status(
             gig["id"],
             status="closed",
-            final_venue_gross=gig.get("final_venue_gross"),
-            final_venue_paid_date=gig.get("final_venue_paid_date"),
+            final_venue_gross=receipts_total,
+            final_venue_paid_date=receipts_last_date,
             closeout_notes=gig.get("closeout_notes") or "",
         )
         st.success("Gig marked CLOSED.")
@@ -376,9 +368,10 @@ with colB:
         mark_closeout_status(
             gig["id"],
             status="open",
-            final_venue_gross=gig.get("final_venue_gross"),
-            final_venue_paid_date=gig.get("final_venue_paid_date"),
+            final_venue_gross=receipts_total,
+            final_venue_paid_date=receipts_last_date,
             closeout_notes=gig.get("closeout_notes") or "",
         )
         st.success("Gig marked OPEN.")
         st.rerun()
+
