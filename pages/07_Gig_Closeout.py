@@ -314,16 +314,22 @@ with colL:
                 else:
                     for lbl in chosen_labels:
                         r = label_to_r[lbl]
+
                         payload = {
                             "gig_id": gig["id"],
-                            "musician_id": r.get("musician_id"),
-                            "label": r.get("label"),
+                            "payee_type": r.get("type"),          # 'musician' | 'agent' | 'sound'
+                            "payee_id": r.get("id"),
+                            "payee_name": r.get("name"),
                             "role": r.get("role"),
                             "gross": float(bulk_gross),
+                            "fee": 0.0,
                             "method": bulk_method,
-                            "reference": _compose_reference(bulk_detail, bulk_notes),
+                            "paid_date": date.today(),            # or None if you prefer unpaid records
+                            "eligible_1099": True,                # or derive from payee_type if you want
+                            "notes": _compose_reference(bulk_detail, bulk_notes),  # goes into 'reference' column in DB
                         }
-                        upsert_payment_row(payload)
+
+                        upsert_payment_row(**payload)
                     st.success(f"Applied {len(chosen_labels)} payments.")
                     st.rerun()
 
