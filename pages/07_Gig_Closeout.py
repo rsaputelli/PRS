@@ -138,7 +138,34 @@ def _status_badge(expected_fee: float | None, received: float):
     if abs(received - expected_fee) <= 0.005:
         return "Status: PAID IN FULL"
     return "Status: OVERPAID (check)"
+    
+def summarize_people_payments(payments: list):
+    total = 0.0
+    for p in payments or []:
+        try:
+            total += float(p.get("gross") or p.get("amount") or 0)
+        except Exception:
+            pass
+    return total    
 
+def existing_payment_labels(payments: list) -> set[str]:
+    labels = set()
+    for p in payments or []:
+        name = p.get("payee_name") or "Unknown"
+        role = p.get("role")
+        kind = p.get("kind")
+
+        if kind == "musician":
+            lbl = f"Musician — {name}" + (f" ({role})" if role else "")
+        elif kind == "sound":
+            lbl = f"Sound — {name}"
+        elif kind == "agent":
+            lbl = f"Agent — {name}"
+        else:
+            lbl = name
+
+        labels.add(lbl)
+    return labels
 # ===============================
 # Header controls
 # ===============================
@@ -292,10 +319,21 @@ with colL:
     # -------- Payments to People (unchanged) --------
     st.subheader("Payments to People")
     st.caption("Enter what was actually paid. These figures drive 1099s.")
+    
+    people_paid_total = summarize_people_payments(payments)
+    running_balance = receipts_total - people_paid_total
+
+    pp1, pp2 = st.columns(2)
+    with pp1:
+        st.metric("Total paid to people", money_fmt(people_paid_total))
+    with pp2:
+        st.metric("Running balance after payouts", money_fmt(running_balance))
 
     # Bulk payments
     with st.expander("Bulk Payments"):
         label_to_r = {r["label"]: r for r in roster}
+        already_paid_labels = existing_payment_labels(payments)
+
         with st.form("bulk_payments_form"):
             chosen_labels = st.multiselect(
                 "Select roster entries to pay",
@@ -305,6 +343,10 @@ with colL:
             bulk_method = st.selectbox("Method", PAYMENT_METHODS, index=0)
             bulk_detail = st.text_input("Method detail (check # / txn id)", value="")
             bulk_notes = st.text_input("Notes (optional)", value="")
+            allow_duplicate_payments = st.checkbox(
+                "Allow additional payment for roster entries that already have a recorded payment",
+                value=False,
+            )            
 
             if st.form_submit_button("Apply payments"):
                 if not chosen_labels:
@@ -312,26 +354,36 @@ with colL:
                 elif bulk_gross <= 0:
                     st.error("Gross must be > 0.")
                 else:
-                    for lbl in chosen_labels:
-                        r = label_to_r[lbl]
+                    duplicates = [lbl for lbl in chosen_labels if lbl in already_paid_labels]
 
-                        payload = {
-                            "gig_id": gig["id"],
-                            "payee_type": r.get("type"),          # 'musician' | 'agent' | 'sound'
-                            "payee_id": r.get("id"),
-                            "payee_name": r.get("name"),
-                            "role": r.get("role"),
-                            "gross": float(bulk_gross),
-                            "fee": 0.0,
-                            "method": bulk_method,
-                            "paid_date": date.today(),            # or None if you prefer unpaid records
-                            "eligible_1099": True,                # or derive from payee_type if you want
-                            "notes": _compose_reference(bulk_detail, bulk_notes),  # goes into 'reference' column in DB
-                        }
+                    if duplicates and not allow_duplicate_payments:
+                        st.error(
+                            "These roster entries already have recorded payments for this gig: "
+                            + "; ".join(duplicates)
+                            + ". Check the override box only if you intentionally want to add another payment."
+                        )
+                    else:
+                        for lbl in chosen_labels:
+                            r = label_to_r[lbl]
 
-                        upsert_payment_row(**payload)
-                    st.success(f"Applied {len(chosen_labels)} payments.")
-                    st.rerun()
+                            payload = {
+                                "gig_id": gig["id"],
+                                "payee_type": r.get("type"),
+                                "payee_id": r.get("id"),
+                                "payee_name": r.get("name"),
+                                "role": r.get("role"),
+                                "gross": float(bulk_gross),
+                                "fee": 0.0,
+                                "method": bulk_method,
+                                "paid_date": date.today(),
+                                "eligible_1099": True,
+                                "notes": _compose_reference(bulk_detail, bulk_notes),
+                            }
+
+                            upsert_payment_row(**payload)
+
+                        st.success(f"Applied {len(chosen_labels)} payments.")
+                        st.rerun()
 
 # ============================== RIGHT ==============================
 with colR:
