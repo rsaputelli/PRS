@@ -263,7 +263,18 @@ with st.form("musician_form"):
     )
     phone = st.text_input("Phone", row.get("phone", ""))
     email = st.text_input("Email", row.get("email", ""))
-    address = st.text_area("Address", row.get("address", ""))
+
+    address1 = st.text_input("Address Line 1", row.get("address", ""))
+    address2 = st.text_input("Address Line 2", row.get("address2", ""))
+
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        city = st.text_input("City", row.get("city", ""))
+    with c2:
+        state = st.text_input("State", row.get("state", ""))
+    with c3:
+        zip_code = st.text_input("ZIP", row.get("zip", ""))
+
     active = st.checkbox("Active", value=row.get("active", True))
 
     submitted = st.form_submit_button("Save Musician")
@@ -276,8 +287,11 @@ if submitted:
         "stage_name": stage or None,
         "instrument": instrument or None,
         "phone": phone or None,
-        "email": email or None,
-        "address": address or None,
+        "address": address1 or None,
+        "address2": address2 or None,
+        "city": city or None,
+        "state": state or None,
+        "zip": zip_code or None,
         "active": active,
         "updated_at": datetime.utcnow().isoformat(),
     }
