@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Optional, Dict, Any
 import os
+import re
 from lib.tax_crypto import get_fernet, encrypt_tin, normalize_tin, last4
 
 from supabase import create_client, Client
@@ -121,7 +122,36 @@ def _save_musician(payload: Dict[str, Any], musician_id: Optional[str] = None):
         )
 
     return data
+# ==========================================
+# Input normalization helpers
+# ==========================================
 
+def normalize_phone(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) == 10:
+        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    return phone.strip()
+
+
+def normalize_zip(zip_code: str | None) -> str | None:
+    if not zip_code:
+        return None
+    z = zip_code.strip()
+    if re.fullmatch(r"\d{5}", z):
+        return z
+    if re.fullmatch(r"\d{5}-\d{4}", z):
+        return z
+    digits = re.sub(r"\D", "", z)
+    if len(digits) == 5:
+        return digits
+    if len(digits) == 9:
+        return f"{digits[:5]}-{digits[5:]}"
+    return z
 
 # ==========================================
 # LOAD ALL MUSICIANS
@@ -270,10 +300,29 @@ with st.form("musician_form"):
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
         city = st.text_input("City", row.get("city", ""))
+    
+    US_STATES = [
+        "", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+        "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA",
+        "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY",
+        "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX",
+        "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"
+    ]
+
+    state_val = (row.get("state") or "").strip().upper()
+    state_index = US_STATES.index(state_val) if state_val in US_STATES else 0
+
     with c2:
-        state = st.text_input("State", row.get("state", ""))
+        state = st.selectbox("State", US_STATES, index=state_index)
+        
     with c3:
-        zip_code = st.text_input("ZIP", row.get("zip", ""))
+        zip_val = row.get("zip")
+
+        zip_code = st.text_input(
+            "ZIP",
+            "" if zip_val is None else str(zip_val).split(".")[0],
+            max_chars=10
+        )
 
     active = st.checkbox("Active", value=row.get("active", True))
 
@@ -286,12 +335,12 @@ if submitted:
         "last_name": last or None,
         "stage_name": stage or None,
         "instrument": instrument or None,
-        "phone": phone or None,
+        "phone": normalize_phone(phone),
         "address": address1 or None,
         "address2": address2 or None,
         "city": city or None,
         "state": state or None,
-        "zip": zip_code or None,
+        "zip": normalize_zip(zip_code),
         "active": active,
         "updated_at": datetime.utcnow().isoformat(),
     }
