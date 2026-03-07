@@ -142,7 +142,31 @@ def _payments_for(gig_id: str) -> List[Dict[str, Any]]:
         .order("created_at")
         .execute()
     )
-    return res.data or []
+
+    rows = res.data or []
+
+    for r in rows:
+        # Map DB field to UI field
+        r["gross"] = r.get("amount")
+
+        # Build label if not present
+        if not r.get("label"):
+            name = r.get("payee_name") or "Unknown"
+            role = r.get("role")
+            kind = r.get("kind")
+
+            if kind == "musician":
+                r["label"] = f"Musician — {name}" + (f" ({role})" if role else "")
+            elif kind == "sound":
+                r["label"] = f"Sound — {name}"
+            elif kind == "agent":
+                r["label"] = f"Agent — {name}"
+            elif kind == "venue_receipt":
+                r["label"] = "Client Receipt"
+            else:
+                r["label"] = name
+
+    return rows
 
 def upsert_payment_row(
     *,
