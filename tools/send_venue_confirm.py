@@ -7,7 +7,6 @@ import datetime as dt
 import re
 from typing import Dict, Any, Optional
 
-import pytz
 from supabase import create_client, Client
 
 from lib.email_utils import gmail_send, build_html_table
