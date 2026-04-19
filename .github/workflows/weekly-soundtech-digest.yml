@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          ref: release
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,16 +25,14 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install supabase pytz google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          pip install supabase google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
       - name: Run weekly digest
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE }}   # ok: our code falls back to SERVICE_ROLE or KEY
-          # Gmail creds — match your existing Weekly Gmail Reminder setup
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
           GMAIL_CLIENT_SECRET_JSON: ${{ secrets.GMAIL_CLIENT_SECRET_JSON }}
           GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
-          # Branding / options
           BAND_FROM_NAME: "PRS Scheduling"
           BAND_FROM_EMAIL: "no-reply@prs.local"
           CC_RAY: "ray@lutinemanagement.com"
