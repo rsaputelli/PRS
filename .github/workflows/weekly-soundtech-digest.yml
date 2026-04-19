@@ -40,4 +40,4 @@ jobs:
           INCLUDE_ICS: "true"
           APP_TZ: "America/New_York"
         run: |
-          python tools/weekly_soundtech_digest.py
+          python -m tools.weekly_soundtech_digest
