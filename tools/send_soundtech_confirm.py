@@ -5,7 +5,6 @@ import uuid as uuid_mod
 import datetime as dt
 from typing import Dict, Any, Optional
 
-import pytz
 from supabase import create_client, Client
 
 from lib.email_utils import gmail_send, build_html_table
@@ -93,10 +92,12 @@ def _parse_time_flex(t: Optional[str]) -> dt.time:
 
 
 def _localize(event_date_str: str, time_str: Optional[str]) -> tuple[dt.datetime, dt.datetime]:
-    tz = pytz.timezone(TZ)
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(TZ)
     day = dt.datetime.strptime(event_date_str, "%Y-%m-%d")
     st_time = _parse_time_flex(time_str)
-    starts = tz.localize(dt.datetime.combine(day.date(), st_time))
+    starts = dt.datetime.combine(day.date(), st_time, tzinfo=tz)
     ends = starts + dt.timedelta(hours=4)
     return starts, ends
 
