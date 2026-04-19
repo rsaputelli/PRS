@@ -1900,10 +1900,15 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "sound_by_venue_phone": (sound_by_venue_phone or None),
         "sound_provided": bool(sound_provided),
         "sound_fee": sound_fee_val,
-        "overtime_rate": overtime_rate or None,
-    }
+        "overtime_rate": None if pd.isna(overtime_rate) or overtime_rate == "" else overtime_rate,
+        }
 
     payload = _filter_to_schema("gigs", payload)
+
+    payload = {
+        k: (None if pd.isna(v) else v)
+        for k, v in payload.items()
+    }
 
     # Update gig
     ok = _robust_update("gigs", {"id": row.get("id")}, payload)
