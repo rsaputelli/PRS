@@ -5,7 +5,7 @@ on:
   schedule:
     # NOTE: GitHub Actions uses UTC. This runs at 12:00 UTC,
     # which is 07:00 during EST and 08:00 during EDT.
-    - cron: "0 12 * * 1"
+    - cron: "13 14 * * 1"
   workflow_dispatch: {}
 
 jobs:
