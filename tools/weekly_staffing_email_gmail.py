@@ -83,6 +83,18 @@ def get_understaffed():
         # Normalize/sort by a date-like column
         df = _normalize_and_sort_by_date(df)
 
+        today = dt.date.today()
+        end = today + dt.timedelta(days=60)
+
+        if "event_date" in df.columns:
+            df = df[
+                (pd.to_datetime(df["event_date"], errors="coerce").dt.date >= today) &
+                (pd.to_datetime(df["event_date"], errors="coerce").dt.date < end)
+            ]
+
+        if "closeout_status" in df.columns:
+            df = df[df["closeout_status"].fillna("open") != "closed"]
+
         # Compute missing_roles explicitly for gigs in this view
         roles_needed = {
             "Male Vocals", "Female Vocals", "Guitar", "Bass", "Keyboard",
@@ -116,6 +128,9 @@ def get_understaffed():
     end = today + dt.timedelta(days=60)
 
     gigs = _sel("gigs", "*")
+
+    if "closeout_status" in gigs.columns:
+        gigs = gigs[gigs["closeout_status"].fillna("open") != "closed"]
 
     if gigs.empty:
         return gigs
