@@ -84,7 +84,7 @@ def get_understaffed():
         df = _normalize_and_sort_by_date(df)
 
         today = dt.date.today()
-        end = today + dt.timedelta(days=60)
+        end = today + dt.timedelta(days=90)
 
         if "event_date" in df.columns:
             df = df[
@@ -250,7 +250,7 @@ def build_html(df: pd.DataFrame) -> str:
     body = "<tbody>" + "".join(rows) + "</tbody>"
 
     return (
-        f"<p>Gigs in the next 60 days that are not fully staffed as of {today}:</p>"
+        f"<p>Gigs in the next 90 days that are not fully staffed as of {today}:</p>"
         f"{summary_line}"
         f"<table border='1' cellpadding='6' cellspacing='0'>{head}{body}</table>"
     )
@@ -312,7 +312,7 @@ def main():
         return
 
     recipients = get_recipients()
-    subject = f"PRS Staffing Gaps (Next 60 Days) – {dt.date.today():%b %d, %Y}"
+    subject = f"PRS Staffing Gaps (Next 90 Days) – {dt.date.today():%b %d, %Y}"
     gmail_send_html(recipients, subject, html)
 
 if __name__ == "__main__":
