@@ -67,41 +67,20 @@ def _fetch_soundtechs(sb) -> List[dict]:
     resp = sb.table("sound_techs").select("id, display_name, first_name, last_name, email").execute()
     return [r for r in (resp.data or []) if r.get("email")]
 
-
 def _fetch_events_for_range(sb, start: dt.datetime, end: dt.datetime) -> List[dict]:
     start_s = start.strftime("%Y-%m-%d")
     end_s = end.strftime("%Y-%m-%d")
 
-    # PUBLIC gigs (safe column list)
-    pub = (
+    return (
         sb.table("gigs")
         .select(
-            "id, title, gig_name, event_date, start_time, end_time, "
+            "id, title, event_date, start_time, end_time, "
             "sound_provided, sound_fee, sound_tech_id"
         )
         .gte("event_date", start_s)
         .lt("event_date", end_s)
         .execute()
     ).data or []
-
-    # OPTIONAL: include PRIVATE gigs in digest (kept safe; enable when ready)
-    priv = []
-    try:
-        priv = (
-            sb.table("gigs_private")
-            .select(
-                "id, title, gig_name, event_date, start_time, end_time, "
-                "sound_provided, sound_fee, sound_tech_id"
-            )
-            .gte("event_date", start_s)
-            .lt("event_date", end_s)
-            .execute()
-        ).data or []
-    except Exception:
-        pass
-
-    return pub + priv
-
 
 def _insert_email_audit(sb, *, token: str, recipient_email: str, gig_id: str | None = None):
     sb.table("email_audit").insert(
