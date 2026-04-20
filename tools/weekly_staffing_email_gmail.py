@@ -5,14 +5,29 @@ import requests
 from email.mime.text import MIMEText
 from supabase import create_client, Client
 
-# --- Env/Secrets ---
-SUPABASE_URL         = os.environ["SUPABASE_URL"]
-SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+def _get_secret(name, default=None):
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and name in st.secrets:
+            return st.secrets[name]
+    except Exception:
+        pass
+    return os.environ.get(name, default)
 
-GMAIL_CLIENT_ID     = os.environ["GMAIL_CLIENT_ID"]
-GMAIL_CLIENT_SECRET = os.environ["GMAIL_CLIENT_SECRET"]
-GMAIL_REFRESH_TOKEN = os.environ["GMAIL_REFRESH_TOKEN"]
-GMAIL_SENDER        = os.environ["GMAIL_SENDER"]
+# --- Env/Secrets ---
+SUPABASE_URL = _get_secret("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = _get_secret("SUPABASE_SERVICE_KEY")
+
+GMAIL_CLIENT_ID = _get_secret("GMAIL_CLIENT_ID")
+GMAIL_CLIENT_SECRET = _get_secret("GMAIL_CLIENT_SECRET")
+GMAIL_REFRESH_TOKEN = _get_secret("GMAIL_REFRESH_TOKEN")
+GMAIL_SENDER = _get_secret("GMAIL_SENDER")
+
+if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+    raise RuntimeError("Missing Supabase credentials.")
+
+if not GMAIL_CLIENT_ID or not GMAIL_CLIENT_SECRET or not GMAIL_REFRESH_TOKEN or not GMAIL_SENDER:
+    raise RuntimeError("Missing Gmail credentials.")
 
 # --- Supabase ---
 sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -97,7 +112,18 @@ def get_understaffed():
         return df
 
     # --- Fallback: compute from gigs + gig_musicians ---
+    today = dt.date.today()
+    end = today + dt.timedelta(days=60)
+
     gigs = _sel("gigs", "*")
+
+    if gigs.empty:
+        return gigs
+
+    gigs = gigs[
+        (pd.to_datetime(gigs["event_date"]).dt.date >= today) &
+        (pd.to_datetime(gigs["event_date"]).dt.date < end)
+    ]
     if gigs.empty:
         return gigs  # nothing to report
 
@@ -169,8 +195,9 @@ def build_html(df: pd.DataFrame) -> str:
             venue_lookup[vid] = label or "(unnamed venue)"
 
     if df.empty:
-        return f"<p>All upcoming gigs are fully staffed as of {today}. ✅</p>"
-
+        print("No understaffed gigs — no email sent")
+        return
+        
     total_gigs = len(df)
     summary_line = f"<p><b>{total_gigs} gig{'s' if total_gigs != 1 else ''} need attention this week.</b></p>"
 
@@ -208,7 +235,7 @@ def build_html(df: pd.DataFrame) -> str:
     body = "<tbody>" + "".join(rows) + "</tbody>"
 
     return (
-        f"<p>Gigs not fully staffed as of {today}:</p>"
+        f"<p>Gigs in the next 60 days that are not fully staffed as of {today}:</p>"
         f"{summary_line}"
         f"<table border='1' cellpadding='6' cellspacing='0'>{head}{body}</table>"
     )
@@ -262,7 +289,7 @@ def main():
     df = get_understaffed()
     html = build_html(df)
     recipients = get_recipients()
-    subject = f"PRS Weekly Staffing Gaps – {dt.date.today():%b %d, %Y}"
+    subject = f"PRS Staffing Gaps (Next 60 Days) – {dt.date.today():%b %d, %Y}"
     gmail_send_html(recipients, subject, html)
 
 if __name__ == "__main__":

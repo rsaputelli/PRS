@@ -2,15 +2,16 @@ name: Weekly Staffing Email (Gmail)
 
 on:
   schedule:
-    # 13:00 UTC ≈ 9:00 AM ET on Mondays (DST-aware)
-    - cron: "0 13 * * MON"
+    # GitHub Actions cron is UTC. This runs Mondays at 13:00 UTC.
+    - cron: "0 13 * * 1"
   workflow_dispatch: {}
 
 jobs:
   send-staffing-email:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout release
+      - name: Check out release
         uses: actions/checkout@v4
         with:
           ref: release
@@ -25,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas requests supabase
 
-      - name: Send Weekly Staffing Email via Gmail
+      - name: Send weekly staffing email
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -34,4 +35,4 @@ jobs:
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
           GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
         run: |
-          python tools/weekly_staffing_email_gmail.py
+          python -m tools.weekly_staffing_email_gmail
