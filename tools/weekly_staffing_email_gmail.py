@@ -211,7 +211,7 @@ def build_html(df: pd.DataFrame) -> str:
 
     if df.empty:
         print("No understaffed gigs — no email sent")
-        return
+        return None
         
     total_gigs = len(df)
     summary_line = f"<p><b>{total_gigs} gig{'s' if total_gigs != 1 else ''} need attention this week.</b></p>"
@@ -276,6 +276,10 @@ def gmail_send_html(to_list, subject, html_body):
         print("⚠️  No recipients specified — email not sent.")
         return
 
+    if not html_body:
+        print("⚠️  Empty email body — email not sent.")
+        return
+
     msg = MIMEText(html_body, "html")
     msg["To"] = ", ".join(to_list)
     msg["From"] = GMAIL_SENDER
@@ -303,6 +307,10 @@ def gmail_send_html(to_list, subject, html_body):
 def main():
     df = get_understaffed()
     html = build_html(df)
+
+    if not html:
+        return
+
     recipients = get_recipients()
     subject = f"PRS Staffing Gaps (Next 60 Days) – {dt.date.today():%b %d, %Y}"
     gmail_send_html(recipients, subject, html)
