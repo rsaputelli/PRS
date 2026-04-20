@@ -2,7 +2,7 @@ name: Weekly Staffing Email (Gmail)
 
 on:
   schedule:
-    # GitHub Actions cron is UTC. This runs Mondays at 13:00 UTC.
+    # GitHub Actions cron is UTC. This runs Mondays at 14:13 UTC:.
     - cron: "13 14 * * 1"
   workflow_dispatch: {}
 
