@@ -153,6 +153,30 @@ def normalize_zip(zip_code: str | None) -> str | None:
         return f"{digits[:5]}-{digits[5:]}"
     return z
 
+
+def safe_text(value: Any, default: str = "") -> str:
+    """Return a Streamlit-safe string from Supabase/Pandas values."""
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def safe_bool(value: Any, default: bool = True) -> bool:
+    """Return a reliable bool from Supabase/Pandas values."""
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        pass
+    return bool(value)
+
 # ==========================================
 # LOAD ALL MUSICIANS
 # ==========================================
@@ -279,10 +303,10 @@ if action == "Edit Existing" and musician_id:
 # ==========================================
 st.markdown("### Musician Details")
 with st.form("musician_form"):
-    first = st.text_input("First Name", row.get("first_name", ""))
-    middle = st.text_input("Middle Name", row.get("middle_name", ""))
-    last = st.text_input("Last Name", row.get("last_name", ""))
-    stage = st.text_input("Stage Name", row.get("stage_name", ""))
+    first = st.text_input("First Name", safe_text(row.get("first_name")))
+    middle = st.text_input("Middle Name", safe_text(row.get("middle_name")))
+    last = st.text_input("Last Name", safe_text(row.get("last_name")))
+    stage = st.text_input("Stage Name", safe_text(row.get("stage_name")))
     current_instrument = row.get("instrument")
     instrument = st.selectbox(
         "Instrument",
@@ -291,15 +315,15 @@ with st.form("musician_form"):
         if current_instrument in instruments
         else 0,
     )
-    phone = st.text_input("Phone", row.get("phone", ""))
-    email = st.text_input("Email", row.get("email", ""))
+    phone = st.text_input("Phone", safe_text(row.get("phone")))
+    email = st.text_input("Email", safe_text(row.get("email")))
 
-    address1 = st.text_input("Address Line 1", row.get("address", ""))
-    address2 = st.text_input("Address Line 2", row.get("address2", ""))
+    address1 = st.text_input("Address Line 1", safe_text(row.get("address")))
+    address2 = st.text_input("Address Line 2", safe_text(row.get("address2")))
 
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
-        city = st.text_input("City", row.get("city", ""))
+        city = st.text_input("City", safe_text(row.get("city")))
     
     US_STATES = [
         "", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
@@ -309,7 +333,7 @@ with st.form("musician_form"):
         "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"
     ]
 
-    state_val = (row.get("state") or "").strip().upper()
+    state_val = safe_text(row.get("state")).strip().upper()
     state_index = US_STATES.index(state_val) if state_val in US_STATES else 0
 
     with c2:
@@ -320,11 +344,11 @@ with st.form("musician_form"):
 
         zip_code = st.text_input(
             "ZIP",
-            "" if zip_val is None else str(zip_val).split(".")[0],
+            safe_text(zip_val).split(".")[0],
             max_chars=10
         )
 
-    active = st.checkbox("Active", value=row.get("active", True))
+    active = st.checkbox("Active", value=safe_bool(row.get("active"), True))
 
     submitted = st.form_submit_button("Save Musician")
 
@@ -336,6 +360,7 @@ if submitted:
         "stage_name": stage or None,
         "instrument": instrument or None,
         "phone": normalize_phone(phone),
+        "email": email or None,
         "address": address1 or None,
         "address2": address2 or None,
         "city": city or None,
