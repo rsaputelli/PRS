@@ -73,7 +73,7 @@ def _sb_admin() -> Client:
 def _fetch_gig(gig_id: str) -> Dict[str, Any]:
     res = (
         _sb().table("gigs")
-        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id, notes, sound_by_venue_name, closeout_notes")
+        .select("id, title, event_date, start_time, end_time, venue_id, sound_tech_id, notes, sound_by_venue_name, closeout_notes, setlist_url")
         .eq("id", gig_id).limit(1).execute()
     )
     rows = res.data or []
@@ -531,12 +531,25 @@ def send_player_confirms(
             notes_html = "<!-- notes_present:false -->"
 
         stage_name = str(mrow.get("stage_name") or "").strip()
+        
+        # --- Setlist block (if available) ---
+        setlist_url = gig.get("setlist_url")
+        setlist_html = ""
+        if setlist_url and str(setlist_url).strip():
+            setlist_html = f"""
+            <h4>Set List</h4>
+            <p><a href="{_html_escape(setlist_url)}">📄 Download Set List</a></p>
+            """
+        else:
+            setlist_html = "<!-- setlist_not_available -->"
+        
         html = f"""
         <p>Hello {stage_name or greet},</p>
-        <p>You’re confirmed for <b>{title}</b>{f" ({role_me})" if role_me else ""}.</p>
+        <p>You're confirmed for <b>{title}</b>{f" ({role_me})" if role_me else ""}.</p>
         {lineup_html}
         {details_html}
         {notes_html}
+        {setlist_html}
         <p>Please reply if anything needs attention.</p>
         """
 

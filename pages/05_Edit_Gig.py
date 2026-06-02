@@ -13,6 +13,7 @@ from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
+from lib.setlist_utils import upload_setlist_to_storage, delete_setlist_from_storage
 from auth_helper import require_admin
 from tools.send_venue_confirm import (
     send_venue_confirm,
@@ -1480,6 +1481,42 @@ notes = st.text_area(
     key=f"notes_{gid}",
 )
 
+# ========================================
+# Set List Upload
+# ========================================
+st.markdown("---")
+st.subheader("Set List")
+
+setlist_col1, setlist_col2 = st.columns([3, 1])
+
+with setlist_col1:
+    setlist_file = st.file_uploader(
+        "Upload Set List (PDF, XLSX, or XLS)",
+        type=["pdf", "xlsx", "xls"],
+        key=f"setlist_upload_{gid}",
+        accept_multiple_files=False
+    )
+
+with setlist_col2:
+    # Clear button for existing set list
+    if row.get("setlist_url"):
+        if st.button("Clear", key=f"clear_setlist_{gid}", use_container_width=True):
+            st.session_state[f"setlist_to_clear_{gid}"] = True
+
+# Display current set list if one exists
+if row.get("setlist_url"):
+    setlist_ts = row.get("setlist_uploaded_at")
+    ts_str = ""
+    if setlist_ts:
+        try:
+            ts_obj = pd.to_datetime(setlist_ts)
+            ts_str = f" (uploaded {ts_obj.strftime('%b %d, %Y at %I:%M %p')})"
+        except Exception:
+            ts_str = ""
+    st.markdown(f"[📄 Download Set List]({row.get('setlist_url')}){ts_str}")
+else:
+    st.caption("No set list uploaded yet")
+
 # Ensure overtime_rate is always defined (public + private)
 overtime_rate = row.get("overtime_rate")
 
@@ -1909,6 +1946,53 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         k: (None if pd.isna(v) else v)
         for k, v in payload.items()
     }
+
+    # -------------------------------------------------
+    # Process setlist upload/clear
+    # -------------------------------------------------
+    try:
+        setlist_file = st.session_state.get(f"setlist_upload_{gid}")
+        should_clear_setlist = st.session_state.get(f"setlist_to_clear_{gid}", False)
+
+        # Use service role client for storage if available, otherwise use regular client
+        storage_client = sb
+        try:
+            sr_key = os.environ.get("SUPABASE_SERVICE_ROLE") or os.environ.get("SUPABASE_SERVICE_KEY")
+            if sr_key and sr_key != SUPABASE_ANON_KEY:
+                storage_client = create_client(SUPABASE_URL, sr_key)
+        except Exception:
+            # Fall back to regular client
+            pass
+
+        if should_clear_setlist:
+            # Clear setlist
+            try:
+                delete_setlist_from_storage(gid_str, storage_client)
+                payload["setlist_url"] = None
+                payload["setlist_uploaded_at"] = None
+                st.session_state.pop(f"setlist_to_clear_{gid}", None)
+                st.toast("Set list cleared.", icon="🗑️")
+            except Exception as e:
+                st.warning(f"Could not clear set list: {e}")
+
+        elif setlist_file:
+            # Upload new setlist (replaces existing)
+            try:
+                file_ext = setlist_file.name.split(".")[-1].lower()
+                file_bytes = setlist_file.getvalue()
+                
+                public_url = upload_setlist_to_storage(gid_str, file_bytes, file_ext, storage_client)
+                if public_url:
+                    payload["setlist_url"] = public_url
+                    payload["setlist_uploaded_at"] = datetime.utcnow().isoformat()
+                    st.toast("Set list uploaded successfully.", icon="📄")
+                else:
+                    st.warning("Set list upload returned empty URL.")
+            except Exception as e:
+                st.error(f"Set list upload failed: {e}")
+
+    except Exception as e:
+        st.warning(f"Set list processing error: {e}")
 
     # Update gig
     ok = _robust_update("gigs", {"id": row.get("id")}, payload)

@@ -103,7 +103,7 @@ def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
     # Join venues through the foreign key venue_id -> venues.id
     sel = (
         "id,event_date,start_time,end_time,is_private,"
-        "title,notes,venue_id,sound_tech_id,"
+        "title,notes,venue_id,sound_tech_id,setlist_url,"
         "venues:venue_id(name,address_line1,city,state)"
     )
 
@@ -131,6 +131,7 @@ def _fetch_gig_for_calendar(sb: "Client", gig_id: str) -> dict:
         "notes": g.get("notes"),
         "venue_id": g.get("venue_id"),
         "sound_tech_id": g.get("sound_tech_id"),
+        "setlist_url": g.get("setlist_url"),
         "venue_name": v.get("name"),
         "venue_address": v.get("address_line1"),
         "venue_city": v.get("city"),
@@ -220,6 +221,12 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
         parts.append(str(gig["notes_html"]))    # use as-is
     elif gig.get("notes"):
         parts.append(f"<h4>Notes</h4><div style='white-space:pre-wrap'>{_html_escape(gig['notes'])}</div>")
+
+    setlist_url = str(gig.get("setlist_url") or "").strip()
+    if setlist_url:
+        parts.append(
+            f"<h4>Set List</h4><div><a href=\"{_html_escape(setlist_url)}\">{_html_escape(setlist_url)}</a></div>"
+        )
 
     if gig.get("details_html"):
         parts.append(str(gig["details_html"]))  # use as-is
