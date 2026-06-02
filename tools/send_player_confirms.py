@@ -9,6 +9,8 @@ from typing import Dict, Any, Iterable, Optional, List
 from supabase import create_client, Client
 from lib.email_utils import gmail_send
 from lib.calendar_utils import make_ics_bytes  # keep import; we will try it first
+from email.utils import getaddresses
+import re
 
 # -----------------------------
 # Secrets / config
@@ -196,6 +198,33 @@ def _html_escape(s: str) -> str:
     return (s.replace("&", "&amp;")
              .replace("<", "&lt;")
              .replace(">", "&gt;"))
+
+
+def _normalize_and_validate_email(raw: Optional[str]) -> Optional[str]:
+    """Normalize an address string and return a single valid email or None.
+
+    Accepts formats like 'Name <email@domain>' or 'email@domain' or
+    comma/semicolon-separated lists; returns the first valid address.
+    """
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, (list, tuple)):
+            cand = ",".join(raw)
+        else:
+            cand = str(raw)
+        # Replace semicolons with commas for parsing
+        cand = cand.replace(";", ",")
+        addrs = [a for _n, a in getaddresses([cand]) if a]
+        if not addrs:
+            return None
+        addr = addrs[0].strip()
+        # Basic validation: something@something.tld
+        if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", addr):
+            return addr
+        return None
+    except Exception:
+        return None
 
 # -----------------------------
 # Audit helper
@@ -468,12 +497,13 @@ def send_player_confirms(
     for mid in target_ids:
         token = uuid.uuid4().hex
         mrow = mus_map.get(mid) or {}
-        to_email = _nz(mrow.get("email"))
+        raw_email = mrow.get("email")
+        to_email = _normalize_and_validate_email(raw_email)
         if not to_email:
             _insert_email_audit(
                 token=token, gig_id=gig_id, recipient_email="",
                 kind="player_confirm", status="skipped-no-email",
-                detail={"musician_id": mid, "errors": "musician-has-no-email"},
+                detail={"musician_id": mid, "errors": "musician-has-no-email", "raw_email": _nz(raw_email)},
             )
             continue
 
@@ -703,6 +733,7 @@ def send_player_confirms(
                 recipient_email=to_email,
                 kind="player_confirm",
                 status=f"error: {e}",
+                detail={"error": str(e)},
             )
             print(f"[player_confirm] ERROR {e}")
             raise
