@@ -15,10 +15,12 @@ from lib.ui_format import format_currency
 from lib.calendar_utils import upsert_band_calendar_event
 from lib.setlist_utils import upload_setlist_to_storage, delete_setlist_from_storage
 from auth_helper import require_admin
+from tools.send_setlist_notifications import send_setlist_notifications
 from tools.send_venue_confirm import (
     send_venue_confirm,
     build_venue_confirmation_email,
 )
+import hashlib
 
 # -----------------------------
 # Debug toggles (set True when needed)
@@ -1490,11 +1492,17 @@ st.subheader("Set List")
 setlist_col1, setlist_col2 = st.columns([3, 1])
 
 with setlist_col1:
+    # Use a per-gig nonce to ensure the uploader widget is reset after processing
+    nonce_key = f"setlist_upload_nonce_{gid}"
+    if nonce_key not in st.session_state:
+        st.session_state[nonce_key] = 0
+    upload_key = f"setlist_upload_{gid}_{st.session_state[nonce_key]}"
+
     setlist_file = st.file_uploader(
         "Upload Set List (PDF, XLSX, or XLS)",
         type=["pdf", "xlsx", "xls"],
-        key=f"setlist_upload_{gid}",
-        accept_multiple_files=False
+        key=upload_key,
+        accept_multiple_files=False,
     )
 
 with setlist_col2:
@@ -1947,11 +1955,15 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         for k, v in payload.items()
     }
 
+    setlist_upload_succeeded = False
+
     # -------------------------------------------------
     # Process setlist upload/clear
     # -------------------------------------------------
     try:
-        setlist_file = st.session_state.get(f"setlist_upload_{gid}")
+        # Read from the uploader key that includes the current nonce
+        upload_key = f"setlist_upload_{gid}_{st.session_state.get(f'setlist_upload_nonce_{gid}', 0)}"
+        setlist_file = st.session_state.get(upload_key)
         should_clear_setlist = st.session_state.get(f"setlist_to_clear_{gid}", False)
 
         # Use service role client for storage if available, otherwise use regular client
@@ -1976,18 +1988,28 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 st.warning(f"Could not clear set list: {e}")
 
         elif setlist_file:
-            # Upload new setlist (replaces existing)
+            # Compute a lightweight fingerprint to avoid reprocessing the same retained file
             try:
-                file_ext = setlist_file.name.split(".")[-1].lower()
                 file_bytes = setlist_file.getvalue()
-                
-                public_url = upload_setlist_to_storage(gid_str, file_bytes, file_ext, storage_client)
-                if public_url:
-                    payload["setlist_url"] = public_url
-                    payload["setlist_uploaded_at"] = datetime.utcnow().isoformat()
-                    st.toast("Set list uploaded successfully.", icon="📄")
+                file_ext = setlist_file.name.split(".")[-1].lower()
+                fp_hash = hashlib.sha256(file_bytes).hexdigest()
+                fingerprint = f"{setlist_file.name}:{len(file_bytes)}:{fp_hash}"
+
+                last_fp_key = f"setlist_processed_fp_{gid}"
+                if st.session_state.get(last_fp_key) == fingerprint:
+                    # This exact file was already processed in this session — skip
+                    st.info("Set list already uploaded in this session; no notifications sent.")
                 else:
-                    st.warning("Set list upload returned empty URL.")
+                    public_url = upload_setlist_to_storage(gid_str, file_bytes, file_ext, storage_client)
+                    if public_url:
+                        payload["setlist_url"] = public_url
+                        payload["setlist_uploaded_at"] = datetime.utcnow().isoformat()
+                        setlist_upload_succeeded = True
+                        st.toast("Set list uploaded successfully.", icon="📄")
+                        # remember fingerprint to prevent duplicate processing
+                        st.session_state[last_fp_key] = fingerprint
+                    else:
+                        st.warning("Set list upload returned empty URL.")
             except Exception as e:
                 st.error(f"Set list upload failed: {e}")
 
@@ -1996,6 +2018,39 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 
     # Update gig
     ok = _robust_update("gigs", {"id": row.get("id")}, payload)
+    if ok and setlist_upload_succeeded:
+        # Note: do not rely solely on session_state for dedup; sending is
+        # already gated by successful upload + DB commit. (No pop performed.)
+        try:
+            summary = send_setlist_notifications(gig_id=gid_str)
+            if summary.get("sent", 0) > 0:
+                st.success(
+                    f"Set list notification emails sent to {summary['sent']} player(s)."
+                )
+            if summary.get("skipped_no_email", 0) > 0:
+                st.warning(
+                    f"Skipped {summary['skipped_no_email']} player(s) because of missing or invalid email addresses."
+                )
+            if summary.get("errors"):
+                st.warning(
+                    f"Set list notification errors occurred for {len(summary['errors'])} recipient(s)."
+                )
+            if summary.get("no_players"):
+                st.info("No players are assigned to this gig; no set list notification emails were sent.")
+        except Exception as e:
+            st.warning(f"Set list notification emails failed: {e}")
+        # Advance the uploader nonce to reset the file_uploader widget so the
+        # previously-selected file is not retained across reruns. This prevents
+        # duplicate processing when the same file object is still present in
+        # Streamlit's widget state. We do this after a successful upload + DB
+        # save + notification attempt (regardless of notification outcome).
+        try:
+            nonce_key = f"setlist_upload_nonce_{gid}"
+            st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1
+            _safe_rerun("reset uploader after setlist upload")
+        except Exception:
+            # If nonce increment/rerun fails, do not break save flow.
+            pass
     if not ok:
         st.stop()
 
