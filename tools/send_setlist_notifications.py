@@ -14,6 +14,7 @@ from tools.send_player_confirms import (
     _normalize_and_validate_email,
     _nz,
     _stage_pref,
+    _fmt_time12,
     _html_escape,
     _is_dry_run,
 )
@@ -31,6 +32,8 @@ def send_setlist_notifications(gig_id: str) -> Dict[str, Any]:
     event_dt = _nz(gig.get("event_date"))
     start_time = _nz(gig.get("start_time"))
     end_time = _nz(gig.get("end_time"))
+    formatted_start_time = _fmt_time12(start_time)
+    formatted_end_time = _fmt_time12(end_time)
     venue = _fetch_venue(gig.get("venue_id"))
     venue_name = _nz(venue.get("name"))
 
@@ -80,7 +83,7 @@ def send_setlist_notifications(gig_id: str) -> Dict[str, Any]:
         <h4>Event Details</h4>
         <table border="0" cellpadding="4" cellspacing="0">
           <tr><td><b>Date</b></td><td>{_html_escape(event_dt)}</td></tr>
-          <tr><td><b>Time</b></td><td>{_html_escape(start_time)} - {_html_escape(end_time)}</td></tr>
+          <tr><td><b>Time</b></td><td>{_html_escape(formatted_start_time)} - {_html_escape(formatted_end_time)}</td></tr>
           <tr><td><b>Venue</b></td><td>{_html_escape(venue_name) or 'TBD'}</td></tr>
           <tr><td><b>Role</b></td><td>{_html_escape(role) or 'Player'}</td></tr>
         </table>
