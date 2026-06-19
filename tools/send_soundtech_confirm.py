@@ -43,6 +43,7 @@ SUPABASE_KEY = (
 CC_RAY = _get_secret("CC_RAY", "ray@lutinemanagement.com")
 FROM_NAME = _get_secret("BAND_FROM_NAME", "PRS Scheduling")
 FROM_EMAIL = _get_secret("BAND_FROM_EMAIL", "no-reply@prs.local")
+REPLY_TO_EMAIL = _get_secret("BAND_REPLY_TO_EMAIL", "prsbandinfo@gmail.com")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError(
@@ -246,7 +247,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
 
     # Send confirmation back to our band inbox (not to the tech)
     mailto = (
-        f"mailto:{FROM_EMAIL}?subject="
+        f"mailto:{REPLY_TO_EMAIL}?subject="
         f"Confirm%20received%20-%20{title}%20({ev['event_date']})%20[{token}]&body=Reply%20to%20confirm.%20Token%3A%20{token}"
     )
 
@@ -601,6 +602,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
                 html,
                 cc=[CC_RAY],
                 attachments=atts,
+                reply_to=REPLY_TO_EMAIL,
             )
 
         if not result:

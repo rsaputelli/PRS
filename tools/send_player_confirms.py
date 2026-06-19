@@ -28,6 +28,15 @@ def _is_dry_run() -> bool:
     val = _get_secret("PLAYER_EMAIL_DRY_RUN", "0")
     return str(val).lower() in {"1", "true", "yes", "on"}
 
+
+def _normalize_url(val):
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return None
+    return s
+
 SUPABASE_URL = _get_secret("SUPABASE_URL")
 SUPABASE_KEY = (
     _get_secret("SUPABASE_SERVICE_ROLE")
@@ -563,9 +572,9 @@ def send_player_confirms(
         stage_name = str(mrow.get("stage_name") or "").strip()
         
         # --- Setlist block (if available) ---
-        setlist_url = gig.get("setlist_url")
+        setlist_url = _normalize_url(gig.get("setlist_url"))
         setlist_html = ""
-        if setlist_url and str(setlist_url).strip():
+        if setlist_url:
             setlist_html = f"""
             <h4>Set List</h4>
             <p><a href="{_html_escape(setlist_url)}">📄 Download Set List</a></p>

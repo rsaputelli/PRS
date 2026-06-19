@@ -181,7 +181,8 @@ def gmail_send(
     to_email: str,
     html_body: str,
     cc: Optional[List[str]] = None,
-    attachments: Optional[List[Dict[str, Any]]] = None
+    attachments: Optional[List[Dict[str, Any]]] = None,
+    reply_to: Optional[str] = None,
 ):
     """
     Send an HTML email via Gmail API.
@@ -196,6 +197,8 @@ def gmail_send(
     msg["to"] = to_email
     if cc:
         msg["cc"] = ", ".join(cc)
+    if reply_to:
+        msg["Reply-To"] = reply_to
     msg["subject"] = subject
     msg.attach(MIMEText(html_body, "html"))
 

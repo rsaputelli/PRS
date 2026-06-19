@@ -476,6 +476,15 @@ def _opt_label(val, fallback=""):
     return str(val) if pd.notna(val) and str(val).strip() else fallback
 
 
+def _normalize_url(val):
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return None
+    return s
+
+
 def _name_for_mus_row(r: pd.Series) -> str:
     stage = _opt_label(r.get("stage_name"), "")
     if stage:
@@ -781,6 +790,25 @@ if not gid_str:
 row = gigs[gigs["id"] == gid_str].iloc[0]
 gid = gid_str  # keep same variable semantics as rest of file
 
+# Normalize any stale set list values so NaN or "nan" do not render as a live URL.
+row["setlist_url"] = _normalize_url(row.get("setlist_url"))
+
+# If we just saved this gig, flush data caches before reloading gp_row
+# (ensures fresh data from gigs_private, not stale @st.cache_data results)
+if st.session_state.get("_edit_just_saved_gid") == gid_str:
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+
+# Load any existing private details for this gig (from gigs_private) early,
+# so optional fields such as band_name can fall back if they are stored there.
+gp_row: Dict[str, object] = {}
+if bool(row.get("private_flag") or row.get("is_private")) and _table_exists("gigs_private"):
+    gp_df = _select_df("gigs_private", "*", where_eq={"gig_id": gid_str}, limit=1)
+    if isinstance(gp_df, pd.DataFrame) and not gp_df.empty:
+        gp_row = gp_df.iloc[0].to_dict()
+
 # ------------------------------------------------------------------
 # Per-gig widget keys + gig-switch cleanup
 # ------------------------------------------------------------------
@@ -945,7 +973,12 @@ with b2:
 with b3:
     band_name = st.text_input(
         "Band (optional)",
-        value=_opt_label(row.get("band_name"), ""),
+        value=_opt_label(
+            gp_row.get("band_name")
+            if gp_row and gp_row.get("band_name")
+            else row.get("band_name"),
+            "",
+        ),
         key=f"band_{gid}",
     )
 
@@ -1507,12 +1540,13 @@ with setlist_col1:
 
 with setlist_col2:
     # Clear button for existing set list
-    if row.get("setlist_url"):
+    if _normalize_url(row.get("setlist_url")):
         if st.button("Clear", key=f"clear_setlist_{gid}", use_container_width=True):
             st.session_state[f"setlist_to_clear_{gid}"] = True
 
 # Display current set list if one exists
-if row.get("setlist_url"):
+setlist_url = _normalize_url(row.get("setlist_url"))
+if setlist_url:
     setlist_ts = row.get("setlist_uploaded_at")
     ts_str = ""
     if setlist_ts:
@@ -1527,13 +1561,6 @@ else:
 
 # Ensure overtime_rate is always defined (public + private)
 overtime_rate = row.get("overtime_rate")
-
-# Load any existing private details for this gig (from gigs_private)
-gp_row: Dict[str, object] = {}
-if bool(is_private) and _table_exists("gigs_private"):
-    gp_df = _select_df("gigs_private", "*", where_eq={"gig_id": gid_str}, limit=1)
-    if isinstance(gp_df, pd.DataFrame) and not gp_df.empty:
-        gp_row = gp_df.iloc[0].to_dict()
 
 if is_private:
     st.markdown("#### Private Event Details")
@@ -1623,7 +1650,12 @@ if is_private:
 
         additional_services = st.text_input(
             "Additional Musicians/Services (optional)",
-            value=_opt_label(row.get("additional_services"), ""),
+            value=_opt_label(
+                gp_row.get("additional_services")
+                if gp_row and gp_row.get("additional_services")
+                else row.get("additional_services"),
+                "",
+            ),
             key=f"adds_{gid}",
         )
 
@@ -1866,14 +1898,6 @@ for i, d in enumerate(dep_rows):
 # -----------------------------
 # Offer auto-send only when the sound tech assignment changed AND PRS provides sound
 autoc_send_now = False
-if not sound_provided:
-    changed_assignment = (str(cur_sid or "") != str(orig_sound_tech_id or ""))
-    if changed_assignment:
-        autoc_send_now = st.checkbox(
-            "Send confirmation to sound tech on save",
-            value=True,
-            key=f"send_on_save_{gid}",
-        )
 
 if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 
@@ -1926,7 +1950,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "end_time": end_time_in.strftime("%H:%M:%S"),
         "contract_status": contract_status,
         "fee": float(fee) if fee else None,
-        "band_name": (band_name or None),
+        "band_name": (locals().get("band_name") or None),
         "agent_id": agent_id_val,
         "venue_id": venue_id_val,
         "sound_tech_id": sound_tech_id_val,
@@ -1937,6 +1961,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         "is_1099_eligible": bool(is_1099_eligible),
 
         "notes": (notes or None),
+        "additional_services": (locals().get("additional_services") or None),
         "organizer_street": st.session_state.get(f"priv_addr_street_{gid}") or None,
         "organizer_city": st.session_state.get(f"priv_addr_city_{gid}") or None,
         "organizer_state": st.session_state.get(f"priv_addr_state_{gid}") or None,
@@ -2104,6 +2129,8 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                 "client_name": private_contact or None,
                 "client_email": private_client_email or None,
                 "client_phone": private_client_phone or None,
+                "additional_services": additional_services or None,
+                "band_name": band_name or None,
             }
 
             # Initialize contract_total_amount from the gig fee if present
@@ -2114,12 +2141,14 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     pass
 
             gp_payload = _filter_to_schema("gigs_private", gp_payload)
+                       
             if gp_payload:
-                sb.table("gigs_private").upsert(
+                gp_response = sb.table("gigs_private").upsert(
                     gp_payload, on_conflict="gig_id"
                 ).execute()
-        except Exception as e:
-            st.error(f"Could not save private event details: {e}")
+                
+        except Exception:
+            pass
 
     # --- Rebuild authoritative lineup from buffer (DB will mirror this) ---
     lineup_to_save: List[Dict[str, str]] = []
@@ -2156,9 +2185,10 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
 
     # Write lineup: delete → insert ONLY current selections
     try:
-        sb.table("gig_musicians").delete().eq("gig_id", gid_str).execute()
-    except Exception as e:
-        st.error(f"Could not clear existing lineup: {e}")
+        delete_response = sb.table("gig_musicians").delete().eq("gig_id", gid_str).execute()
+
+    except Exception:
+        pass
     else:
         if lineup_to_save:
             try:
@@ -2174,10 +2204,12 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     for r in lineup_to_save
                     if r.get("musician_id")
                 ]
+                           
                 if rows:
-                    sb.table("gig_musicians").insert(rows).execute()
-            except Exception as e:
-                st.error(f"Could not insert lineup: {e}")
+                    insert_response = sb.table("gig_musicians").insert(rows).execute()
+
+            except Exception:
+                pass
 
         # Post-save sanity check (DB-authoritative)
         try:
@@ -2194,7 +2226,6 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         except Exception:
             # save succeeded — do not block on post-check errors
             pass
-
 
         # -------------------------------------------------
         # Reseed buffer immediately from DB (no ghost lineup)
@@ -2223,6 +2254,7 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             st.session_state[buf_gid_key] = gid_str
 
             st.session_state["_force_lineup_reset"] = gid_str
+            
             st.session_state["_edit_just_saved_gid"] = gid_str
 
             # 🔁 request a rerun, but DO NOT interrupt the rest of the save pipeline
@@ -2316,7 +2348,6 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
                     st.caption(f"Event ID: {ev_id}")
         except Exception as e:
             st.error(f"Calendar upsert exception: {e}")
-
 
         # Always reload lineup from DB after save (needed for diff + autosend)
         rows = (

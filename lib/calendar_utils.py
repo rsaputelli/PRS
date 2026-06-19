@@ -4,6 +4,17 @@ import datetime as dt
 from zoneinfo import ZoneInfo
 from typing import Dict, Any
 
+# Helper: normalize URL values (convert NaN/empty to None)
+def _normalize_url(val):
+    """Convert NaN, 'nan', empty string, or None to None; otherwise return as string."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return None
+    return s
+
+
 # Keep existing ICS helper unchanged
 def make_ics_bytes(
     *, uid: str, title: str, starts_at: dt.datetime, ends_at: dt.datetime,
@@ -222,7 +233,7 @@ def _compose_event_body(gig: Dict[str, Any], calendar_name: str, gig_id: str) ->
     elif gig.get("notes"):
         parts.append(f"<h4>Notes</h4><div style='white-space:pre-wrap'>{_html_escape(gig['notes'])}</div>")
 
-    setlist_url = str(gig.get("setlist_url") or "").strip()
+    setlist_url = _normalize_url(gig.get("setlist_url"))
     if setlist_url:
         parts.append(
             f"<h4>Set List</h4><div><a href=\"{_html_escape(setlist_url)}\">{_html_escape(setlist_url)}</a></div>"

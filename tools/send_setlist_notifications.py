@@ -20,11 +20,20 @@ from tools.send_player_confirms import (
 )
 
 
+def _normalize_url(val):
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return None
+    return s
+
+
 def send_setlist_notifications(gig_id: str) -> Dict[str, Any]:
     """Send a set list uploaded notification to all assigned players."""
     gig_id = str(gig_id)
     gig = _fetch_gig(gig_id)
-    setlist_url = str(gig.get("setlist_url") or "").strip()
+    setlist_url = _normalize_url(gig.get("setlist_url"))
     if not setlist_url:
         raise ValueError("No set list URL available for this gig.")
 
