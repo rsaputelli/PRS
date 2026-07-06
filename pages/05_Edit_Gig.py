@@ -1062,7 +1062,18 @@ if _pre_id:
 
 # ----- Sound tech (with Add New) + session_state override
 SOUND_ADD = "__ADD_SOUND__"
-sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]
+# Offer only active sound techs for selection, but we'll insert the original
+# assigned tech (even if inactive) so historical assignments remain visible.
+active_sound_keys: List[str] = []
+if not sound_df.empty and "id" in sound_df.columns:
+    if "active" in sound_df.columns:
+        for _, r in sound_df.iterrows():
+            if bool(r.get("active")):
+                active_sound_keys.append(str(r["id"]))
+    else:
+        active_sound_keys = [str(r["id"]) for _, r in sound_df.iterrows()]
+
+sound_options_ids = [""] + active_sound_keys + [SOUND_ADD]
 
 
 def _fmt_sound(x: str) -> str:
@@ -1086,6 +1097,11 @@ cur_sid = st.session_state.get(f"sound_sel_{gid}", cur_sid)
 
 # Remember the original sound tech selection for change detection
 orig_sound_tech_id = str(row.get("sound_tech_id") or "")
+
+# Ensure an originally-assigned (possibly inactive) tech remains selectable
+if orig_sound_tech_id and (orig_sound_tech_id not in sound_options_ids):
+    # insert before the add sentinel
+    sound_options_ids.insert(-1, orig_sound_tech_id)
 
 if not sound_provided:
     sound_id_sel = st.selectbox(
@@ -2398,16 +2414,48 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
         #         },
         #     )
 
-        for role, musician_id in new_assignments:
-            try:
-                send_lineup_email(
-                    gig_id=gid_str,
-                    musician_id=musician_id,
-                    role=role,
-                    trigger="lineup_added",
+        if new_assignments:
+            target_ids = [
+                str(musician_id)
+                for _, musician_id in new_assignments
+                if str(musician_id or "").strip()
+            ]
+            unique_target_ids = list(dict.fromkeys(target_ids))
+            if unique_target_ids:
+                # Only send immediate on-save player confirmations when the global
+                # autosend toggle is enabled OR an explicit per-edit send flag is set.
+                should_send = (
+                    bool(st.session_state.get("autoc_send_players_on_create", False))
+                    or bool(st.session_state.get(f"edit_autoc_send_now_{gid_str}", False))
                 )
-            except Exception as e:
-                st.warning(f"Email not sent for {role}: {e}")
+                if should_send:
+                    try:
+                        from tools.send_player_confirms import send_player_confirms
+
+                        send_player_confirms(
+                            gig_id=gid_str,
+                            only_players=unique_target_ids,
+                        )
+
+                        # Prevent queued autosend from re-sending the same player confirms
+                        # on the rerun by removing them from the added_players snapshot.
+                        try:
+                            key = f"added_players_{gid_str}"
+                            existing = st.session_state.get(key, set()) or set()
+                            remaining = set(existing) - set(unique_target_ids)
+                            st.session_state[key] = remaining
+                        except Exception:
+                            # Don't break the save flow for logging failures
+                            pass
+
+                        # Provide user feedback consistent with autosend queue
+                        try:
+                            st.toast("📧 Player emails sent to newly added players only.", icon="📧")
+                        except Exception:
+                            pass
+
+                    except Exception as e:
+                        st.warning(f"Player confirmation email not sent for new/changed lineup: {e}")
 
         # ============================================================
         # ---- Queue autosend (sound-tech / agent / players) IF toggled

@@ -654,7 +654,18 @@ else:
 
 with vs2:
     SOUND_ADD = "__ADD_SOUND__"
-    sound_options_ids = [""] + list(sound_labels.keys()) + [SOUND_ADD]
+    # Offer only active sound techs for new gig selection. Keep labels mapping for all.
+    active_sound_keys: List[str] = []
+    if not sound_df.empty and "id" in sound_df.columns:
+        if "active" in sound_df.columns:
+            for _, r in sound_df.iterrows():
+                if bool(r.get("active")):
+                    active_sound_keys.append(str(r["id"]))
+        else:
+            # No active flag present; fall back to all
+            active_sound_keys = [str(r["id"]) for _, r in sound_df.iterrows()]
+
+    sound_options_ids = [""] + active_sound_keys + [SOUND_ADD]
     def sound_fmt(x: str) -> str:
         if x == "": return "(none)"
         if x == SOUND_ADD: return "(+ Add New Sound Tech)"
