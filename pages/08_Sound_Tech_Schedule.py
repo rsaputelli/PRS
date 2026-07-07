@@ -24,25 +24,25 @@ auth_email = (user.email or "").lower().strip()
 # (one-time, email-based)
 # ===============================
 
-sound_tech = (
+res_user_id = (
     sb.table("sound_techs")
     .select("*")
     .eq("user_id", user_id)
-    .maybe_single()
+    .limit(1)
     .execute()
-    .data
 )
+sound_tech = res_user_id.data[0] if res_user_id.data else None
 
 # If not yet linked, try email-based match
 if not sound_tech and auth_email:
-    sound_tech = (
+    res_email = (
         sb.table("sound_techs")
         .select("*")
         .eq("email", auth_email)
-        .maybe_single()
+        .limit(1)
         .execute()
-        .data
     )
+    sound_tech = res_email.data[0] if res_email.data else None
 
     if sound_tech:
         sb.table("sound_techs").update(
@@ -145,6 +145,23 @@ st.markdown("---")
 
 
 # ===============================
+# Venue lookup
+# ===============================
+def load_venue_lookup() -> dict[str, str]:
+    """Load all venues and return id->name mapping."""
+    try:
+        res = sb.table("venues").select("id,name").execute()
+        venues_df = pd.DataFrame(res.data or [])
+        if venues_df.empty:
+            return {}
+        return {str(row["id"]): row["name"] for _, row in venues_df.iterrows()}
+    except Exception:
+        return {}
+
+venue_lookup = load_venue_lookup()
+
+
+# ===============================
 # Load gigs
 # ===============================
 res = (
@@ -158,7 +175,7 @@ res = (
         end_time,
         sound_fee,
         contract_status,
-        venues(name)
+        venue_id
         """
     )
     .eq("sound_tech_id", sound_tech["id"])
@@ -171,10 +188,11 @@ if gigs.empty:
     st.info("No gigs assigned.")
     st.stop()
 
-# Extract venue name from join
-gigs["venue"] = gigs["venues"].apply(
-    lambda v: v.get("name") if isinstance(v, dict) else ""
-)
+# Map venue_id to venue name
+if "venue_id" in gigs.columns:
+    gigs["venue"] = gigs["venue_id"].astype(str).map(venue_lookup).fillna("")
+else:
+    gigs["venue"] = ""
 
 
 # ===============================
