@@ -102,7 +102,7 @@ def _fetch_gig_and_venue(sb: Client, gig_id: str) -> Dict[str, Any]:
 
     v_res = (
         sb.table("venues")
-        .select("id, name, contact_email, address_line1, city, state")
+        .select("id, name, contact_name, contact_email, address_line1, city, state")
         .eq("id", g["venue_id"])
         .limit(1)
         .execute()
@@ -178,11 +178,14 @@ def _build_venue_confirmation_content(
         f"Venue_Confirm?token={token}"
     )
 
+    contact_name = venue.get("contact_name") or venue.get("name")
+    venue_name = venue.get("name")
+
     html = f"""
-    <p>Hello {venue.get("name")},</p>
-    <p>Thank you for the recent booking for Philly Rock and Soul. We're excited to play for you.</p>
+    <p>Hello {contact_name},</p>
+    <p>Thank you for booking <strong>Philly Rock and Soul</strong> at <strong>{venue_name}</strong>. We're looking forward to performing for you.</p>
     <p>Please confirm the details of our performance as listed below.</p>
-    <p>If anything needs correction, please contact us ASAP by responding to this email or calling us at 484-639-9511.</p>
+    <p>If anything needs correction, please contact us as soon as possible by responding to this email or calling us at 484-639-9511.</p>
     {html_table}
     <p>
       <a href="{confirm_url}"
