@@ -42,7 +42,7 @@ SUPABASE_KEY = (
 )
 CC_RAY = _get_secret("CC_RAY", "ray@lutinemanagement.com")
 FROM_NAME = _get_secret("BAND_FROM_NAME", "PRS Scheduling")
-FROM_EMAIL = _get_secret("BAND_FROM_EMAIL", "no-reply@prs.local")
+FROM_EMAIL = _get_secret("BAND_FROM_EMAIL", "prsbandinfo@gmail.com")
 REPLY_TO_EMAIL = _get_secret("BAND_REPLY_TO_EMAIL", "prsbandinfo@gmail.com")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
@@ -234,7 +234,7 @@ def send_soundtech_confirm(gig_id: str) -> None:
         {
             "Gig": title,
             "Date": ev["event_date"],
-            "Call Time": _fmt_time12(ev.get("start_time")),
+            "Start Time": _fmt_time12(ev.get("start_time")),
             "Fee (if applicable)": fee_str or "—",
         }
     ]
