@@ -45,7 +45,72 @@ if vc.get("confirmed_at"):
     st.write("Thank you — no further action is needed.")
     st.stop()
 
+try:
+    gig = (
+        sb.table("gigs")
+        .select("title, event_date, start_time, end_time, fee, venue_id, sound_provided")
+        .eq("id", vc["gig_id"])
+        .maybe_single()
+        .execute()
+        .data
+    )
+except Exception as e:
+    st.error(f"Unable to retrieve booking details: {e}")
+    st.stop()
+
+if not gig:
+    st.error("Unable to retrieve the booking associated with this confirmation link.")
+    st.stop()
+
+venue_name = "Not assigned"
+if gig.get("venue_id"):
+    try:
+        venue = (
+            sb.table("venues")
+            .select("name")
+            .eq("id", gig["venue_id"])
+            .maybe_single()
+            .execute()
+            .data
+        )
+        if venue:
+            venue_name = venue.get("name") or "Unnamed venue"
+        else:
+            venue_name = "Unavailable"
+            st.warning("Venue details are no longer available for this booking.")
+    except Exception:
+        venue_name = "Unavailable"
+        st.warning("Venue details could not be retrieved for this booking.")
+
+def _format_time(value):
+    if not value:
+        return "—"
+    for time_format in ("%H:%M:%S", "%H:%M"):
+        try:
+            return dt.datetime.strptime(str(value), time_format).strftime("%I:%M %p").lstrip("0")
+        except ValueError:
+            continue
+    return str(value)
+
+fee = gig.get("fee")
+try:
+    fee_display = f"${float(fee):,.2f}" if fee is not None else "—"
+except (TypeError, ValueError):
+    fee_display = str(fee) if fee else "—"
+
+booking_summary = {
+    "Event": gig.get("title") or "Live Performance",
+    "Date": gig.get("event_date") or "—",
+    "Start time": _format_time(gig.get("start_time")),
+    "End time": _format_time(gig.get("end_time")),
+    "Fee": fee_display,
+    "Venue": venue_name,
+}
+if gig.get("sound_provided"):
+    booking_summary["Sound"] = "Provided by venue"
+
 st.info("Please confirm the booking details below.")
+st.table([booking_summary])
 
 if st.button("✅ Confirm This Booking"):
     sb.table("gig_confirmations").update(

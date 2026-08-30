@@ -19,6 +19,8 @@ from tools.send_setlist_notifications import send_setlist_notifications
 from tools.send_venue_confirm import (
     send_venue_confirm,
     build_venue_confirmation_email,
+    establish_venue_confirmation_requirement,
+    get_venue_confirmation_eligibility,
 )
 import hashlib
 
@@ -856,7 +858,23 @@ conf = (
 with st.expander("Venue Confirmation", expanded=False):
 
     if not conf or not conf.data:
-        st.info("Venue confirmation is not required for this gig.")
+        venue_confirmation_eligibility = get_venue_confirmation_eligibility(gid)
+        setup_failure = st.session_state.get(
+            k("venue_confirmation_setup_failure")
+        )
+        if setup_failure:
+            st.error(
+                "Gig was saved, but the requested venue confirmation requirement "
+                f"could not be established: {setup_failure}"
+            )
+        if venue_confirmation_eligibility["eligible"]:
+            st.checkbox(
+                "Require venue confirmation",
+                key=k("require_venue_confirmation"),
+                help="Send venue confirmation email and require a response before marking venue confirmed.",
+            )
+        elif not setup_failure:
+            st.info("Venue confirmation is not required for this gig.")
 
     elif conf.data.get("confirmed_at"):
         st.success(
@@ -2094,6 +2112,22 @@ if st.button("💾 Save Changes", type="primary", key=f"save_{gid}"):
             pass
     if not ok:
         st.stop()
+
+    requested_venue_confirmation = bool(
+        st.session_state.get(k("require_venue_confirmation"), False)
+    )
+    if requested_venue_confirmation and (not conf or not conf.data):
+        result = establish_venue_confirmation_requirement(gid)
+        failure_key = k("venue_confirmation_setup_failure")
+        if result["success"]:
+            st.session_state.pop(failure_key, None)
+        else:
+            message = result["message"] or "Unknown error"
+            st.session_state[failure_key] = message
+            st.error(
+                "Gig saved, but the requested venue confirmation requirement "
+                f"could not be established: {message}"
+            )
 
     # -------------------------------------------------
     # Reset venue confirmation if venue changed

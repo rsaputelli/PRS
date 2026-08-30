@@ -119,6 +119,50 @@ def _fetch_gig_and_venue(sb: Client, gig_id: str) -> Dict[str, Any]:
     return {"gig": g, "venue": venue}
 
 
+def get_venue_confirmation_eligibility(gig_id: str) -> Dict[str, Any]:
+    """Return whether a gig can explicitly require venue confirmation."""
+    try:
+        payload = _fetch_gig_and_venue(_sb_admin(), gig_id)
+        return {"eligible": True, "message": "", **payload}
+    except Exception as e:
+        return {"eligible": False, "message": str(e)}
+
+
+def establish_venue_confirmation_requirement(gig_id: str) -> Dict[str, Any]:
+    """Persist an administrator's explicit venue-confirmation opt-in."""
+    eligibility = get_venue_confirmation_eligibility(gig_id)
+    if not eligibility["eligible"]:
+        return {"success": False, "message": eligibility["message"]}
+
+    try:
+        sb = _sb_admin()
+        existing = (
+            sb.table("gig_confirmations")
+            .select("id")
+            .eq("gig_id", gig_id)
+            .eq("role", "venue")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if existing:
+            return {"success": True, "created": False, "message": ""}
+
+        venue = eligibility["venue"]
+        sb.table("gig_confirmations").insert(
+            {
+                "gig_id": gig_id,
+                "role": "venue",
+                "recipient_name": venue.get("contact_name") or venue.get("name"),
+                "recipient_email": venue.get("contact_email"),
+            }
+        ).execute()
+        return {"success": True, "created": True, "message": ""}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
 # -----------------------------
 # Audit
 # -----------------------------
@@ -297,6 +341,20 @@ def _make_venue_ics_bytes(payload: Dict[str, Any]) -> bytes:
 def send_venue_confirm(gig_id: str) -> str:
     sb = _sb_admin()   # ← THIS IS THE FIX
     payload = _fetch_gig_and_venue(sb, gig_id)
+
+    res = (
+        sb.table("gig_confirmations")
+        .select("id")
+        .eq("gig_id", gig_id)
+        .eq("role", "venue")
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        raise RuntimeError("Venue confirmation row missing for this gig.")
+
+    conf_id = rows[0]["id"]
     token = uuid.uuid4().hex
     content = _build_venue_confirmation_content(payload, token=token)
 
@@ -329,22 +387,6 @@ def send_venue_confirm(gig_id: str) -> str:
             kind="venue_confirm",
             status="sent",
         )
-        # ✅ AUTHORITATIVE SEND STATE (SAME INDENT LEVEL)
-        res = (
-            sb.table("gig_confirmations")
-            .select("id")
-            .eq("gig_id", gig["id"])
-            .eq("role", "venue")
-            .limit(1)
-            .execute()
-        )
-
-        rows = res.data or []
-        if not rows:
-            raise RuntimeError("Venue confirmation row missing for this gig.")
-
-        conf_id = rows[0]["id"]
-
         sb.table("gig_confirmations").update(
             {
                 "sent_at": dt.datetime.utcnow().isoformat(),

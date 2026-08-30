@@ -13,7 +13,10 @@ from lib.calendar_utils import upsert_band_calendar_event
 from lib.ui_header import render_header
 from lib.ui_format import format_currency  # kept for parity / future use
 from auth_helper import require_admin
-from tools.send_venue_confirm import send_venue_confirm
+from tools.send_venue_confirm import (
+    establish_venue_confirmation_requirement,
+    send_venue_confirm,
+)
 import uuid
 
 # ============================
@@ -1178,40 +1181,17 @@ if st.button("💾 Save Gig", type="primary", key="enter_save_btn"):
         and not st.session_state.get("agent_sel")
         and st.session_state.get("require_venue_confirm_on_create", False)
     ):
-        try:
-            # Fetch venue contact info
-            venue = None
-            if gig_payload.get("venue_id"):
-                venue = (
-                    sb.table("venues")
-                    .select("name,contact_name,contact_email")
-                    .eq("id", gig_payload["venue_id"])
-                    .maybe_single()
-                    .execute()
-                    .data
-                )
-
-            vc_payload = {
-                "gig_id": gig_id,
-                "role": "venue",
-                "recipient_name": (
-                    venue.get("contact_name")
-                    or venue.get("name")
-                    if venue else None
-                ),
-                "recipient_email": venue.get("contact_email") if venue else None,
-            }
-
-            vc_payload = _filter_to_schema("gig_confirmations", vc_payload)
-
-            # Only insert if we actually have an email
-            if vc_payload.get("recipient_email"):
-                _robust_insert("gig_confirmations", vc_payload)
-            else:
-                st.warning("Venue has no contact email on file; confirmation not sent.")
-
-        except Exception as e:
-            st.error(f"Could not create venue confirmation record: {e}")
+        result = establish_venue_confirmation_requirement(gig_id)
+        failure_key = f"venue_confirmation_setup_failure_{gig_id}"
+        if result["success"]:
+            st.session_state.pop(failure_key, None)
+        else:
+            message = result["message"] or "Unknown error"
+            st.session_state[failure_key] = message
+            st.error(
+                "Gig saved, but the requested venue confirmation requirement "
+                f"could not be established: {message}"
+            )
 
     # ------------------------------------------------------------
     # Save private gig details into gigs_private
@@ -1393,7 +1373,15 @@ if current_gig_id:
             # 204 = no row returned → this is OK
             vc = None
 
-    if not vc:
+    setup_failure = st.session_state.get(
+        f"venue_confirmation_setup_failure_{current_gig_id}"
+    )
+    if setup_failure:
+        st.error(
+            "Gig saved, but the requested venue confirmation requirement "
+            f"could not be established: {setup_failure}"
+        )
+    elif not vc:
         st.info("Venue confirmation not required for this gig.")
 
     elif vc.get("confirmed_at"):
