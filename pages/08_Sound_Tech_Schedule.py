@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-from auth_helper import get_authenticated_client, require_login
+from auth_helper import require_login, sb
 from lib.ui_header import render_header
 from lib.calendar_utils import make_ics_bytes
 import datetime as dt
@@ -16,7 +16,6 @@ from zoneinfo import ZoneInfo
 # Auth
 # ===============================
 user, session, user_id = require_login()
-sb = get_authenticated_client()
 auth_email = (user.email or "").lower().strip()
 
 
