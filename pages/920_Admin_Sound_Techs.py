@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
 
-from auth_helper import require_admin
+from auth_helper import attach_session, require_admin
 from lib.ui_header import render_header
 
 
@@ -29,10 +29,7 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
-        sb.auth.set_session(
-            access_token=st.session_state["sb_access_token"],
-            refresh_token=st.session_state["sb_refresh_token"],
-        )
+        attach_session(sb)
     except Exception as e:
         st.warning(f"Could not attach Supabase session. ({e})")
 
