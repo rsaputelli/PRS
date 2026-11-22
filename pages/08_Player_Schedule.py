@@ -8,13 +8,14 @@ import datetime as dt
 from zoneinfo import ZoneInfo
 
 from lib.ui_header import render_header
-from auth_helper import require_login, sb
+from auth_helper import get_authenticated_client, require_login
 from lib.calendar_utils import make_ics_bytes
 
 # ------------------------------------------------------------
 # Auth
 # ------------------------------------------------------------
 user, session, user_id = require_login()
+sb = get_authenticated_client()
 auth_email = (user.email or "").strip().lower()
 
 LOCAL_TZ = ZoneInfo("America/New_York")

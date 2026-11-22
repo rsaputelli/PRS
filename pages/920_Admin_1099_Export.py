@@ -8,7 +8,7 @@ from datetime import date
 from typing import Optional, Any, Dict
 
 from supabase import create_client, Client
-from auth_helper import require_admin
+from auth_helper import attach_session, require_admin
 from lib.tax_crypto import get_fernet
 
 
@@ -36,10 +36,7 @@ sb_svc: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 # Attach session (admin gate uses this)
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
-        sb.auth.set_session(
-            access_token=st.session_state["sb_access_token"],
-            refresh_token=st.session_state["sb_refresh_token"],
-        )
+        attach_session(sb)
     except Exception as e:
         st.warning(f"Could not attach Supabase session. ({e})")
 

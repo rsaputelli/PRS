@@ -5,13 +5,14 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-from auth_helper import require_login, sb
+from auth_helper import get_authenticated_client, require_login
 from lib.ui_header import render_header
 
 # ===============================
 # Auth (any logged-in user)
 # ===============================
 user, session, user_id = require_login()
+sb = get_authenticated_client()
 
 render_header("All Gigs")
 
