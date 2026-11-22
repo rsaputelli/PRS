@@ -10,7 +10,7 @@ import streamlit as st
 from supabase import create_client, Client
 from lib.ui_header import render_header
 from lib.ui_format import format_currency
-from auth_helper import require_admin
+from auth_helper import attach_session, require_admin
 from datetime import timedelta as _td
 
 # -----------------------------
@@ -32,10 +32,7 @@ sb: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 if st.session_state.get("sb_access_token") and st.session_state.get("sb_refresh_token"):
     try:
-        sb.auth.set_session(
-            access_token=st.session_state["sb_access_token"],
-            refresh_token=st.session_state["sb_refresh_token"],
-        )
+        attach_session(sb)
     except Exception as e:
         st.warning(f"Could not attach session; showing public data only. ({e})")
 
